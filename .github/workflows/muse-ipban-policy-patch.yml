@@ -18,7 +18,7 @@ jobs:
         with:
           ref: fix/muse-test-run-remaining-staff
       - name: Add network identity ban policy
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
 
