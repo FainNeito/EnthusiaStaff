@@ -152,7 +152,9 @@ final class StaffToolSpectateFlow {
         }
         try {
             actor.setSpectatorTarget(currentTarget);
-            monitorAttachment(actor, snapshot);
+            if (!monitorAttachment(actor, snapshot)) {
+                return;
+            }
             actor.sendMessage(Component.text("Now spectating " + snapshot.name() + '.', NamedTextColor.GREEN));
         } catch (IllegalArgumentException | IllegalStateException exception) {
             actor.sendMessage(Component.text(
@@ -162,7 +164,7 @@ final class StaffToolSpectateFlow {
         }
     }
 
-    private void monitorAttachment(Player actor, TargetSnapshot snapshot) {
+    private boolean monitorAttachment(Player actor, TargetSnapshot snapshot) {
         try {
             actor.getScheduler().runAtFixedRate(
                     plugin,
@@ -172,17 +174,20 @@ final class StaffToolSpectateFlow {
                     1L,
                     1L
             );
+            return true;
         } catch (RuntimeException exception) {
             detach(actor);
             actor.sendMessage(Component.text(
                     "Direct spectating was cancelled because its safety monitor could not start.",
                     NamedTextColor.RED
             ));
+            return false;
         }
     }
 
     private void monitorAttachmentTick(Player actor, TargetSnapshot snapshot, Runnable cancelTask) {
-        if (actor.getGameMode() != GameMode.SPECTATOR || actor.getSpectatorTarget() != snapshot.connection()) {
+        if (actor.getGameMode() != GameMode.SPECTATOR
+                || !sameConnection(snapshot.connection(), actor.getSpectatorTarget())) {
             cancelTask.run();
             return;
         }
