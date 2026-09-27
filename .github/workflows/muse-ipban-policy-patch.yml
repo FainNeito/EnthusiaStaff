@@ -1,4 +1,4 @@
-name: Temporary Muse ipban policy patch
+name: Temporary Muse ipban policy finalizer
 
 on:
   push:
@@ -11,43 +11,48 @@ permissions:
   contents: write
 
 jobs:
-  patch-policy:
+  finalize-policy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: fix/muse-test-run-remaining-staff
-      - name: Add network identity ban policy
+      - name: Version policy and lock regression coverage
         run: |
           python3 <<'PY'
           from pathlib import Path
 
-          path = Path("paper/src/main/resources/reason-policies.yml")
-          text = path.read_text(encoding="utf-8")
-          if "id: evasion.network-identity-ban" in text:
-              raise SystemExit("policy already present")
+          policy_path = Path("paper/src/main/resources/reason-policies.yml")
+          policy = policy_path.read_text(encoding="utf-8")
+          if "id: evasion.network-identity-ban" not in policy:
+              raise SystemExit("network identity ban policy is missing")
+          policy = policy.replace('version: "2026-07-26.1"', 'version: "2026-09-26.1"', 1)
+          policy_path.write_text(policy, encoding="utf-8")
 
-          marker = "  - id: evasion.helping-another\n"
-          policy = """  - id: evasion.network-identity-ban
-              family: evasion
-              display-name: Ban evasion requiring a network identity ban
-              severity: 80
-              required-rank: FOUNDER
-              ladder:
-                - { label: \"30 day network identity ban\", sanctions: [{ type: NETWORK_IDENTITY_BAN, duration: 30d }] }
-                - { label: \"60 day network identity ban\", sanctions: [{ type: NETWORK_IDENTITY_BAN, duration: 60d }] }
-                - { label: \"90 day network identity ban\", sanctions: [{ type: NETWORK_IDENTITY_BAN, duration: 90d }] }
-                - { label: \"Permanent network identity ban\", sanctions: [{ type: NETWORK_IDENTITY_BAN, duration: permanent }] }
-
-          """
-          if text.count(marker) != 1:
-              raise SystemExit("evasion policy insertion marker was not unique")
-          path.write_text(text.replace(marker, policy + marker), encoding="utf-8")
+          test_path = Path("paper/src/test/java/net/enthusia/staff/paper/config/ReasonPolicyConfigurationLoaderTest.java")
+          test = test_path.read_text(encoding="utf-8")
+          test = test.replace('assertEquals("2026-07-26.1", loaded.version());', 'assertEquals("2026-09-26.1", loaded.version());', 1)
+          test = test.replace('assertEquals(84, policies.size());', 'assertEquals(85, policies.size());', 1)
+          anchor = '''        assertEquals(
+                  SanctionType.MARKET_BLACKLIST,
+                  policies.get("market.compliance-failure").steps().get(3).sanctions().get(1).type()
+          );
+'''
+          assertion = '''        assertTrue(policies.get("evasion.network-identity-ban").steps().stream()
+                  .flatMap(step -> step.sanctions().stream())
+                  .allMatch(spec -> spec.type() == SanctionType.NETWORK_IDENTITY_BAN));
+'''
+          if assertion not in test:
+              if test.count(anchor) != 1:
+                  raise SystemExit("reason policy test insertion marker was not unique")
+              test = test.replace(anchor, anchor + assertion)
+          test_path.write_text(test, encoding="utf-8")
           PY
-      - name: Commit policy patch
+          git rm .github/workflows/muse-ipban-policy-patch.yml
+      - name: Commit final policy and test
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add paper/src/main/resources/reason-policies.yml
-          git diff --cached --quiet || git commit -m "fix: add Founder network identity ban policy"
+          git add paper/src/main/resources/reason-policies.yml paper/src/test/java/net/enthusia/staff/paper/config/ReasonPolicyConfigurationLoaderTest.java
+          git commit -m "fix: publish network identity ban presets"
           git push origin HEAD:fix/muse-test-run-remaining-staff
