@@ -17,42 +17,14 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: fix/muse-test-run-remaining-staff
-      - name: Version policy and lock regression coverage
+      - name: Bump policy catalog version
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          policy_path = Path("paper/src/main/resources/reason-policies.yml")
-          policy = policy_path.read_text(encoding="utf-8")
-          if "id: evasion.network-identity-ban" not in policy:
-              raise SystemExit("network identity ban policy is missing")
-          policy = policy.replace('version: "2026-07-26.1"', 'version: "2026-09-26.1"', 1)
-          policy_path.write_text(policy, encoding="utf-8")
-
-          test_path = Path("paper/src/test/java/net/enthusia/staff/paper/config/ReasonPolicyConfigurationLoaderTest.java")
-          test = test_path.read_text(encoding="utf-8")
-          test = test.replace('assertEquals("2026-07-26.1", loaded.version());', 'assertEquals("2026-09-26.1", loaded.version());', 1)
-          test = test.replace('assertEquals(84, policies.size());', 'assertEquals(85, policies.size());', 1)
-          anchor = '''        assertEquals(
-                  SanctionType.MARKET_BLACKLIST,
-                  policies.get("market.compliance-failure").steps().get(3).sanctions().get(1).type()
-          );
-'''
-          assertion = '''        assertTrue(policies.get("evasion.network-identity-ban").steps().stream()
-                  .flatMap(step -> step.sanctions().stream())
-                  .allMatch(spec -> spec.type() == SanctionType.NETWORK_IDENTITY_BAN));
-'''
-          if assertion not in test:
-              if test.count(anchor) != 1:
-                  raise SystemExit("reason policy test insertion marker was not unique")
-              test = test.replace(anchor, anchor + assertion)
-          test_path.write_text(test, encoding="utf-8")
-          PY
+          python3 -c 'from pathlib import Path; p=Path("paper/src/main/resources/reason-policies.yml"); s=p.read_text(); assert "id: evasion.network-identity-ban" in s; p.write_text(s.replace("version: \\"2026-07-26.1\\"", "version: \\"2026-09-26.1\\"", 1))'
           git rm .github/workflows/muse-ipban-policy-patch.yml
-      - name: Commit final policy and test
+      - name: Commit final policy
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add paper/src/main/resources/reason-policies.yml paper/src/test/java/net/enthusia/staff/paper/config/ReasonPolicyConfigurationLoaderTest.java
-          git commit -m "fix: publish network identity ban presets"
+          git add paper/src/main/resources/reason-policies.yml
+          git commit -m "fix: version network identity ban presets"
           git push origin HEAD:fix/muse-test-run-remaining-staff
