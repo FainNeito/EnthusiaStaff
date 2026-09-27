@@ -1,4 +1,4 @@
-name: Muse PMD diagnostics
+name: Apply Muse analyzer fixes
 
 on:
   push:
@@ -6,14 +6,13 @@ on:
       - "fix/muse-test-run-remaining-staff"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  pmd:
-    if: github.event.head_commit.message == 'Report Muse PMD findings artifact'
-    name: Report PMD 6.55 findings on changed Java
+  fix:
+    if: github.event.head_commit.message == 'Apply Muse analyzer fixes'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out exact branch head
         uses: actions/checkout@v6
@@ -26,39 +25,453 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Run repository PMD rules on PR Java files
+      - name: Apply bounded analyzer repairs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          reports = "paper/src/main/java/net/enthusia/staff/paper/command/ReportsCommand.java"
+          replace_once(
+              reports,
+              '    private static final int SINGLE_ARGUMENT = 1;\n',
+              '    private static final int SINGLE_ARGUMENT = 1;\n'
+              '    private static final int MIN_NOTE_ARGUMENTS = 2;\n'
+              '    private static final int VIEW_ARGUMENTS = 2;\n'
+          )
+          replace_once(
+              reports,
+              '''    @Override
+              public boolean onCommand(CommandSender sender, Command command, String label, String[] arguments) {
+                  if (!sender.hasPermission(MANAGE_PERMISSION)) {
+                      sender.sendMessage(Component.text("You do not have permission to manage reports."));
+                      return true;
+                  }
+                  if (arguments.length == 0) {
+                      if (sender instanceof Player player) {
+                          gui.openQueue(player, ReportQueue.OPEN);
+                      } else {
+                          submit(sender, () -> list(sender, ReportQueue.OPEN, consoleActor()));
+                      }
+                      return true;
+                  }
+                  if (arguments[0].equalsIgnoreCase("note")) {
+                      return note(sender, arguments);
+                  }
+                  if (arguments[0].equalsIgnoreCase("cancel") && arguments.length == SINGLE_ARGUMENT) {
+                      if (sender instanceof Player player) {
+                          gui.cancelNote(player);
+                      } else {
+                          sender.sendMessage(Component.text("Only a player can cancel a GUI report note."));
+                      }
+                      return true;
+                  }
+                  if (arguments[0].equalsIgnoreCase("evidence")) {
+                      return evidence(sender, arguments);
+                  }
+                  ReportQueue queue = parseQueue(arguments[0]);
+                  if (queue != null && arguments.length == SINGLE_ARGUMENT) {
+                      UUID actorId = actorId(sender);
+                      submit(sender, () -> list(sender, queue, actorId));
+                      return true;
+                  }
+                  if (arguments[0].equalsIgnoreCase("view") && arguments.length == 2) {
+                      UUID reportId = uuid(sender, arguments[1]);
+                      if (reportId != null) {
+                          submit(sender, () -> details(sender, reportId));
+                      }
+                      return true;
+                  }
+                  return stateChange(sender, arguments);
+              }
+          ''',
+              '''    @Override
+              public boolean onCommand(CommandSender sender, Command command, String label, String[] arguments) {
+                  if (!sender.hasPermission(MANAGE_PERMISSION)) {
+                      sender.sendMessage(Component.text("You do not have permission to manage reports."));
+                      return true;
+                  }
+                  if (arguments.length == 0) {
+                      openDefaultQueue(sender);
+                      return true;
+                  }
+                  return route(sender, arguments);
+              }
+
+              private void openDefaultQueue(CommandSender sender) {
+                  if (sender instanceof Player player) {
+                      gui.openQueue(player, ReportQueue.OPEN);
+                      return;
+                  }
+                  submit(sender, () -> list(sender, ReportQueue.OPEN, consoleActor()));
+              }
+
+              private boolean route(CommandSender sender, String[] arguments) {
+                  return switch (arguments[0].toLowerCase(Locale.ROOT)) {
+                      case "note" -> note(sender, arguments);
+                      case "cancel" -> cancel(sender, arguments);
+                      case "evidence" -> evidence(sender, arguments);
+                      case "view" -> view(sender, arguments);
+                      default -> queueOrStateChange(sender, arguments);
+                  };
+              }
+
+              private boolean cancel(CommandSender sender, String[] arguments) {
+                  if (arguments.length != SINGLE_ARGUMENT) {
+                      return stateChange(sender, arguments);
+                  }
+                  if (sender instanceof Player player) {
+                      gui.cancelNote(player);
+                  } else {
+                      sender.sendMessage(Component.text("Only a player can cancel a GUI report note."));
+                  }
+                  return true;
+              }
+
+              private boolean view(CommandSender sender, String[] arguments) {
+                  if (arguments.length != VIEW_ARGUMENTS) {
+                      return stateChange(sender, arguments);
+                  }
+                  UUID reportId = uuid(sender, arguments[1]);
+                  if (reportId != null) {
+                      submit(sender, () -> details(sender, reportId));
+                  }
+                  return true;
+              }
+
+              private boolean queueOrStateChange(CommandSender sender, String[] arguments) {
+                  ReportQueue queue = parseQueue(arguments[0]);
+                  if (queue == null || arguments.length != SINGLE_ARGUMENT) {
+                      return stateChange(sender, arguments);
+                  }
+                  UUID actorId = actorId(sender);
+                  submit(sender, () -> list(sender, queue, actorId));
+                  return true;
+              }
+          ''')
+          replace_once(reports, '        if (arguments.length < 2) {\n',
+                       '        if (arguments.length < MIN_NOTE_ARGUMENTS) {\n')
+
+          sanction = "paper/src/main/java/net/enthusia/staff/paper/command/SanctionChangeCommand.java"
+          replace_once(
+              sanction,
+              'public final class SanctionChangeCommand implements CommandExecutor, TabCompleter {\n',
+              'public final class SanctionChangeCommand implements CommandExecutor, TabCompleter {\n'
+              '    private static final int SINGLE_ARGUMENT = 1;\n'
+              '    private static final int ALIAS_MIN_ARGUMENTS = 2;\n'
+              '    private static final int CENTRAL_MIN_ARGUMENTS = 3;\n'
+          )
+          replace_once(
+              sanction,
+              '''    @Override
+              public boolean onCommand(CommandSender sender, Command command, String label, String[] arguments) {
+                  Actor actor = PaperActorResolver.resolve(sender).orElse(null);
+                  if (actor == null || !SanctionChangeAccess.canChangeAnything(authorization, actor)) {
+                      sender.sendMessage(Component.text("You do not have punishment modification authority."));
+                      return true;
+                  }
+                  String route = CommandRoute.canonicalName(command);
+                  boolean central = route.equals("removepunishment");
+                  if (!central && arguments.length == 1 && sender instanceof Player player) {
+                      gui.open(player, arguments[0], route);
+                      return true;
+                  }
+                  int minimum = central ? 3 : 2;
+                  if (arguments.length < minimum) {
+                      sender.sendMessage(Component.text(central
+                              ? "Usage: /removepunishment <player|case> <action> [expiration] <reason> [CONFIRM]"
+                              : "Usage: /" + label + " <player|case> <reason> [CONFIRM]"));
+                      return true;
+                  }
+                  SanctionChangeAction action = central
+                          ? SanctionChangeAccess.parseAction(arguments[1])
+                          : SanctionChangeAccess.aliasAction(route);
+                  if (action == null) {
+                      sender.sendMessage(Component.text("Unknown sanction change action."));
+                      return true;
+                  }
+                  if (!authorization.permits(actor, action.requiredModerationAction())) {
+                      sender.sendMessage(Component.text("You are not permitted to perform that punishment change."));
+                      return true;
+                  }
+                  if (!sender.hasPermission(SanctionChangeAccess.permissionFor(action))) {
+                      sender.sendMessage(Component.text("You do not have permission for that punishment change."));
+                      return true;
+                  }
+                  int reasonStart = central ? 2 : 1;
+                  Optional<Instant> expiration = Optional.empty();
+                  if (action == SanctionChangeAction.REDUCE_DURATION
+                          || action == SanctionChangeAction.REPLACE_EXPIRATION) {
+                      if (arguments.length <= reasonStart + 1) {
+                          sender.sendMessage(Component.text("This action requires an ISO-8601 expiration and a written reason."));
+                          return true;
+                      }
+                      try {
+                          expiration = Optional.of(Instant.parse(arguments[reasonStart]));
+                      } catch (java.time.format.DateTimeParseException exception) {
+                          sender.sendMessage(Component.text("Expiration must be an ISO-8601 instant such as 2026-08-01T00:00:00Z."));
+                          return true;
+                      }
+                      reasonStart++;
+                  }
+                  boolean confirmed = arguments[arguments.length - 1].equals("CONFIRM");
+                  int reasonEnd = confirmed ? arguments.length - 1 : arguments.length;
+                  String reason = String.join(" ", Arrays.copyOfRange(arguments, reasonStart, reasonEnd)).trim();
+                  if (reason.isBlank()) {
+                      sender.sendMessage(Component.text("A written reason is required."));
+                      return true;
+                  }
+                  if (!confirmed) {
+                      sender.sendMessage(Component.text("Review only: " + action + " for " + arguments[0] + "."));
+                      sender.sendMessage(Component.text("No change was made. Append the exact word CONFIRM to commit."));
+                      return true;
+                  }
+                  Optional<Instant> requestedExpiration = expiration;
+                  submit(sender, () -> apply(
+                          sender, route, arguments[0], action, requestedExpiration, reason, actor
+                  ));
+                  return true;
+              }
+          ''',
+              '''    @Override
+              public boolean onCommand(CommandSender sender, Command command, String label, String[] arguments) {
+                  Actor actor = authorizedActor(sender);
+                  if (actor == null) {
+                      return true;
+                  }
+                  String route = CommandRoute.canonicalName(command);
+                  boolean central = route.equals("removepunishment");
+                  if (openAliasGui(sender, arguments, route, central)) {
+                      return true;
+                  }
+                  if (!hasMinimumArguments(sender, label, arguments, central)) {
+                      return true;
+                  }
+                  SanctionChangeAction action = authorizedAction(sender, actor, arguments, route, central);
+                  if (action == null) {
+                      return true;
+                  }
+                  ChangeInput input = changeInput(sender, arguments, action, central);
+                  if (input == null) {
+                      return true;
+                  }
+                  if (!input.confirmed()) {
+                      sender.sendMessage(Component.text("Review only: " + action + " for " + arguments[0] + "."));
+                      sender.sendMessage(Component.text("No change was made. Append the exact word CONFIRM to commit."));
+                      return true;
+                  }
+                  submit(sender, () -> apply(
+                          sender, route, arguments[0], action, input.expiration(), input.reason(), actor
+                  ));
+                  return true;
+              }
+
+              private Actor authorizedActor(CommandSender sender) {
+                  Actor actor = PaperActorResolver.resolve(sender).orElse(null);
+                  if (actor != null && SanctionChangeAccess.canChangeAnything(authorization, actor)) {
+                      return actor;
+                  }
+                  sender.sendMessage(Component.text("You do not have punishment modification authority."));
+                  return null;
+              }
+
+              private boolean openAliasGui(CommandSender sender, String[] arguments, String route, boolean central) {
+                  if (central || arguments.length != SINGLE_ARGUMENT || !(sender instanceof Player player)) {
+                      return false;
+                  }
+                  gui.open(player, arguments[0], route);
+                  return true;
+              }
+
+              private static boolean hasMinimumArguments(
+                      CommandSender sender,
+                      String label,
+                      String[] arguments,
+                      boolean central
+              ) {
+                  int minimum = central ? CENTRAL_MIN_ARGUMENTS : ALIAS_MIN_ARGUMENTS;
+                  if (arguments.length >= minimum) {
+                      return true;
+                  }
+                  sender.sendMessage(Component.text(central
+                          ? "Usage: /removepunishment <player|case> <action> [expiration] <reason> [CONFIRM]"
+                          : "Usage: /" + label + " <player|case> <reason> [CONFIRM]"));
+                  return false;
+              }
+
+              private SanctionChangeAction authorizedAction(
+                      CommandSender sender,
+                      Actor actor,
+                      String[] arguments,
+                      String route,
+                      boolean central
+              ) {
+                  SanctionChangeAction action = central
+                          ? SanctionChangeAccess.parseAction(arguments[1])
+                          : SanctionChangeAccess.aliasAction(route);
+                  if (action == null) {
+                      sender.sendMessage(Component.text("Unknown sanction change action."));
+                      return null;
+                  }
+                  if (!authorization.permits(actor, action.requiredModerationAction())) {
+                      sender.sendMessage(Component.text("You are not permitted to perform that punishment change."));
+                      return null;
+                  }
+                  if (!sender.hasPermission(SanctionChangeAccess.permissionFor(action))) {
+                      sender.sendMessage(Component.text("You do not have permission for that punishment change."));
+                      return null;
+                  }
+                  return action;
+              }
+
+              private static ChangeInput changeInput(
+                      CommandSender sender,
+                      String[] arguments,
+                      SanctionChangeAction action,
+                      boolean central
+              ) {
+                  int reasonStart = central ? 2 : 1;
+                  Optional<Instant> expiration = Optional.empty();
+                  if (requiresExpiration(action)) {
+                      if (arguments.length <= reasonStart + 1) {
+                          sender.sendMessage(Component.text(
+                                  "This action requires an ISO-8601 expiration and a written reason."
+                          ));
+                          return null;
+                      }
+                      expiration = expiration(sender, arguments[reasonStart]);
+                      if (expiration.isEmpty()) {
+                          return null;
+                      }
+                      reasonStart++;
+                  }
+                  boolean confirmed = arguments[arguments.length - 1].equals("CONFIRM");
+                  int reasonEnd = confirmed ? arguments.length - 1 : arguments.length;
+                  String reason = String.join(" ", Arrays.copyOfRange(arguments, reasonStart, reasonEnd)).trim();
+                  if (reason.isBlank()) {
+                      sender.sendMessage(Component.text("A written reason is required."));
+                      return null;
+                  }
+                  return new ChangeInput(expiration, reason, confirmed);
+              }
+
+              private static boolean requiresExpiration(SanctionChangeAction action) {
+                  return action == SanctionChangeAction.REDUCE_DURATION
+                          || action == SanctionChangeAction.REPLACE_EXPIRATION;
+              }
+
+              private static Optional<Instant> expiration(CommandSender sender, String input) {
+                  try {
+                      return Optional.of(Instant.parse(input));
+                  } catch (java.time.format.DateTimeParseException exception) {
+                      sender.sendMessage(Component.text(
+                              "Expiration must be an ISO-8601 instant such as 2026-08-01T00:00:00Z."
+                      ));
+                      return Optional.empty();
+                  }
+              }
+
+              private record ChangeInput(Optional<Instant> expiration, String reason, boolean confirmed) {
+              }
+          ''')
+
+          manager = "paper/src/main/java/net/enthusia/staff/paper/PaperIntegrationManager.java"
+          replace_once(
+              manager,
+              '    private void closeRoseChatIntegration() {\n',
+              '    // Null is the explicit inactive state for this optional hot-reloadable provider slot.\n'
+              '    @SuppressWarnings("PMD.NullAssignment")\n'
+              '    private void closeRoseChatIntegration() {\n'
+          )
+          replace_once(
+              manager,
+              '    private void deactivateMuteFallback() {\n',
+              '    // Null is the explicit inactive state after the listener has been unregistered.\n'
+              '    @SuppressWarnings("PMD.NullAssignment")\n'
+              '    private void deactivateMuteFallback() {\n'
+          )
+
+          account_test = "integration-tests/src/test/java/net/enthusia/staff/integration/DiscordAccountLinkingV20IntegrationTest.java"
+          replace_once(
+              account_test,
+              '    @Test\n    void aCodeCanOnlyBeCompletedByOneMinecraftAccountUnderConcurrency() throws Exception {\n',
+              '    // The local executor is always shut down in the finally block below.\n'
+              '    @SuppressWarnings("PMD.CloseResource")\n'
+              '    @Test\n'
+              '    void aCodeCanOnlyBeCompletedByOneMinecraftAccountUnderConcurrency() throws Exception {\n'
+          )
+
+          ownership_test = "paper/src/test/java/net/enthusia/staff/paper/RoseChatCommandOwnershipCoordinatorTest.java"
+          replace_once(
+              ownership_test,
+              'class RoseChatCommandOwnershipCoordinatorTest {\n',
+              'class RoseChatCommandOwnershipCoordinatorTest {\n'
+              '    private static final String MUTE = "mute";\n'
+              '    private static final String STAFF = "staff";\n'
+          )
+          p = Path(ownership_test)
+          text = p.read_text().replace('"mute"', 'MUTE').replace('"staff"', 'STAFF')
+          text = text.replace('private static final String MUTE = MUTE;', 'private static final String MUTE = "mute";')
+          text = text.replace('private static final String STAFF = STAFF;', 'private static final String STAFF = "staff";')
+          p.write_text(text)
+          replace_once(
+              ownership_test,
+              '        private final Map<String, Command> commands = new HashMap<>();\n',
+              '        // Tests are single-threaded; this fake registry intentionally has no synchronization.\n'
+              '        @SuppressWarnings("PMD.DocumentMutableMapFieldConcurrency")\n'
+              '        private final Map<String, Command> commands = new HashMap<>();\n'
+          )
+
+          market_test = "paper/src/test/java/net/enthusia/staff/paper/integration/MarketIntegrationAccessorTest.java"
+          replace_once(
+              market_test,
+              'class MarketIntegrationAccessorTest {\n',
+              'class MarketIntegrationAccessorTest {\n'
+              '    private static final String LEGACY_ACCESSOR = "getId";\n'
+          )
+          p = Path(market_test)
+          text = p.read_text().replace('"getId"', 'LEGACY_ACCESSOR')
+          text = text.replace('private static final String LEGACY_ACCESSOR = LEGACY_ACCESSOR;',
+                              'private static final String LEGACY_ACCESSOR = "getId";')
+          p.write_text(text)
+          PY
+
+      - name: Compile production and test sources
+        run: ./gradlew testClasses --no-daemon
+
+      - name: Verify repository PMD rules on changed Java
         shell: bash
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
           mapfile -t files < <(git diff --name-only origin/main...HEAD -- '*.java')
-          if (( ${#files[@]} == 0 )); then
-            echo "No changed Java files." > /tmp/pmd-findings.txt
-            exit 0
-          fi
           curl --fail --location --silent --show-error \
             'https://github.com/pmd/pmd/releases/download/pmd_releases%2F6.55.0/pmd-bin-6.55.0.zip' \
             --output /tmp/pmd.zip
           unzip -q /tmp/pmd.zip -d /tmp
           input="$(IFS=,; echo "${files[*]}")"
-          set +e
-          /tmp/pmd-bin-6.55.0/bin/run.sh pmd \
-            -d "${input}" \
-            -R ruleset.xml \
-            -f text \
-            -r /tmp/pmd-findings.txt
-          status=$?
-          set -e
-          echo "PMD exit status: ${status}"
-          cat /tmp/pmd-findings.txt
-          if (( status != 0 && status != 4 )); then
-            exit "${status}"
-          fi
+          /tmp/pmd-bin-6.55.0/bin/run.sh pmd -d "${input}" -R ruleset.xml -f text
 
-      - name: Upload PMD findings
-        uses: actions/upload-artifact@v4
-        with:
-          name: muse-pmd-findings
-          path: /tmp/pmd-findings.txt
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit analyzer repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "enthusia-sentinel[bot]"
+          git config user.email "enthusia-sentinel[bot]@users.noreply.github.com"
+          git add integration-tests/src/test/java/net/enthusia/staff/integration/DiscordAccountLinkingV20IntegrationTest.java \
+                  paper/src/main/java/net/enthusia/staff/paper/PaperIntegrationManager.java \
+                  paper/src/main/java/net/enthusia/staff/paper/command/ReportsCommand.java \
+                  paper/src/main/java/net/enthusia/staff/paper/command/SanctionChangeCommand.java \
+                  paper/src/test/java/net/enthusia/staff/paper/RoseChatCommandOwnershipCoordinatorTest.java \
+                  paper/src/test/java/net/enthusia/staff/paper/integration/MarketIntegrationAccessorTest.java
+          git commit -m "Resolve Muse analyzer findings"
+          git push origin HEAD:fix/muse-test-run-remaining-staff
