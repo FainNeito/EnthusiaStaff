@@ -43,7 +43,9 @@ class ReasonPolicyConfigurationLoaderTest {
                 SanctionType.MARKET_BLACKLIST,
                 policies.get("market.compliance-failure").steps().get(3).sanctions().get(1).type()
         );
-        assertTrue(policies.get("evasion.network-identity-ban").steps().stream()
+        ReasonPolicy networkIdentityBan = policies.get("evasion.network-identity-ban");
+        assertEquals(4, networkIdentityBan.steps().size());
+        assertTrue(networkIdentityBan.steps().stream()
                 .flatMap(step -> step.sanctions().stream())
                 .allMatch(spec -> spec.type() == SanctionType.NETWORK_IDENTITY_BAN));
     }
