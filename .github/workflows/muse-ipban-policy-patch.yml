@@ -19,7 +19,9 @@ jobs:
           ref: fix/muse-test-run-remaining-staff
       - name: Bump policy catalog version
         run: |
-          python3 -c 'from pathlib import Path; p=Path("paper/src/main/resources/reason-policies.yml"); s=p.read_text(); assert "id: evasion.network-identity-ban" in s; p.write_text(s.replace("version: \\"2026-07-26.1\\"", "version: \\"2026-09-26.1\\"", 1))'
+          grep -q 'id: evasion.network-identity-ban' paper/src/main/resources/reason-policies.yml
+          sed -i 's/^version: "2026-07-26.1"$/version: "2026-09-26.1"/' paper/src/main/resources/reason-policies.yml
+          grep -q '^version: "2026-09-26.1"$' paper/src/main/resources/reason-policies.yml
           git rm .github/workflows/muse-ipban-policy-patch.yml
       - name: Commit final policy
         run: |
