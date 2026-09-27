@@ -280,6 +280,8 @@ final class PaperIntegrationManager implements Listener {
         issue(ROSECHAT_COMMANDS, "EnthusiaStaff command ownership conflict: " + String.join(", ", conflicts));
     }
 
+    // Null is the explicit inactive state for this optional hot-reloadable provider slot.
+    @SuppressWarnings("PMD.NullAssignment")
     private void closeRoseChatIntegration() {
         resources.close("RoseChat bridge", roseChat);
         roseChat = null;
@@ -293,6 +295,8 @@ final class PaperIntegrationManager implements Listener {
         plugin().getServer().getPluginManager().registerEvents(muteFallback, plugin());
     }
 
+    // Null is the explicit inactive state after the listener has been unregistered.
+    @SuppressWarnings("PMD.NullAssignment")
     private void deactivateMuteFallback() {
         if (muteFallback == null) {
             return;

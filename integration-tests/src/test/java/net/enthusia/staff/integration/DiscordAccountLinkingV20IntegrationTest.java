@@ -145,6 +145,8 @@ class DiscordAccountLinkingV20IntegrationTest {
         }
     }
 
+    // The local executor is always shut down in the finally block below.
+    @SuppressWarnings("PMD.CloseResource")
     @Test
     void aCodeCanOnlyBeCompletedByOneMinecraftAccountUnderConcurrency() throws Exception {
         UUID first = UUID.randomUUID();

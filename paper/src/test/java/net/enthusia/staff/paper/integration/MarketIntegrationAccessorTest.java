@@ -7,17 +7,18 @@ import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 
 class MarketIntegrationAccessorTest {
+    private static final String LEGACY_ACCESSOR = "getId";
 
     @Test
     void prefersLegacyBeanAccessorWhenAvailable() throws Exception {
-        Method accessor = MarketIntegration.modelAccessor(BeanShape.class, "getId", "id");
-        assertEquals("getId", accessor.getName());
+        Method accessor = MarketIntegration.modelAccessor(BeanShape.class, LEGACY_ACCESSOR, "id");
+        assertEquals(LEGACY_ACCESSOR, accessor.getName());
         assertEquals("legacy", accessor.invoke(new BeanShape()));
     }
 
     @Test
     void acceptsCurrentRecordStyleAccessor() throws Exception {
-        Method accessor = MarketIntegration.modelAccessor(RecordShape.class, "getId", "id");
+        Method accessor = MarketIntegration.modelAccessor(RecordShape.class, LEGACY_ACCESSOR, "id");
         assertEquals("id", accessor.getName());
         assertEquals("current", accessor.invoke(new RecordShape("current")));
     }
@@ -25,7 +26,7 @@ class MarketIntegrationAccessorTest {
     @Test
     void rejectsModelsWithNeitherSupportedAccessor() {
         assertThrows(NoSuchMethodException.class,
-                () -> MarketIntegration.modelAccessor(UnsupportedShape.class, "getId", "id"));
+                () -> MarketIntegration.modelAccessor(UnsupportedShape.class, LEGACY_ACCESSOR, "id"));
     }
 
     static final class BeanShape {

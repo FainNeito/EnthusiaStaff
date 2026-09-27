@@ -13,28 +13,30 @@ import org.bukkit.command.CommandSender;
 import org.junit.jupiter.api.Test;
 
 class RoseChatCommandOwnershipCoordinatorTest {
+    private static final String MUTE = "mute";
+    private static final String STAFF = "staff";
 
     @Test
     void roseChatFirstBootRestoresBothControlledLabelsAndKeepsFallbacks() {
         FakeRegistry registry = new FakeRegistry();
-        StubCommand staffMute = new StubCommand("mute");
-        StubCommand staffMode = new StubCommand("staff");
-        StubCommand roseMute = new StubCommand("mute");
-        StubCommand roseStaff = new StubCommand("staff");
-        registry.put("mute", roseMute);
+        StubCommand staffMute = new StubCommand(MUTE);
+        StubCommand staffMode = new StubCommand(STAFF);
+        StubCommand roseMute = new StubCommand(MUTE);
+        StubCommand roseStaff = new StubCommand(STAFF);
+        registry.put(MUTE, roseMute);
         registry.put("rosechat:mute", roseMute);
-        registry.put("staff", roseStaff);
+        registry.put(STAFF, roseStaff);
         registry.put("staff:staff", roseStaff);
 
         RoseChatCommandOwnershipCoordinator coordinator = coordinator(
                 registry,
-                Map.of("mute", staffMute, "staff", staffMode),
+                Map.of(MUTE, staffMute, STAFF, staffMode),
                 roseStaff
         );
 
         assertTrue(coordinator.reconcile().isEmpty());
-        assertSame(staffMute, registry.command("mute"));
-        assertSame(staffMode, registry.command("staff"));
+        assertSame(staffMute, registry.command(MUTE));
+        assertSame(staffMode, registry.command(STAFF));
         assertSame(roseMute, registry.command("rosechat:mute"));
         assertSame(roseStaff, registry.command("staff:staff"));
     }
@@ -42,61 +44,61 @@ class RoseChatCommandOwnershipCoordinatorTest {
     @Test
     void roseChatEnableAfterStaffOnlyReclaimsTheStolenMuteLabel() {
         FakeRegistry registry = new FakeRegistry();
-        StubCommand staffMute = new StubCommand("mute");
-        StubCommand staffMode = new StubCommand("staff");
-        StubCommand roseMute = new StubCommand("mute");
-        registry.put("mute", roseMute);
+        StubCommand staffMute = new StubCommand(MUTE);
+        StubCommand staffMode = new StubCommand(STAFF);
+        StubCommand roseMute = new StubCommand(MUTE);
+        registry.put(MUTE, roseMute);
         registry.put("rosechat:mute", roseMute);
-        registry.put("staff", staffMode);
+        registry.put(STAFF, staffMode);
 
         RoseChatCommandOwnershipCoordinator coordinator = coordinator(
                 registry,
-                Map.of("mute", staffMute, "staff", staffMode),
+                Map.of(MUTE, staffMute, STAFF, staffMode),
                 null
         );
 
         assertTrue(coordinator.reconcile().isEmpty());
-        assertSame(staffMute, registry.command("mute"));
-        assertSame(staffMode, registry.command("staff"));
+        assertSame(staffMute, registry.command(MUTE));
+        assertSame(staffMode, registry.command(STAFF));
     }
 
     @Test
     void unrelatedCommandOwnerIsReportedAndNeverReplaced() {
         FakeRegistry registry = new FakeRegistry();
-        StubCommand staffMute = new StubCommand("mute");
-        StubCommand staffMode = new StubCommand("staff");
-        StubCommand unrelated = new StubCommand("mute");
-        registry.put("mute", unrelated);
-        registry.put("staff", staffMode);
+        StubCommand staffMute = new StubCommand(MUTE);
+        StubCommand staffMode = new StubCommand(STAFF);
+        StubCommand unrelated = new StubCommand(MUTE);
+        registry.put(MUTE, unrelated);
+        registry.put(STAFF, staffMode);
         List<String> logs = new ArrayList<>();
 
         RoseChatCommandOwnershipCoordinator coordinator = new RoseChatCommandOwnershipCoordinator(
                 registry,
-                Map.of("mute", staffMute, "staff", staffMode)::get,
+                Map.of(MUTE, staffMute, STAFF, staffMode)::get,
                 command -> false,
                 logs::add
         );
 
-        assertEquals(List.of("mute"), coordinator.reconcile());
-        assertSame(unrelated, registry.command("mute"));
+        assertEquals(List.of(MUTE), coordinator.reconcile());
+        assertSame(unrelated, registry.command(MUTE));
         assertTrue(logs.getFirst().contains("will not replace an unrelated command owner"));
     }
 
     @Test
     void missingBaseLabelCanBeRecoveredFromTheNamespacedStaffCommand() {
         FakeRegistry registry = new FakeRegistry();
-        StubCommand staffMute = new StubCommand("mute");
-        StubCommand staffMode = new StubCommand("staff");
-        registry.put("staff", staffMode);
+        StubCommand staffMute = new StubCommand(MUTE);
+        StubCommand staffMode = new StubCommand(STAFF);
+        registry.put(STAFF, staffMode);
 
         RoseChatCommandOwnershipCoordinator coordinator = coordinator(
                 registry,
-                Map.of("mute", staffMute, "staff", staffMode),
+                Map.of(MUTE, staffMute, STAFF, staffMode),
                 null
         );
 
         assertTrue(coordinator.reconcile().isEmpty());
-        assertSame(staffMute, registry.command("mute"));
+        assertSame(staffMute, registry.command(MUTE));
     }
 
     private static RoseChatCommandOwnershipCoordinator coordinator(
@@ -114,6 +116,8 @@ class RoseChatCommandOwnershipCoordinatorTest {
     }
 
     private static final class FakeRegistry implements RoseChatCommandOwnershipCoordinator.CommandRegistry {
+        // Tests are single-threaded; this fake registry intentionally has no synchronization.
+        @SuppressWarnings("PMD.DocumentMutableMapFieldConcurrency")
         private final Map<String, Command> commands = new HashMap<>();
 
         void put(String label, Command command) {
