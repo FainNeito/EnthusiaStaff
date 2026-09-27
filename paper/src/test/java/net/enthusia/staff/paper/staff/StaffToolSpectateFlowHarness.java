@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 
 import io.papermc.paper.threadedregions.scheduler.EntityScheduler;
 import io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
@@ -17,6 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import net.kyori.adventure.text.Component;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -172,11 +174,13 @@ final class StaffToolSpectateFlowHarness {
         final CompletableFuture<Boolean> teleport = new CompletableFuture<>();
         final Deque<ScheduleOutcome> outcomes = new ArrayDeque<>();
         final Deque<Pending> pending = new ArrayDeque<>();
+        final Deque<Recurring> recurring = new ArrayDeque<>();
         final List<Component> messages = new ArrayList<>();
         final EntityScheduler scheduler = proxy(EntityScheduler.class, this::schedulerCall);
         final Player player = proxy(Player.class, this::playerCall);
         int teleports;
         int attachments;
+        int detachments;
         Player lastSpectator;
 
         Handle(UUID id, String name, boolean actorHandle) {
@@ -219,16 +223,44 @@ final class StaffToolSpectateFlowHarness {
             task.owned().run();
         }
 
-        private Object schedulerCall(Method method, Object[] arguments) {
-            if (!method.getName().equals("execute")) {
-                return unexpected(method);
+        void runRecurring() {
+            Recurring task = recurring.peekFirst();
+            if (task == null) {
+                throw new AssertionError("No recurring entity scheduler task was pending for " + name);
             }
+            task.run();
+            if (task.cancelled.get()) {
+                recurring.removeFirst();
+            }
+        }
+
+        private Object schedulerCall(Method method, Object[] arguments) {
+            return switch (method.getName()) {
+                case "execute" -> scheduleExecute(arguments);
+                case "runAtFixedRate" -> scheduleRecurring(arguments);
+                default -> unexpected(method);
+            };
+        }
+
+        private Object scheduleExecute(Object[] arguments) {
             assertSame(plugin, arguments[0]);
             assertEquals(1L, arguments[3]);
             Runnable owned = (Runnable) arguments[1];
             Runnable retired = (Runnable) arguments[2];
             ScheduleOutcome outcome = outcomes.isEmpty() ? ScheduleOutcome.ACCEPT : outcomes.removeFirst();
             return executeOutcome(outcome, owned, retired);
+        }
+
+        @SuppressWarnings("unchecked")
+        private Object scheduleRecurring(Object[] arguments) {
+            assertSame(plugin, arguments[0]);
+            assertEquals(1L, arguments[3]);
+            assertEquals(1L, arguments[4]);
+            Consumer<ScheduledTask> owned = (Consumer<ScheduledTask>) arguments[1];
+            Runnable retired = (Runnable) arguments[2];
+            Recurring task = new Recurring(owned, retired);
+            recurring.addLast(task);
+            return task.task;
         }
 
         private Object executeOutcome(ScheduleOutcome outcome, Runnable owned, Runnable retired) {
@@ -258,8 +290,8 @@ final class StaffToolSpectateFlowHarness {
 
         private Object playerCall(Method method, Object[] arguments) {
             return switch (method.getName()) {
-                case "getUniqueId", "getName", "getLocation", "getEntityId", "getScheduler", "isOnline"
-                        -> playerStateCall(method);
+                case "getUniqueId", "getName", "getLocation", "getEntityId", "getScheduler", "isOnline",
+                        "getSpectatorTarget" -> playerStateCall(method);
                 default -> playerActionCall(method, arguments);
             };
         }
@@ -272,6 +304,7 @@ final class StaffToolSpectateFlowHarness {
                 case "getEntityId" -> entityId;
                 case "getScheduler" -> scheduler;
                 case "isOnline" -> online.get();
+                case "getSpectatorTarget" -> lastSpectator;
                 default -> unexpected(method);
             };
         }
@@ -312,6 +345,11 @@ final class StaffToolSpectateFlowHarness {
             if (!actorHandle) {
                 throw new AssertionError("Only the actor may attach a spectator target");
             }
+            if (targetPlayer == null) {
+                detachments++;
+                lastSpectator = null;
+                return null;
+            }
             attachments++;
             lastSpectator = targetPlayer;
             return null;
@@ -322,6 +360,32 @@ final class StaffToolSpectateFlowHarness {
                 messages.add(component);
             }
             return null;
+        }
+
+        final class Recurring {
+            final Consumer<ScheduledTask> owned;
+            final Runnable retired;
+            final AtomicBoolean cancelled = new AtomicBoolean();
+            final ScheduledTask task = proxy(ScheduledTask.class, this::taskCall);
+
+            Recurring(Consumer<ScheduledTask> owned, Runnable retired) {
+                this.owned = owned;
+                this.retired = retired;
+            }
+
+            void run() {
+                if (!cancelled.get()) {
+                    owned.accept(task);
+                }
+            }
+
+            private Object taskCall(Method method, Object[] ignored) {
+                if (method.getName().equals("cancel")) {
+                    cancelled.set(true);
+                    return null;
+                }
+                return unexpected(method);
+            }
         }
     }
 
