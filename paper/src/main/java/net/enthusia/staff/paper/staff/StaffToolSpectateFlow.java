@@ -8,6 +8,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
@@ -240,10 +241,10 @@ final class StaffToolSpectateFlow {
         return !sameConnection(snapshot.connection(), liveTarget);
     }
 
-    // Player equality is UUID-oriented, but this guard must distinguish a reconnect that reuses the same UUID.
-    // Reference identity is intentional and avoids reading target-owned entity state from the actor scheduler.
+    // Bukkit entity equality is identity/UUID-oriented, but this guard must distinguish a reconnect
+    // that reuses the same player UUID. Reference identity is intentional.
     @SuppressWarnings("PMD.CompareObjectsWithEquals")
-    private static boolean sameConnection(Player expected, Player actual) {
+    private static boolean sameConnection(Entity expected, Entity actual) {
         return expected == actual;
     }
 
