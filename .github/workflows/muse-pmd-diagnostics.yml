@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   pmd:
-    if: github.event.head_commit.message == 'Report Muse PMD findings'
+    if: github.event.head_commit.message == 'Report Muse PMD findings artifact'
     name: Report PMD 6.55 findings on changed Java
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -33,7 +33,7 @@ jobs:
           git fetch --no-tags origin main
           mapfile -t files < <(git diff --name-only origin/main...HEAD -- '*.java')
           if (( ${#files[@]} == 0 )); then
-            echo "No changed Java files."
+            echo "No changed Java files." > /tmp/pmd-findings.txt
             exit 0
           fi
           curl --fail --location --silent --show-error \
@@ -54,3 +54,11 @@ jobs:
           if (( status != 0 && status != 4 )); then
             exit "${status}"
           fi
+
+      - name: Upload PMD findings
+        uses: actions/upload-artifact@v4
+        with:
+          name: muse-pmd-findings
+          path: /tmp/pmd-findings.txt
+          if-no-files-found: error
+          retention-days: 1
