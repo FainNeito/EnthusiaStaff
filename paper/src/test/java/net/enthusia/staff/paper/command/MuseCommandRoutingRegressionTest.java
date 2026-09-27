@@ -23,9 +23,11 @@ class MuseCommandRoutingRegressionTest {
     @Test
     void centralRemovePunishmentSingleArgumentDoesNotOpenTheGui() throws IOException {
         String source = source("SanctionChangeCommand.java");
-        String method = method(source, "public boolean onCommand", "private void apply");
+        String method = method(source, "private boolean openAliasGui", "private static boolean hasMinimumArguments");
 
-        assertTrue(method.contains("!central && arguments.length == 1"));
+        assertTrue(method.contains("central || arguments.length != SINGLE_ARGUMENT"));
+        assertTrue(method.contains("return false;"));
+        assertTrue(method.contains("gui.open(player, arguments[0], route)"));
     }
 
     @Test
