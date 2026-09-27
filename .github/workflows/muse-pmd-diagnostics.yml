@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   pmd:
-    if: github.event.head_commit.message == 'diagnostic: report Muse PMD findings'
+    if: github.event.head_commit.message == 'Report Muse PMD findings'
     name: Report PMD 6.55 findings on changed Java
     runs-on: ubuntu-latest
     timeout-minutes: 10
