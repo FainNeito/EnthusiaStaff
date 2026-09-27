@@ -143,14 +143,73 @@ final class StaffToolSpectateFlow {
             ));
             return;
         }
+        if (vanished.test(snapshot.playerId())) {
+            actor.sendMessage(Component.text(
+                    "Direct spectating was cancelled because that target entered vanish.",
+                    NamedTextColor.YELLOW
+            ));
+            return;
+        }
         try {
             actor.setSpectatorTarget(currentTarget);
+            monitorAttachment(actor, snapshot);
             actor.sendMessage(Component.text("Now spectating " + snapshot.name() + '.', NamedTextColor.GREEN));
         } catch (IllegalArgumentException | IllegalStateException exception) {
             actor.sendMessage(Component.text(
                     "Teleported to " + snapshot.name() + "; direct spectator attachment was unavailable.",
                     NamedTextColor.YELLOW
             ));
+        }
+    }
+
+    private void monitorAttachment(Player actor, TargetSnapshot snapshot) {
+        try {
+            actor.getScheduler().runAtFixedRate(
+                    plugin,
+                    task -> monitorAttachmentTick(actor, snapshot, task::cancel),
+                    () -> {
+                    },
+                    1L,
+                    1L
+            );
+        } catch (RuntimeException exception) {
+            detach(actor);
+            actor.sendMessage(Component.text(
+                    "Direct spectating was cancelled because its safety monitor could not start.",
+                    NamedTextColor.RED
+            ));
+        }
+    }
+
+    private void monitorAttachmentTick(Player actor, TargetSnapshot snapshot, Runnable cancelTask) {
+        if (actor.getGameMode() != GameMode.SPECTATOR || actor.getSpectatorTarget() != snapshot.connection()) {
+            cancelTask.run();
+            return;
+        }
+        if (!actorAuthorized.test(actor)) {
+            detach(actor);
+            actor.sendMessage(Component.text(
+                    "Follow/Spectate was cancelled because your staff session or permission changed.",
+                    NamedTextColor.RED
+            ));
+            cancelTask.run();
+            return;
+        }
+        if (vanished.test(snapshot.playerId())) {
+            detach(actor);
+            actor.sendMessage(Component.text(
+                    "Spectating stopped because that target entered vanish.",
+                    NamedTextColor.YELLOW
+            ));
+            cancelTask.run();
+        }
+    }
+
+    private static void detach(Player actor) {
+        try {
+            actor.setSpectatorTarget(null);
+        } catch (IllegalArgumentException | IllegalStateException ignored) {
+            // Best effort: the actor may already have left spectator mode or retired.
         }
     }
 
