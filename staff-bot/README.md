@@ -20,6 +20,8 @@ GitHub also publishes the fixed staging prerelease assets:
 
 Verify both the recorded source SHA and JAR SHA-256 before replacing a running copy.
 
+Active Staff repair PR #249 currently changes `staff-bot` punishment retry/recovery code as well as shared Staff behavior. Treat the current staging JAR as a deployable baseline, not the final production candidate: after #249 is merged, rebuild/re-publish from the resulting canonical `main` and repeat the exact-head Staff Bot tests before production launch. Do not copy or independently reimplement #249's source changes on this branch.
+
 ## Safe initial launch mode
 
 Use Java 21. For a normal runtime, configuration comes from environment variables. Do not put secrets on the Java command line.
@@ -137,6 +139,7 @@ Normal shutdown gives JDA a graceful window before forced shutdown, closes moder
 
 Before the production application is actually turned on, all of these must be true:
 
+- PR #249 (or its final replacement if ownership changes) is resolved into canonical `main`, then the Staff Bot launch artifact is rebuilt and exact-head validated from that post-repair `main`;
 - exact candidate artifact and checksum/source provenance are recorded;
 - Java 21 runtime is selected;
 - production Discord token is supplied only by the runtime secret store;
