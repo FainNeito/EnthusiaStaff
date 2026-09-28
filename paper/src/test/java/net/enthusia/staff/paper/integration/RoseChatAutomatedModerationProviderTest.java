@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import net.enthusia.staff.domain.escalation.AltInheritanceMode;
 import net.enthusia.staff.domain.escalation.ReasonPolicy;
 import net.enthusia.staff.domain.sanction.SanctionLength;
 import net.enthusia.staff.domain.sanction.SanctionSpec;
@@ -18,11 +19,12 @@ class RoseChatAutomatedModerationProviderTest {
         assertEquals("chat.ai-moderation", policy.id());
         assertTrue(policy.automaticDetectionAllowed());
         assertTrue(policy.publicByDefault());
+        assertEquals(AltInheritanceMode.NONE, policy.altInheritance());
         assertEquals(1, policy.steps().size());
         assertEquals(1, policy.steps().getFirst().sanctions().size());
 
         SanctionSpec sanction = policy.steps().getFirst().sanctions().getFirst();
-        assertEquals(SanctionType.MUTE, sanction.type());
+        assertEquals(SanctionType.PUBLIC_MUTE, sanction.type());
         assertEquals(SanctionLength.Kind.TEMPORARY, sanction.length().kind());
         assertEquals(Duration.ofDays(30), sanction.length().temporary().orElseThrow());
     }
