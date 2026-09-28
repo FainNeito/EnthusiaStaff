@@ -48,6 +48,15 @@ class CheatTesterEvidenceTest {
     }
 
     @Test
+    void velocityWithoutValidSampleRemainsUnknown() {
+        CheatTesterSession session = session(CheatTesterType.VELOCITY);
+        assertEquals(-1.0D, session.maximumDisplacement);
+        session.startPoint = new CheatTesterSession.StartPoint(WORLD_ID, 0.0D, 64.0D, 0.0D);
+        CheatTesterProbeEngine.recordVelocitySample(session, new Location(null, 1.0D, 64.0D, 0.0D));
+        assertEquals(-1.0D, session.maximumDisplacement);
+    }
+
+    @Test
     void armorSamplingRecordsReequipBeforeRestoration() {
         CheatTesterSession session = session(CheatTesterType.AUTO_ARMOR);
         session.probe = new CheatTesterSession.PreparedProbe(-1, 1, 0);
