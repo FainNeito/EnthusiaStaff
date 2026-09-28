@@ -23,6 +23,10 @@ class MuteCommandFallbackListenerTest {
                 MuteCommandFallbackListener.decision(MuteEnforcementListener.CachedMuteStatus.CLEAR)
         );
         assertEquals(
+                MuteCommandFallbackListener.Decision.ALLOW,
+                MuteCommandFallbackListener.decision(MuteEnforcementListener.CachedMuteStatus.PUBLIC_MUTED)
+        );
+        assertEquals(
                 MuteCommandFallbackListener.Decision.MUTED,
                 MuteCommandFallbackListener.decision(MuteEnforcementListener.CachedMuteStatus.MUTED)
         );
