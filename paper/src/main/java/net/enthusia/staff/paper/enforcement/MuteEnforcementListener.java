@@ -37,7 +37,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public final class MuteEnforcementListener implements Listener, AutoCloseable {
     private static final Duration CACHE_TTL = Duration.ofSeconds(45);
-    private static final Set<SanctionType> MUTE_TYPES = Set.of(SanctionType.MUTE);
+    private static final Set<SanctionType> MUTE_TYPES = Set.of(SanctionType.MUTE, SanctionType.PUBLIC_MUTE);
     private static final long NEXT_TICK = 1L;
 
     private final JavaPlugin plugin;
@@ -167,10 +167,20 @@ public final class MuteEnforcementListener implements Listener, AutoCloseable {
         }
         if (!entry.active().isEmpty()) {
             cancellation.accept(true);
-            ActiveSanction mute = entry.active().getFirst();
+            ActiveSanction mute = preferredMute(entry.active());
             String expiration = mute.expiresAt().map(Instant::toString).orElse("permanent");
-            notifyPlayer(player, "You are muted (case " + mute.caseId() + ", expires " + expiration + ").");
+            String prefix = mute.type() == SanctionType.PUBLIC_MUTE
+                    ? "You are muted from public chat"
+                    : "You are muted";
+            notifyPlayer(player, prefix + " (case " + mute.caseId() + ", expires " + expiration + ").");
         }
+    }
+
+    private static ActiveSanction preferredMute(List<ActiveSanction> active) {
+        return active.stream()
+                .filter(sanction -> sanction.type() == SanctionType.MUTE)
+                .findFirst()
+                .orElseGet(active::getFirst);
     }
 
     private void refresh(Player player) {
@@ -193,7 +203,12 @@ public final class MuteEnforcementListener implements Listener, AutoCloseable {
         if (entry == null || !entry.validUntil().isAfter(clock.instant())) {
             return CachedMuteStatus.UNVERIFIED;
         }
-        return entry.active().isEmpty() ? CachedMuteStatus.CLEAR : CachedMuteStatus.MUTED;
+        if (entry.active().isEmpty()) {
+            return CachedMuteStatus.CLEAR;
+        }
+        return entry.active().stream().anyMatch(sanction -> sanction.type() == SanctionType.MUTE)
+                ? CachedMuteStatus.MUTED
+                : CachedMuteStatus.PUBLIC_MUTED;
     }
 
     private void refresh(UUID playerId) {
@@ -243,6 +258,7 @@ public final class MuteEnforcementListener implements Listener, AutoCloseable {
 
     public enum CachedMuteStatus {
         CLEAR,
+        PUBLIC_MUTED,
         MUTED,
         UNVERIFIED
     }
