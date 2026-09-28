@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -45,8 +46,23 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
     private static final String CONFIRM_SUBCOMMAND = "confirm";
     private static final String RESUME_SUBCOMMAND = "resume";
     private static final String CENTRAL_COMMAND = "punish";
+    private static final String MUTE_COMMAND = "mute";
     private static final String PERMISSION = "enthusiastaff.punish.configured";
     private static final String PRIVATE_FLAG = "--private";
+    private static final Set<String> LEGACY_MUTE_UNITS = Set.of(
+            "second",
+            "seconds",
+            "minute",
+            "minutes",
+            "hour",
+            "hours",
+            "day",
+            "days",
+            "month",
+            "months",
+            "year",
+            "years"
+    );
 
     private final JavaPlugin plugin;
     private final Supplier<OperationalMode> mode;
@@ -113,6 +129,10 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == NO_ARGUMENTS) {
             usage(sender, label, route);
+            return true;
+        }
+        if (isLegacyTimedMute(route, args)) {
+            legacyTimedMuteUsage(sender, label);
             return true;
         }
         if (CONFIRM_SUBCOMMAND.equalsIgnoreCase(args[0])) {
@@ -420,6 +440,35 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("Invalid draft ID.", NamedTextColor.RED));
             return null;
         }
+    }
+
+    static boolean isLegacyTimedMute(String route, String[] args) {
+        if (!MUTE_COMMAND.equals(route) || args.length < PREPARE_MINIMUM_ARGUMENT_COUNT) {
+            return false;
+        }
+        String duration = args[1].toLowerCase(Locale.ROOT);
+        if (duration.matches("\\d+(?:s|m|h|d|w|mo|y)")) {
+            return true;
+        }
+        if (duration.isEmpty()
+                || !duration.chars().allMatch(Character::isDigit)
+                || args.length <= PREPARE_MINIMUM_ARGUMENT_COUNT) {
+            return false;
+        }
+        return LEGACY_MUTE_UNITS.contains(args[2].toLowerCase(Locale.ROOT));
+    }
+
+    private static void legacyTimedMuteUsage(CommandSender sender, String label) {
+        sender.sendMessage(Component.text(
+                "Legacy RoseChat timed /mute syntax is no longer accepted. EnthusiaStaff /mute uses configured "
+                        + "reason IDs so mutes are recorded and enforced by the central punishment system.",
+                NamedTextColor.RED
+        ));
+        sender.sendMessage(Component.text(
+                "Use /" + label + " <target> <reason-id> [internal explanation], or /punish <target> to choose "
+                        + "a configured reason.",
+                NamedTextColor.YELLOW
+        ));
     }
 
     private static boolean containsIgnoreCase(String[] args, String value) {
