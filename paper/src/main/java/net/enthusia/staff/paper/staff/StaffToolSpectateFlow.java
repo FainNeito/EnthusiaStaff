@@ -243,7 +243,7 @@ final class StaffToolSpectateFlow {
 
     // Bukkit entity equality is identity/UUID-oriented, but this guard must distinguish a reconnect
     // that reuses the same player UUID. Reference identity is intentional.
-    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    @SuppressWarnings({"PMD.CompareObjectsWithEquals", "ReferenceEquality"})
     private static boolean sameConnection(Entity expected, Entity actual) {
         return expected == actual;
     }
