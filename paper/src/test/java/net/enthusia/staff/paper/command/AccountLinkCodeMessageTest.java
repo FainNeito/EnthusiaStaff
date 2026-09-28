@@ -1,6 +1,8 @@
 package net.enthusia.staff.paper.command;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import net.enthusia.staff.domain.application.AccountLinkCodeException;
 import org.junit.jupiter.api.Test;
@@ -28,5 +30,13 @@ class AccountLinkCodeMessageTest {
                 "That link code was already used. Request a new link code if you still need to link.",
                 AccountLinkCommand.linkCodeFailureMessage(AccountLinkCodeException.Reason.ALREADY_USED)
         );
+    }
+
+    @Test
+    void malformedInputIsRejectedBeforeAccountLinkServiceInvocation() {
+        assertFalse(AccountLinkCommand.validLinkCodeInput(null));
+        assertFalse(AccountLinkCommand.validLinkCodeInput("   "));
+        assertFalse(AccountLinkCommand.validLinkCodeInput("A".repeat(33)));
+        assertTrue(AccountLinkCommand.validLinkCodeInput(" ABCD2345 "));
     }
 }
