@@ -91,7 +91,7 @@ final class RoseChatAutomatedModerationProvider implements RoseChatAutomatedMode
     }
 
     @Override
-    public AutomatedModerationResult applyPublicMute(AutomatedPublicMuteRequest request) {
+    public synchronized AutomatedModerationResult applyPublicMute(AutomatedPublicMuteRequest request) {
         Objects.requireNonNull(request, "request");
         if (closed) {
             return AutomatedModerationResult.unavailable("EnthusiaStaff AI moderation provider is closed");
