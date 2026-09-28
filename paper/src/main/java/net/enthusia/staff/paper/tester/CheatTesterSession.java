@@ -37,7 +37,7 @@ final class CheatTesterSession {
     volatile ScheduledTask sampleTask;
     volatile float previousFallDistance;
     volatile float maxFallDistance;
-    volatile double maximumDisplacement;
+    volatile double maximumDisplacement = -1.0D;
     volatile double minimumAimAngleDegrees = 180.0D;
 
     CheatTesterSession(
