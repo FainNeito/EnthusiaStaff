@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -34,6 +35,8 @@ public final class ReportsCommand implements CommandExecutor, TabCompleter {
     public static final String EVIDENCE_PERMISSION = "enthusiastaff.reports.evidence";
     private static final String UNAVAILABLE = "unavailable";
     private static final int SINGLE_ARGUMENT = 1;
+    private static final int MIN_NOTE_ARGUMENTS = 2;
+    private static final int VIEW_ARGUMENTS = 2;
     private static final int MIN_EVIDENCE_ARGUMENTS = 3;
     private static final int MAX_EVIDENCE_ARGUMENTS = 5;
     private static final int STATE_CHANGE_MIN_ARGUMENTS = 3;
@@ -84,41 +87,61 @@ public final class ReportsCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (arguments.length == 0) {
-            if (sender instanceof Player player) {
-                gui.openQueue(player, ReportQueue.OPEN);
-            } else {
-                submit(sender, () -> list(sender, ReportQueue.OPEN, consoleActor()));
-            }
+            openDefaultQueue(sender);
             return true;
         }
-        if (arguments[0].equalsIgnoreCase("note")) {
-            return note(sender, arguments);
+        return route(sender, arguments);
+    }
+
+    private void openDefaultQueue(CommandSender sender) {
+        if (sender instanceof Player player) {
+            gui.openQueue(player, ReportQueue.OPEN);
+            return;
         }
-        if (arguments[0].equalsIgnoreCase("cancel") && arguments.length == SINGLE_ARGUMENT) {
-            if (sender instanceof Player player) {
-                gui.cancelNote(player);
-            } else {
-                sender.sendMessage(Component.text("Only a player can cancel a GUI report note."));
-            }
-            return true;
+        submit(sender, () -> list(sender, ReportQueue.OPEN, consoleActor()));
+    }
+
+    private boolean route(CommandSender sender, String[] arguments) {
+        return switch (arguments[0].toLowerCase(Locale.ROOT)) {
+            case "note" -> note(sender, arguments);
+            case "cancel" -> cancel(sender, arguments);
+            case "evidence" -> evidence(sender, arguments);
+            case "view" -> view(sender, arguments);
+            default -> queueOrStateChange(sender, arguments);
+        };
+    }
+
+    private boolean cancel(CommandSender sender, String[] arguments) {
+        if (arguments.length != SINGLE_ARGUMENT) {
+            return stateChange(sender, arguments);
         }
-        if (arguments[0].equalsIgnoreCase("evidence")) {
-            return evidence(sender, arguments);
+        if (sender instanceof Player player) {
+            gui.cancelNote(player);
+        } else {
+            sender.sendMessage(Component.text("Only a player can cancel a GUI report note."));
         }
+        return true;
+    }
+
+    private boolean view(CommandSender sender, String[] arguments) {
+        if (arguments.length != VIEW_ARGUMENTS) {
+            return stateChange(sender, arguments);
+        }
+        UUID reportId = uuid(sender, arguments[1]);
+        if (Objects.nonNull(reportId)) {
+            submit(sender, () -> details(sender, reportId));
+        }
+        return true;
+    }
+
+    private boolean queueOrStateChange(CommandSender sender, String[] arguments) {
         ReportQueue queue = parseQueue(arguments[0]);
-        if (queue != null && arguments.length == SINGLE_ARGUMENT) {
-            UUID actorId = actorId(sender);
-            submit(sender, () -> list(sender, queue, actorId));
-            return true;
+        if (queue == null || arguments.length != SINGLE_ARGUMENT) {
+            return stateChange(sender, arguments);
         }
-        if (arguments[0].equalsIgnoreCase("view") && arguments.length == 2) {
-            UUID reportId = uuid(sender, arguments[1]);
-            if (reportId != null) {
-                submit(sender, () -> details(sender, reportId));
-            }
-            return true;
-        }
-        return stateChange(sender, arguments);
+        UUID actorId = actorId(sender);
+        submit(sender, () -> list(sender, queue, actorId));
+        return true;
     }
 
     private boolean note(CommandSender sender, String[] arguments) {
@@ -126,7 +149,7 @@ public final class ReportsCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("Only a player can complete a GUI report note."));
             return true;
         }
-        if (arguments.length < 2) {
+        if (arguments.length < MIN_NOTE_ARGUMENTS) {
             sender.sendMessage(Component.text("Usage: /reports note <private action note>"));
             return true;
         }
@@ -471,11 +494,23 @@ public final class ReportsCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] arguments) {
-        if (arguments.length == SINGLE_ARGUMENT) {
-            return List.of("note", "cancel", "evidence", "open", "mine", "claimed", "review", "closed", "view",
-                    "claim", "awaitreview", "close", "noviolation");
+        if (!sender.hasPermission(MANAGE_PERMISSION)) {
+            return List.of();
         }
-        if (arguments.length == EVIDENCE_KIND_TAB_ARGUMENTS && arguments[0].equalsIgnoreCase("evidence")) {
+        if (arguments.length == SINGLE_ARGUMENT) {
+            List<String> suggestions = new ArrayList<>(List.of(
+                    "note", "cancel", "open", "mine", "claimed", "review", "closed", "view",
+                    "claim", "awaitreview", "close", "noviolation"
+            ));
+            if (!sender.hasPermission(EVIDENCE_PERMISSION)) {
+                return List.copyOf(suggestions);
+            }
+            suggestions.add(2, "evidence");
+            return List.copyOf(suggestions);
+        }
+        if (arguments.length == EVIDENCE_KIND_TAB_ARGUMENTS
+                && arguments[0].equalsIgnoreCase("evidence")
+                && sender.hasPermission(EVIDENCE_PERMISSION)) {
             return List.of("public", "private", "client");
         }
         return List.of();

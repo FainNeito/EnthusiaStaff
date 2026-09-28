@@ -130,6 +130,7 @@ public final class RoseChatIntegration implements AutoCloseable {
         private final Supplier<MuteEnforcementListener> mutes;
         private final FreezeManager freezes;
         private final StaffVisibilityService visibility;
+        private final RoseChatPrivateMessageVisibility privateMessages;
         private final ChatContextBuffer chat;
 
         private StaffBridge(
@@ -143,6 +144,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             this.mutes = mutes;
             this.freezes = freezes;
             this.visibility = visibility;
+            this.privateMessages = new RoseChatPrivateMessageVisibility(visibility);
             this.chat = chat;
         }
 
@@ -175,6 +177,10 @@ public final class RoseChatIntegration implements AutoCloseable {
 
         @Override
         public ModerationDecision beforePrivateMessage(PrivateMessageContext context) {
+            Optional<ModerationDecision> visibilityDecision = privateMessages.evaluate(context);
+            if (visibilityDecision.isPresent()) {
+                return visibilityDecision.orElseThrow();
+            }
             return freezes.isRestricted(context.senderId())
                     ? ModerationDecision.staffOnly()
                     : ModerationDecision.allow();
