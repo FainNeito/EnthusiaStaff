@@ -42,7 +42,12 @@ class MuseCommandRoutingRegressionTest {
     }
 
     @Test
-    void legacyRoseChatTimedMuteFormsAreDetectedBeforeTheyCanBeReadAsReasonIds() {
+    void legacyRoseChatTimedMuteFormsAreRejectedBeforeDraftPreparation() throws IOException {
+        String source = source("PunishmentCommand.java");
+        String command = method(source, "public boolean onCommand", "private void prepare");
+
+        assertTrue(command.contains("if (isLegacyTimedMute(route, args))"));
+        assertTrue(command.contains("legacyTimedMuteUsage(sender, label)"));
         assertTrue(PunishmentCommand.isLegacyTimedMute(
                 "mute",
                 new String[]{"Target", "10", "minutes"}
