@@ -19,6 +19,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class AccountLinkCommand implements CommandExecutor {
     private static final int NO_ARGUMENTS = 0;
     private static final int ONE_ARGUMENT = 1;
+    private static final int MAX_CODE_INPUT_LENGTH = 32;
 
     private final JavaPlugin plugin;
     private final Supplier<PaperAccountLinkRuntime> runtime;
@@ -50,6 +51,10 @@ public final class AccountLinkCommand implements CommandExecutor {
         }
         if (arguments.length == ONE_ARGUMENT) {
             String code = arguments[0];
+            if (!validLinkCodeInput(code)) {
+                player.sendMessage(Component.text(linkCodeFailureMessage(AccountLinkCodeException.Reason.INVALID)));
+                return true;
+            }
             submit(player, () -> complete(player, playerId, code), "Account-link completion");
             return true;
         }
@@ -96,6 +101,10 @@ public final class AccountLinkCommand implements CommandExecutor {
             throw new IllegalStateException("Account-link storage is not ready");
         }
         return current;
+    }
+
+    static boolean validLinkCodeInput(String code) {
+        return code != null && !code.isBlank() && code.trim().length() <= MAX_CODE_INPUT_LENGTH;
     }
 
     static String linkCodeFailureMessage(AccountLinkCodeException.Reason reason) {
