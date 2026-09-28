@@ -8,6 +8,7 @@ import net.enthusia.staff.domain.discord.DiscordPunishmentState;
 final class DiscordKickRetryPolicy {
     static final String PRE_EFFECT_RETRY = "KICK_PRE_EFFECT_RETRY";
     static final String RESULT_AMBIGUOUS = "KICK_RESULT_AMBIGUOUS";
+    static final String VERIFY_RETRY = "KICK_VERIFY_RETRY";
     private static final int FIRST_ATTEMPT = 1;
 
     private DiscordKickRetryPolicy() {
@@ -36,18 +37,33 @@ final class DiscordKickRetryPolicy {
             DiscordPunishment punishment,
             DiscordPunishmentGateway.EffectException failure
     ) {
-        return isKick(punishment)
-                && RESULT_AMBIGUOUS.equals(failure.errorCode())
-                && punishment.lastErrorCode().filter(RESULT_AMBIGUOUS::equals).isEmpty();
+        if (!isKick(punishment) || !RESULT_AMBIGUOUS.equals(failure.errorCode())) {
+            return false;
+        }
+        if (punishment.lastErrorCode().isEmpty()) {
+            return true;
+        }
+        return punishment.lastErrorCode().filter(RESULT_AMBIGUOUS::equals).isPresent()
+                && retryableVerificationCause(failure);
     }
 
     static String durableFailureCode(
             DiscordPunishment punishment,
             DiscordPunishmentGateway.EffectException failure
     ) {
+        if (isKick(punishment)
+                && RESULT_AMBIGUOUS.equals(failure.errorCode())
+                && retryableVerificationCause(failure)
+                && punishment.lastErrorCode().filter(RESULT_AMBIGUOUS::equals).isPresent()) {
+            return VERIFY_RETRY;
+        }
         if (isKick(punishment) && failure.retryable()) {
             return PRE_EFFECT_RETRY;
         }
         return failure.errorCode();
+    }
+
+    private static boolean retryableVerificationCause(DiscordPunishmentGateway.EffectException failure) {
+        return failure.getCause() instanceof DiscordPunishmentGateway.EffectException cause && cause.retryable();
     }
 }
