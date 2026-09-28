@@ -345,13 +345,12 @@ final class StaffToolSpectateFlowHarness {
             if (!actorHandle) {
                 throw new AssertionError("Only the actor may attach a spectator target");
             }
+            lastSpectator = targetPlayer;
             if (targetPlayer == null) {
                 detachments++;
-                lastSpectator = null;
                 return null;
             }
             attachments++;
-            lastSpectator = targetPlayer;
             return null;
         }
 
