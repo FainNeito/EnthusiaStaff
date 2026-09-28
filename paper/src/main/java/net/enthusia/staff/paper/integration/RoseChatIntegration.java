@@ -3,6 +3,7 @@ package net.enthusia.staff.paper.integration;
 import dev.rosewood.rosechat.api.staff.BridgeRegistration;
 import dev.rosewood.rosechat.api.staff.BroadcastContext;
 import dev.rosewood.rosechat.api.staff.ChannelRecipientContext;
+import dev.rosewood.rosechat.api.staff.MessageSurface;
 import dev.rosewood.rosechat.api.staff.ModerationDecision;
 import dev.rosewood.rosechat.api.staff.PresenceContext;
 import dev.rosewood.rosechat.api.staff.PrivateMessageContext;
@@ -338,6 +339,9 @@ public final class RoseChatIntegration implements AutoCloseable {
             }
             return switch (enforcement.cachedStatus(context.senderId())) {
                 case CLEAR -> ModerationDecision.allow();
+                case PUBLIC_MUTED -> context.surface() == MessageSurface.PRIVATE_MESSAGE
+                        ? ModerationDecision.allow()
+                        : ModerationDecision.block("You are muted from public chat.");
                 case MUTED -> ModerationDecision.block("You are muted.");
                 case UNVERIFIED -> ModerationDecision.block(
                         "Your moderation status is still being verified. Please try again shortly."
