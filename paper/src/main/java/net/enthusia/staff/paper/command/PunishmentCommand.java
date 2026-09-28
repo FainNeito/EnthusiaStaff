@@ -465,8 +465,8 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
                 NamedTextColor.RED
         ));
         sender.sendMessage(Component.text(
-                "Use /" + label + " <target> <reason-id> [internal explanation], or /punish <target> to choose "
-                        + "a configured reason.",
+                "Use /" + label + " <target> <reason-id> [internal explanation], or use "
+                        + "/punish <target> <reason-id> to prepare the central punishment directly.",
                 NamedTextColor.YELLOW
         ));
     }
