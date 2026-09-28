@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 /** Regression guards for command-routing defects reproduced by the Muse staging run. */
 class MuseCommandRoutingRegressionTest {
     private static final Path COMMAND_ROOT = Path.of("src/main/java/net/enthusia/staff/paper/command");
+    private static final String MUTE_COMMAND = "mute";
+    private static final String TARGET = "Target";
 
     @Test
     void centralPunishSingleArgumentDoesNotOpenTheGui() throws IOException {
@@ -49,24 +51,24 @@ class MuseCommandRoutingRegressionTest {
         assertTrue(command.contains("if (isLegacyTimedMute(route, args))"));
         assertTrue(command.contains("legacyTimedMuteUsage(sender, label)"));
         assertTrue(PunishmentCommand.isLegacyTimedMute(
-                "mute",
-                new String[]{"Target", "10", "minutes"}
+                MUTE_COMMAND,
+                new String[]{TARGET, "10", "minutes"}
         ));
         assertTrue(PunishmentCommand.isLegacyTimedMute(
-                "mute",
-                new String[]{"Target", "10", "minutes", "spam"}
+                MUTE_COMMAND,
+                new String[]{TARGET, "10", "minutes", "spam"}
         ));
         assertTrue(PunishmentCommand.isLegacyTimedMute(
-                "mute",
-                new String[]{"Target", "1h", "spam"}
+                MUTE_COMMAND,
+                new String[]{TARGET, "1h", "spam"}
         ));
         assertFalse(PunishmentCommand.isLegacyTimedMute(
-                "mute",
-                new String[]{"Target", "spam-noise", "repeated messages"}
+                MUTE_COMMAND,
+                new String[]{TARGET, "spam-noise", "repeated messages"}
         ));
         assertFalse(PunishmentCommand.isLegacyTimedMute(
                 "ban",
-                new String[]{"Target", "10", "minutes"}
+                new String[]{TARGET, "10", "minutes"}
         ));
     }
 
