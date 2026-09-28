@@ -20,12 +20,14 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.java.JavaPlugin;
 
 /** Inventory-backed Cheat Tester selector. Server-owned holder state is authoritative for click routing. */
 final class CheatTesterConfigurationMenu implements Listener {
     static final int CLOSE_SLOT = 26;
     static final int INFO_SLOT = 22;
     private static final int SIZE = 27;
+    private static final long NEXT_TICK = 1L;
     private static final Map<Integer, CheatTesterType> TYPES_BY_SLOT = Map.of(
             10, CheatTesterType.TOTEM_REFILL,
             11, CheatTesterType.NO_FALL,
@@ -34,6 +36,7 @@ final class CheatTesterConfigurationMenu implements Listener {
             15, CheatTesterType.FAKE_ENTITY
     );
 
+    private final JavaPlugin plugin;
     private final CheatTesterControlState controls;
     private final CheatTesterSettings settings;
     private final BooleanSupplier fakeAvailable;
@@ -45,6 +48,7 @@ final class CheatTesterConfigurationMenu implements Listener {
             BooleanSupplier fakeAvailable,
             IntSupplier activeCount
     ) {
+        this.plugin = JavaPlugin.getProvidingPlugin(CheatTesterConfigurationMenu.class);
         this.controls = java.util.Objects.requireNonNull(controls, "controls");
         this.settings = java.util.Objects.requireNonNull(settings, "settings");
         this.fakeAvailable = java.util.Objects.requireNonNull(fakeAvailable, "fakeAvailable");
@@ -69,14 +73,17 @@ final class CheatTesterConfigurationMenu implements Listener {
             return;
         }
         if (!controls.authorized(viewer)) {
-            viewer.closeInventory();
+            scheduleAuthorizedViewChange(viewer, viewer::closeInventory);
             return;
         }
         if (event.getRawSlot() == CLOSE_SLOT) {
-            viewer.closeInventory();
+            scheduleAuthorizedViewChange(viewer, viewer::closeInventory);
             return;
         }
-        select(viewer, typeAtSlot(event.getRawSlot()));
+        CheatTesterType selected = typeAtSlot(event.getRawSlot());
+        if (selected != null) {
+            scheduleAuthorizedViewChange(viewer, () -> select(viewer, selected));
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -86,10 +93,22 @@ final class CheatTesterConfigurationMenu implements Listener {
         }
     }
 
+    private void scheduleAuthorizedViewChange(Player viewer, Runnable action) {
+        viewer.getScheduler().execute(
+                plugin,
+                () -> {
+                    if (!controls.authorized(viewer)) {
+                        viewer.closeInventory();
+                        return;
+                    }
+                    action.run();
+                },
+                null,
+                NEXT_TICK
+        );
+    }
+
     private void select(Player viewer, CheatTesterType type) {
-        if (type == null) {
-            return;
-        }
         if (controls.select(viewer, type, fakeAvailable.getAsBoolean())) {
             viewer.openInventory(render(viewer));
         }
