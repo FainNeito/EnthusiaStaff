@@ -10,8 +10,10 @@ import dev.rosewood.rosechat.api.staff.RoseChatModerationBridge;
 import dev.rosewood.rosechat.api.staff.RoseChatStaffService;
 import dev.rosewood.rosechat.api.staff.StaffChannelConfiguration;
 import dev.rosewood.rosechat.api.staff.TransmissionContext;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import net.enthusia.staff.domain.OperationalMode;
@@ -33,6 +35,38 @@ public final class RoseChatIntegration implements AutoCloseable {
     ) {
         this.service = Objects.requireNonNull(service, "service");
         this.registration = Objects.requireNonNull(registration, "registration");
+    }
+
+    public static Discovery discoverAndInstall(
+            ServicesManager services,
+            ChannelSettings channels,
+            Supplier<OperationalMode> mode,
+            Supplier<MuteEnforcementListener> mutes,
+            FreezeManager freezes,
+            StaffVisibilityService visibility,
+            ChatContextBuffer chat
+    ) {
+        Objects.requireNonNull(channels, "channels");
+        try {
+            return discoverAndInstall(
+                    services,
+                    new StaffChannelConfiguration(
+                            channels.staffChannelId(),
+                            channels.globalChannelId(),
+                            Set.copyOf(channels.privateChannelIds())
+                    ),
+                    mode,
+                    mutes,
+                    freezes,
+                    visibility,
+                    chat
+            );
+        } catch (LinkageError exception) {
+            return Discovery.unavailable(
+                    "RoseChat staff API could not be linked: "
+                            + exception.getClass().getSimpleName()
+            );
+        }
     }
 
     public static Discovery discoverAndInstall(
@@ -109,6 +143,18 @@ public final class RoseChatIntegration implements AutoCloseable {
     @Override
     public void close() {
         registration.close();
+    }
+
+    public record ChannelSettings(
+            String staffChannelId,
+            String globalChannelId,
+            List<String> privateChannelIds
+    ) {
+        public ChannelSettings {
+            staffChannelId = Objects.requireNonNull(staffChannelId, "staffChannelId");
+            globalChannelId = Objects.requireNonNull(globalChannelId, "globalChannelId");
+            privateChannelIds = List.copyOf(Objects.requireNonNull(privateChannelIds, "privateChannelIds"));
+        }
     }
 
     public record Discovery(Optional<RoseChatIntegration> integration, String issue) {

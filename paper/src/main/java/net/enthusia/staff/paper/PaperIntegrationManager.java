@@ -1,12 +1,10 @@
 package net.enthusia.staff.paper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.rosewood.rosechat.api.staff.StaffChannelConfiguration;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -245,7 +243,11 @@ final class PaperIntegrationManager implements Listener {
         try {
             RoseChatIntegration.Discovery discovery = RoseChatIntegration.discoverAndInstall(
                     plugin().getServer().getServicesManager(),
-                    configuredStaffChannels(),
+                    new RoseChatIntegration.ChannelSettings(
+                            plugin().getConfig().getString("rosechat.staff-channel", "staff"),
+                            plugin().getConfig().getString("rosechat.global-channel", "global"),
+                            plugin().getConfig().getStringList("rosechat.private-channels")
+                    ),
                     dependencies.policy().authoritativeMode(),
                     dependencies.evidence().muteEnforcement(),
                     dependencies.players().freeze(),
@@ -370,14 +372,6 @@ final class PaperIntegrationManager implements Listener {
             return false;
         }
         return true;
-    }
-
-    private StaffChannelConfiguration configuredStaffChannels() {
-        return new StaffChannelConfiguration(
-                plugin().getConfig().getString("rosechat.staff-channel", "staff"),
-                plugin().getConfig().getString("rosechat.global-channel", "global"),
-                Set.copyOf(plugin().getConfig().getStringList("rosechat.private-channels"))
-        );
     }
 
     private void invalidateMuteCache(java.util.UUID playerId) {
