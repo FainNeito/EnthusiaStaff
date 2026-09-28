@@ -46,7 +46,7 @@ final class RoseChatAutomatedModerationProvider implements RoseChatAutomatedMode
             List.of(new PunishmentStep(
                     0,
                     "30 day public mute",
-                    List.of(new SanctionSpec(SanctionType.MUTE, SanctionLength.temporary(REQUIRED_MUTE)))
+                    List.of(new SanctionSpec(SanctionType.PUBLIC_MUTE, SanctionLength.temporary(REQUIRED_MUTE)))
             )),
             List.of(),
             true,
@@ -54,7 +54,7 @@ final class RoseChatAutomatedModerationProvider implements RoseChatAutomatedMode
             false,
             StaffRank.MOD,
             true,
-            AltInheritanceMode.ACTIVE_SANCTIONS
+            AltInheritanceMode.NONE
     );
 
     private final JavaPlugin plugin;
