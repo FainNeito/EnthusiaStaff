@@ -3,8 +3,13 @@ package net.enthusia.staff.integration;
 import static net.enthusia.staff.integration.InventoryRestorationTestSupport.checksum;
 import static net.enthusia.staff.integration.MariaDbIntegrationSupport.databaseConfig;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -67,6 +72,41 @@ class InventoryPlayerRegistrationRaceIntegrationTest {
             var player = runtime.playerDirectory().find(playerId.toString()).orElseThrow();
             assertEquals("RaceTarget", player.currentUsername().orElseThrow());
             assertTrue(runtime.inventoryJournalStore().latest(playerId, "survival").isPresent());
+        }
+    }
+
+    @Test
+    void rejectedObservationDoesNotCommitPlaceholderPlayerRow() throws Exception {
+        UUID playerId = UUID.randomUUID();
+        byte[] snapshot = {1, 2, 3, 4};
+        byte[] different = {9, 8, 7, 6};
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig(DATABASE))) {
+            assertThrows(IllegalArgumentException.class, () -> runtime.inventoryJournalStore().recordObservation(
+                    playerId,
+                    "survival",
+                    "paper-race",
+                    checksum(different),
+                    snapshot,
+                    NOW
+            ));
+            assertEquals(0L, playerRowCount(playerId));
+        }
+    }
+
+    private static long playerRowCount(UUID playerId) throws Exception {
+        try (Connection connection = DriverManager.getConnection(
+                DATABASE.getJdbcUrl(), DATABASE.getUsername(), DATABASE.getPassword()
+        ); PreparedStatement statement = connection.prepareStatement("""
+                SELECT COUNT(*)
+                FROM players
+                WHERE player_id = UNHEX(REPLACE(?, '-', ''))
+                """)) {
+            statement.setString(1, playerId.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                result.next();
+                return result.getLong(1);
+            }
         }
     }
 
