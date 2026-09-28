@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -127,7 +128,7 @@ public final class ReportsCommand implements CommandExecutor, TabCompleter {
             return stateChange(sender, arguments);
         }
         UUID reportId = uuid(sender, arguments[1]);
-        if (reportId != null) {
+        if (Objects.nonNull(reportId)) {
             submit(sender, () -> details(sender, reportId));
         }
         return true;
