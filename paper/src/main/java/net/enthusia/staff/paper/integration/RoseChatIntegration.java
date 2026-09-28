@@ -39,23 +39,21 @@ public final class RoseChatIntegration implements AutoCloseable {
 
     public static Discovery discoverAndInstall(
             ServicesManager services,
-            String staffChannelId,
-            String globalChannelId,
-            List<String> privateChannelIds,
+            ChannelSettings channels,
             Supplier<OperationalMode> mode,
             Supplier<MuteEnforcementListener> mutes,
             FreezeManager freezes,
             StaffVisibilityService visibility,
             ChatContextBuffer chat
     ) {
-        Objects.requireNonNull(privateChannelIds, "privateChannelIds");
+        Objects.requireNonNull(channels, "channels");
         try {
             return discoverAndInstall(
                     services,
                     new StaffChannelConfiguration(
-                            staffChannelId,
-                            globalChannelId,
-                            Set.copyOf(privateChannelIds)
+                            channels.staffChannelId(),
+                            channels.globalChannelId(),
+                            Set.copyOf(channels.privateChannelIds())
                     ),
                     mode,
                     mutes,
@@ -63,7 +61,7 @@ public final class RoseChatIntegration implements AutoCloseable {
                     visibility,
                     chat
             );
-        } catch (LinkageError | RuntimeException exception) {
+        } catch (LinkageError exception) {
             return Discovery.unavailable(
                     "RoseChat staff API could not be linked: "
                             + exception.getClass().getSimpleName()
@@ -145,6 +143,18 @@ public final class RoseChatIntegration implements AutoCloseable {
     @Override
     public void close() {
         registration.close();
+    }
+
+    public record ChannelSettings(
+            String staffChannelId,
+            String globalChannelId,
+            List<String> privateChannelIds
+    ) {
+        public ChannelSettings {
+            staffChannelId = Objects.requireNonNull(staffChannelId, "staffChannelId");
+            globalChannelId = Objects.requireNonNull(globalChannelId, "globalChannelId");
+            privateChannelIds = List.copyOf(Objects.requireNonNull(privateChannelIds, "privateChannelIds"));
+        }
     }
 
     public record Discovery(Optional<RoseChatIntegration> integration, String issue) {
