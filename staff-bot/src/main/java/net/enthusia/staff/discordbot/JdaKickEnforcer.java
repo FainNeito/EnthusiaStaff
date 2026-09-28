@@ -77,22 +77,40 @@ final class JdaKickEnforcer {
     }
 
     private boolean ownedKickExists(Guild guild, DiscordPunishment punishment) {
-        long targetId = Long.parseUnsignedLong(punishment.targetUserId().value());
-        long actorId = guild.getSelfMember().getIdLong();
-        List<AuditLogEntry> entries = guild.retrieveAuditLogs()
-                .type(ActionType.KICK)
-                .user(guild.getSelfMember())
-                .limit(AUDIT_LIMIT)
-                .complete();
-        return entries.stream()
-                .map(JdaKickEnforcer::observation)
-                .anyMatch(entry -> provesOwnership(
-                        entry,
-                        punishment.punishmentId(),
-                        targetId,
-                        actorId,
-                        punishment.issuedAt()
-                ));
+        try {
+            long targetId = Long.parseUnsignedLong(punishment.targetUserId().value());
+            long actorId = guild.getSelfMember().getIdLong();
+            List<AuditLogEntry> entries = guild.retrieveAuditLogs()
+                    .type(ActionType.KICK)
+                    .user(guild.getSelfMember())
+                    .limit(AUDIT_LIMIT)
+                    .complete();
+            return entries.stream()
+                    .map(JdaKickEnforcer::observation)
+                    .anyMatch(entry -> provesOwnership(
+                            entry,
+                            punishment.punishmentId(),
+                            targetId,
+                            actorId,
+                            punishment.issuedAt()
+                    ));
+        } catch (RuntimeException failure) {
+            throw classifyAuditLookupFailure(failure);
+        }
+    }
+
+    static DiscordPunishmentGateway.EffectException classifyAuditLookupFailure(RuntimeException failure) {
+        if (failure instanceof DiscordPunishmentGateway.EffectException effect) {
+            return effect;
+        }
+        if (failure instanceof InsufficientPermissionException || failure instanceof HierarchyException) {
+            return failure("KICK_AUDIT_PERMISSION_DENIED", false, failure);
+        }
+        if (failure instanceof ErrorResponseException response) {
+            String code = response.getErrorResponse().name();
+            return failure("KICK_AUDIT_DISCORD_" + code, retryableCode(code), failure);
+        }
+        return failure(DiscordKickRetryPolicy.RESULT_AMBIGUOUS, false, failure);
     }
 
     static boolean provesOwnership(
