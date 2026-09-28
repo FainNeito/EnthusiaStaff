@@ -112,6 +112,45 @@ class DiscordKickRetryAmbiguityTest {
     }
 
     @Test
+    void transientFailureDuringVerificationGetsOneBoundedExtraVerificationWithoutRedispatch() {
+        DiscordPunishmentWorkerFakeRepository repository = repository(kick());
+        DiscordPunishmentWorkerFakeGateway gateway = new DiscordPunishmentWorkerFakeGateway();
+        gateway.applyFailure = ambiguousFailure();
+        repository.enqueue(WorkType.APPLY, NOW, 1);
+
+        worker(repository, gateway).runCycle();
+        DiscordPunishment firstAmbiguity = repository.current.punishment();
+        assertEquals(Optional.of(DiscordKickRetryPolicy.RESULT_AMBIGUOUS), firstAmbiguity.lastErrorCode());
+        assertTrue(DiscordKickRetryPolicy.verificationOnly(firstAmbiguity, 2));
+
+        DiscordPunishmentGateway.EffectException transientCause =
+                new DiscordPunishmentGateway.EffectException("GATEWAY_NOT_READY", true);
+        gateway.applyFailure = new DiscordPunishmentGateway.EffectException(
+                DiscordKickRetryPolicy.RESULT_AMBIGUOUS,
+                false,
+                transientCause
+        );
+        repository.makeNextDue();
+        worker(repository, gateway).runCycle();
+
+        DiscordPunishment verificationRetry = repository.current.punishment();
+        assertEquals(DiscordPunishmentState.RETRY_APPLY, verificationRetry.state());
+        assertEquals(Optional.of(DiscordKickRetryPolicy.VERIFY_RETRY), verificationRetry.lastErrorCode());
+        assertTrue(DiscordKickRetryPolicy.verificationOnly(verificationRetry, 3));
+        assertFalse(DiscordKickRetryPolicy.mayDispatch(verificationRetry, 3));
+        assertEquals(1, repository.work.size());
+
+        repository.makeNextDue();
+        worker(repository, gateway).runCycle();
+
+        DiscordPunishment exhausted = repository.current.punishment();
+        assertEquals(DiscordPunishmentState.FAILED_APPLY, exhausted.state());
+        assertFalse(exhausted.externalApplied());
+        assertTrue(repository.work.isEmpty());
+        assertEquals(0, gateway.notifyAppliedCalls);
+    }
+
+    @Test
     void restartCanSettleAmbiguousKickOnlyWhenVerificationProvesOwnership() {
         DiscordPunishmentWorkerFakeRepository repository = repository(kick());
         DiscordPunishmentWorkerFakeGateway failingGateway = new DiscordPunishmentWorkerFakeGateway();
