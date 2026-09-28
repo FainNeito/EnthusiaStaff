@@ -88,7 +88,7 @@ public final class MuteEnforcementListener implements Listener, AutoCloseable {
                     plugin,
                     () -> scheduleRefreshes(
                             plugin,
-                            plugin.getServer().getOnlinePlayers(),
+                            List.copyOf(plugin.getServer().getOnlinePlayers()),
                             this::refresh
                     )
             );
