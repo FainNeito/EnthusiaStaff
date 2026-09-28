@@ -4,9 +4,11 @@ import dev.rosewood.rosechat.api.staff.AutomatedModerationResult;
 import dev.rosewood.rosechat.api.staff.AutomatedPublicMuteRequest;
 import dev.rosewood.rosechat.api.staff.RoseChatAutomatedModerationService;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import net.enthusia.staff.common.IdempotencyKey;
@@ -32,6 +34,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 final class RoseChatAutomatedModerationProvider implements RoseChatAutomatedModerationService, AutoCloseable {
     static final String REASON_ID = "chat.ai-moderation";
     private static final Duration REQUIRED_MUTE = Duration.ofDays(30);
+    private static final Set<SanctionType> PUBLIC_MUTE_TYPES = Set.of(SanctionType.PUBLIC_MUTE);
     private static final Actor SYSTEM_ACTOR = new Actor(
             new UUID(0L, 0L),
             "Enthusia AI Moderation",
@@ -105,6 +108,17 @@ final class RoseChatAutomatedModerationProvider implements RoseChatAutomatedMode
             return AutomatedModerationResult.unavailable("EnthusiaStaff punishment service is not ready");
         }
         try {
+            if (!punishmentService.activeSanctions(
+                    request.targetId(),
+                    PUBLIC_MUTE_TYPES,
+                    Instant.now()
+            ).isEmpty()) {
+                MuteEnforcementListener enforcement = mutes.get();
+                if (enforcement != null) {
+                    enforcement.invalidate(request.targetId());
+                }
+                return AutomatedModerationResult.applied("an active AI public mute already exists");
+            }
             ensurePolicy();
             PunishmentResult result = punishmentService.create(
                     new CreatePunishmentRequest(
