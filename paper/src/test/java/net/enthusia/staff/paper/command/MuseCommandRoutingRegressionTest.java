@@ -1,5 +1,6 @@
 package net.enthusia.staff.paper.command;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -38,6 +39,30 @@ class MuseCommandRoutingRegressionTest {
 
         assertTrue(method.contains("!sender.hasPermission(MANAGE_PERMISSION)"));
         assertTrue(method.contains("!sender.hasPermission(EVIDENCE_PERMISSION)"));
+    }
+
+    @Test
+    void legacyRoseChatTimedMuteFormsAreDetectedBeforeTheyCanBeReadAsReasonIds() {
+        assertTrue(PunishmentCommand.isLegacyTimedMute(
+                "mute",
+                new String[]{"Target", "10", "minutes"}
+        ));
+        assertTrue(PunishmentCommand.isLegacyTimedMute(
+                "mute",
+                new String[]{"Target", "10", "minutes", "spam"}
+        ));
+        assertTrue(PunishmentCommand.isLegacyTimedMute(
+                "mute",
+                new String[]{"Target", "1h", "spam"}
+        ));
+        assertFalse(PunishmentCommand.isLegacyTimedMute(
+                "mute",
+                new String[]{"Target", "spam-noise", "repeated messages"}
+        ));
+        assertFalse(PunishmentCommand.isLegacyTimedMute(
+                "ban",
+                new String[]{"Target", "10", "minutes"}
+        ));
     }
 
     private static String source(String name) throws IOException {
