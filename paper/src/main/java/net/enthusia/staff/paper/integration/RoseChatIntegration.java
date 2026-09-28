@@ -12,6 +12,7 @@ import dev.rosewood.rosechat.api.staff.RoseChatStaffService;
 import dev.rosewood.rosechat.api.staff.StaffChannelConfiguration;
 import dev.rosewood.rosechat.api.staff.TransmissionContext;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -160,7 +161,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             BridgeRegistration registration = service.installBridge(
                     BRIDGE_OWNER,
                     configuration,
-                    new StaffBridge(mode, mutes, freezes, visibility, chat)
+                    new StaffBridge(configuration, mode, mutes, freezes, visibility, chat)
             );
             return new Discovery(
                     Optional.of(new RoseChatIntegration(service, registration)),
@@ -219,7 +220,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             BridgeRegistration registration = service.installBridge(
                     BRIDGE_OWNER,
                     configuration,
-                    new StaffBridge(mode, mutes, freezes, visibility, chat)
+                    new StaffBridge(configuration, mode, mutes, freezes, visibility, chat)
             );
             RoseChatAutomatedModerationProvider automated = null;
             try {
@@ -304,6 +305,7 @@ public final class RoseChatIntegration implements AutoCloseable {
     }
 
     private static final class StaffBridge implements RoseChatModerationBridge {
+        private final StaffChannelConfiguration channels;
         private final Supplier<OperationalMode> mode;
         private final Supplier<MuteEnforcementListener> mutes;
         private final FreezeManager freezes;
@@ -312,12 +314,14 @@ public final class RoseChatIntegration implements AutoCloseable {
         private final ChatContextBuffer chat;
 
         private StaffBridge(
+                StaffChannelConfiguration channels,
                 Supplier<OperationalMode> mode,
                 Supplier<MuteEnforcementListener> mutes,
                 FreezeManager freezes,
                 StaffVisibilityService visibility,
                 ChatContextBuffer chat
         ) {
+            this.channels = channels;
             this.mode = mode;
             this.mutes = mutes;
             this.freezes = freezes;
@@ -339,14 +343,25 @@ public final class RoseChatIntegration implements AutoCloseable {
             }
             return switch (enforcement.cachedStatus(context.senderId())) {
                 case CLEAR -> ModerationDecision.allow();
-                case PUBLIC_MUTED -> context.surface() == MessageSurface.PRIVATE_MESSAGE
-                        ? ModerationDecision.allow()
-                        : ModerationDecision.block("You are muted from public chat.");
+                case PUBLIC_MUTED -> isPublicTransmission(context)
+                        ? ModerationDecision.block("You are muted from public chat.")
+                        : ModerationDecision.allow();
                 case MUTED -> ModerationDecision.block("You are muted.");
                 case UNVERIFIED -> ModerationDecision.block(
                         "Your moderation status is still being verified. Please try again shortly."
                 );
             };
+        }
+
+        private boolean isPublicTransmission(TransmissionContext context) {
+            if (context.surface() == MessageSurface.PRIVATE_MESSAGE) {
+                return false;
+            }
+            String destination = context.destinationId();
+            if (destination.equalsIgnoreCase(channels.staffChannelId())) {
+                return false;
+            }
+            return !channels.privateChannelIds().contains(destination.toLowerCase(Locale.ROOT));
         }
 
         @Override
