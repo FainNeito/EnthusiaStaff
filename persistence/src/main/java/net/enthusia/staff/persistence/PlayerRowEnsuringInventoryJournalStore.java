@@ -1,9 +1,5 @@
 package net.enthusia.staff.persistence;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -23,23 +19,12 @@ import net.enthusia.staff.domain.inventory.InventoryPreparation;
 import net.enthusia.staff.domain.inventory.InventoryPrepareRequest;
 import net.enthusia.staff.domain.ports.InventoryJournalStore;
 
-/**
- * Ensures the inventory profile FK parent exists before profile-creating journal operations.
- * The placeholder never overwrites an observed player row; JdbcPlayerDirectory later enriches
- * it atomically with authoritative name, platform, and presence data.
- */
+/** Ensures the inventory player FK parent is created inside the delegate's actual JDBC transaction. */
 public final class PlayerRowEnsuringInventoryJournalStore implements InventoryJournalStore {
-    private static final String ENSURE_PLAYER = """
-            INSERT INTO players(player_id, platform, first_seen_at, last_seen_at)
-            VALUES (?, 'UNKNOWN', ?, ?)
-            ON DUPLICATE KEY UPDATE player_id = VALUES(player_id)
-            """;
-
-    private final DataSource dataSource;
     private final InventoryJournalStore delegate;
 
     public PlayerRowEnsuringInventoryJournalStore(DataSource dataSource, InventoryJournalStore delegate) {
-        this.dataSource = java.util.Objects.requireNonNull(dataSource, "dataSource");
+        java.util.Objects.requireNonNull(dataSource, "dataSource");
         this.delegate = java.util.Objects.requireNonNull(delegate, "delegate");
     }
 
@@ -49,10 +34,14 @@ public final class PlayerRowEnsuringInventoryJournalStore implements InventoryJo
             Duration leaseDuration,
             Instant now
     ) {
-        if (request != null) {
-            ensurePlayer(request.playerId(), now);
+        if (request == null) {
+            return delegate.beginConfiscation(null, leaseDuration, now);
         }
-        return delegate.beginConfiscation(request, leaseDuration, now);
+        return InventoryPlayerParentContext.withPlayer(
+                request.playerId(),
+                now,
+                () -> delegate.beginConfiscation(request, leaseDuration, now)
+        );
     }
 
     @Override
@@ -120,8 +109,11 @@ public final class PlayerRowEnsuringInventoryJournalStore implements InventoryJo
             byte[] snapshot,
             Instant observedAt
     ) {
-        ensurePlayer(playerId, observedAt);
-        return delegate.recordObservation(playerId, scopeId, owningServerId, checksum, snapshot, observedAt);
+        return InventoryPlayerParentContext.withPlayer(
+                playerId,
+                observedAt,
+                () -> delegate.recordObservation(playerId, scopeId, owningServerId, checksum, snapshot, observedAt)
+        );
     }
 
     @Override
@@ -131,9 +123,6 @@ public final class PlayerRowEnsuringInventoryJournalStore implements InventoryJo
 
     @Override
     public InventoryPreparation prepare(InventoryPrepareRequest request, Duration leaseDuration, Instant now) {
-        if (request != null) {
-            ensurePlayer(request.playerId(), now);
-        }
         return delegate.prepare(request, leaseDuration, now);
     }
 
@@ -191,20 +180,5 @@ public final class PlayerRowEnsuringInventoryJournalStore implements InventoryJo
     @Override
     public Optional<String> lockedOwningServer(UUID playerId, Instant now) {
         return delegate.lockedOwningServer(playerId, now);
-    }
-
-    private void ensurePlayer(UUID playerId, Instant observedAt) {
-        if (playerId == null || observedAt == null) {
-            return;
-        }
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(ENSURE_PLAYER)) {
-            statement.setBytes(1, UuidBytes.toBytes(playerId));
-            statement.setTimestamp(2, Timestamp.from(observedAt));
-            statement.setTimestamp(3, Timestamp.from(observedAt));
-            statement.executeUpdate();
-        } catch (SQLException exception) {
-            throw new ModerationPersistenceException("Unable to ensure inventory player parent row", exception);
-        }
     }
 }
