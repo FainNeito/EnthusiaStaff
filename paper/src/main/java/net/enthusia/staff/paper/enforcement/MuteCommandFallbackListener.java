@@ -53,7 +53,7 @@ public final class MuteCommandFallbackListener implements Listener {
 
     static Decision decision(MuteEnforcementListener.CachedMuteStatus status) {
         return switch (status) {
-            case CLEAR -> Decision.ALLOW;
+            case CLEAR, PUBLIC_MUTED -> Decision.ALLOW;
             case MUTED -> Decision.MUTED;
             case UNVERIFIED -> Decision.VERIFY;
         };
