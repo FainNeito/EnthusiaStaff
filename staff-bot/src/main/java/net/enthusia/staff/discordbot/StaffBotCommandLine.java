@@ -215,14 +215,36 @@ final class StaffBotCommandLine {
 
         private void validateMode(boolean tunnelRequested) {
             if (stagingUiPreview) {
-                if (tokenFile == null) {
-                    throw invalidArguments();
-                }
+                validatePreviewMode();
                 return;
             }
-            if (tunnelRequested || previewWebBind != null || previewPublicUrl != null) {
+            validateNormalMode(tunnelRequested);
+        }
+
+        private void validatePreviewMode() {
+            if (tokenFile == null) {
                 throw invalidArguments();
             }
+        }
+
+        private void validateNormalMode(boolean tunnelRequested) {
+            validateNoPreviewOptions(tunnelRequested);
+            validateFilePair();
+        }
+
+        private void validateNoPreviewOptions(boolean tunnelRequested) {
+            if (tunnelRequested) {
+                throw invalidArguments();
+            }
+            if (previewWebBind != null) {
+                throw invalidArguments();
+            }
+            if (previewPublicUrl != null) {
+                throw invalidArguments();
+            }
+        }
+
+        private void validateFilePair() {
             if ((tokenFile == null) != (moderationConfigFile == null)) {
                 throw invalidArguments();
             }
