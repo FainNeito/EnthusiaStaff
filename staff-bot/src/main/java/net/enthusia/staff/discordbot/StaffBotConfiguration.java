@@ -109,8 +109,8 @@ public final class StaffBotConfiguration {
         if (commandLine.stagingUiPreview()) {
             return fromPreviewStartup(commandLine, values);
         }
-        if (commandLine.fileBackedStaging()) {
-            return fromFileBackedStaging(commandLine, values);
+        if (commandLine.fileBackedStartup()) {
+            return fromFileBackedStartup(commandLine, values);
         }
         return fromEnvironment(values);
     }
@@ -130,13 +130,14 @@ public final class StaffBotConfiguration {
         return fromEnvironment(effectiveValues);
     }
 
-    private static StaffBotConfiguration fromFileBackedStaging(
+    private static StaffBotConfiguration fromFileBackedStartup(
             StaffBotCommandLine commandLine,
             Map<String, String> values
     ) {
-        rejectEnvironmentConflict(values, StaffBotEnvironment.STAGING);
+        StaffBotEnvironment environment = commandLine.environment().orElse(StaffBotEnvironment.STAGING);
+        rejectEnvironmentConflict(values, environment);
         Map<String, String> effectiveValues = new HashMap<>(values);
-        effectiveValues.put(ENVIRONMENT_KEY, StaffBotEnvironment.STAGING.label());
+        effectiveValues.put(ENVIRONMENT_KEY, environment.label());
         effectiveValues.put(UI_PREVIEW_KEY, Boolean.FALSE.toString());
         effectiveValues.put(TOKEN_KEY, StaffBotTokenFile.read(commandLine.tokenFile().orElseThrow(
                 () -> new IllegalArgumentException("file-backed startup requires a token file"))));
