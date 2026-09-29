@@ -22,7 +22,7 @@ class StaffBotFileBackedStartupTest {
         StaffBotCommandLine commandLine = fileBackedCommandLine(Path.of("t"), Path.of("m"));
 
         assertFalse(commandLine.stagingUiPreview());
-        assertEquals("staging", commandLine.environment().orElseThrow());
+        assertTrue(commandLine.fileBackedStaging());
         assertEquals(Path.of("t"), commandLine.tokenFile().orElseThrow());
         assertEquals(Path.of("m"), commandLine.moderationConfigFile().orElseThrow());
         assertTrue(commandLine.tunnelFiles().isEmpty());
@@ -44,7 +44,7 @@ class StaffBotFileBackedStartupTest {
     }
 
     @Test
-    void fileBackedStartupRejectsEnvironmentConflict() throws IOException {
+    void fileBackedStartupRejectsProductionProcessConflict() throws IOException {
         Path tokenFile = tempDir.resolve("t");
         Files.writeString(tokenFile, "staging-token");
         StaffBotCommandLine commandLine = fileBackedCommandLine(tokenFile, tempDir.resolve("m"));
@@ -59,15 +59,26 @@ class StaffBotFileBackedStartupTest {
     }
 
     @Test
-    void fileBackedStartupRejectsIncompleteTriplets() {
+    void fileBackedStartupAcceptsMatchingStagingProcessEnvironment() throws IOException {
+        Path tokenFile = tempDir.resolve("t");
+        Files.writeString(tokenFile, "staging-token");
+        StaffBotCommandLine commandLine = fileBackedCommandLine(tokenFile, tempDir.resolve("m"));
+
+        StaffBotConfiguration configuration = StaffBotConfiguration.fromStartup(
+                commandLine,
+                Map.of(StaffBotConfiguration.ENVIRONMENT_KEY, "staging"));
+
+        assertEquals(StaffBotEnvironment.STAGING, configuration.environment());
+        assertFalse(configuration.uiPreviewEnabled());
+    }
+
+    @Test
+    void fileBackedStartupRejectsIncompletePair() {
         assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
-                "--environment=staging", "--token-file=t"
+                "--token-file=t"
         }));
         assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
-                "--environment=staging", "--moderation-config-file=m"
-        }));
-        assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
-                "--token-file=t", "--moderation-config-file=m"
+                "--moderation-config-file=m"
         }));
     }
 
@@ -95,14 +106,13 @@ class StaffBotFileBackedStartupTest {
         assertFalse(rendered.contains("private"));
         assertFalse(rendered.contains("token-file"));
         assertFalse(rendered.contains("moderation-file"));
-        assertTrue(rendered.contains("environment=<configured>"));
+        assertTrue(rendered.contains("fileBackedStaging=true"));
         assertTrue(rendered.contains("tokenFile=<configured>"));
         assertTrue(rendered.contains("moderationConfigFile=<configured>"));
     }
 
     private static StaffBotCommandLine fileBackedCommandLine(Path tokenFile, Path moderationFile) {
         return StaffBotCommandLine.parse(new String[] {
-                "--environment=staging",
                 "--token-file=" + tokenFile,
                 "--moderation-config-file=" + moderationFile
         });
