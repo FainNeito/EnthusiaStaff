@@ -13,7 +13,12 @@ public interface FreezeStore {
 
     boolean keepActive(UUID playerId, UUID actorId, String reason, Instant now);
 
-    void disconnected(UUID playerId, Instant offlineExpiration, Instant now);
+    Optional<FreezeRecord> disconnected(
+            UUID playerId,
+            long expectedRevision,
+            Instant offlineExpiration,
+            Instant now
+    );
 
     Optional<FreezeRecord> connected(UUID playerId, long expectedRevision, Instant now);
 
