@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,4 +21,12 @@ await mkdir(assets, { recursive: true });
 await cp(resolve(source, 'index.html'), resolve(output, 'index.html'));
 for (const name of webAssets) {
   await cp(resolve(source, name), resolve(assets, name));
+}
+if (process.env.MODERATION_WEB_ENVIRONMENT === 'production') {
+  const directRead = resolve(assets, 'direct-read.js');
+  const staging = 'https://moderation-read-staging.enthusia.info';
+  const production = 'https://moderation-read.enthusia.info';
+  const contents = await readFile(directRead, 'utf8');
+  if (!contents.includes(staging)) throw new Error('staging read origin missing from source asset');
+  await writeFile(directRead, contents.replaceAll(staging, production));
 }

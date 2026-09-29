@@ -5,6 +5,7 @@ const DEFAULT_LIMIT = 25;
 const MAX_FILTER_TEXT = 200;
 const MAX_LIMIT = 50;
 const READ_API_ORIGIN = 'https://moderation-read-staging.enthusia.info';
+const PRODUCTION_READ_API_ORIGIN = 'https://moderation-read.enthusia.info';
 const MESSAGE_FILTER_KEYS = new Set(['channel', 'before', 'after', 'around', 'author', 'text', 'date', 'limit']);
 const BOOTSTRAP_FILTER_KEYS = new Set(['browse', 'channel', 'target']);
 const SIGNED_MESSAGE_FIELDS = Object.freeze(['afterMessageId', 'aroundMessageId', 'authorId', 'beforeMessageId', 'channelId', 'date', 'limit', 'text']);
@@ -26,7 +27,7 @@ export async function prepareModerationRead(env, session, endpoint, browserInput
   const nonce = randomToken(24);
   const signature = await signRequest(keyHex, 'POST', path, body, timestamp, nonce);
   return new Response(JSON.stringify({
-    origin: READ_API_ORIGIN,
+    origin: env.RUNTIME_ENVIRONMENT === 'production' ? PRODUCTION_READ_API_ORIGIN : READ_API_ORIGIN,
     path,
     method: 'POST',
     body,

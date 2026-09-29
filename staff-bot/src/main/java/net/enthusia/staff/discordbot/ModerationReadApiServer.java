@@ -50,9 +50,16 @@ final class ModerationReadApiServer implements AutoCloseable {
     private final ModerationReadApiAuthenticator authenticator;
     private final ModerationReadApiRateLimiter rateLimiter;
     private final ModerationReadApiService service;
+    private final String allowedOrigin;
 
     ModerationReadApiServer(String discordBotToken, ModerationReadApiService service) throws IOException {
+        this(discordBotToken, service, PREVIEW_ORIGIN);
+    }
+
+    ModerationReadApiServer(String discordBotToken, ModerationReadApiService service, String allowedOrigin)
+            throws IOException {
         this.service = Objects.requireNonNull(service, "service");
+        this.allowedOrigin = Objects.requireNonNull(allowedOrigin, "allowedOrigin");
         this.authenticator = new ModerationReadApiAuthenticator(discordBotToken);
         this.rateLimiter = new ModerationReadApiRateLimiter(REQUESTS_PER_MINUTE, Duration.ofMinutes(1));
         this.json = jsonMapper();
@@ -93,7 +100,7 @@ final class ModerationReadApiServer implements AutoCloseable {
                 handlePreflight(exchange);
                 return;
             }
-            if (!originAllowed(exchange.getRequestHeaders().get(ORIGIN_HEADER))) {
+            if (!originAllowedFor(exchange.getRequestHeaders().get(ORIGIN_HEADER))) {
                 respond(exchange, 403, new ModerationReadApiModel.ErrorResponse("forbidden", "Access denied."));
                 return;
             }
@@ -120,7 +127,7 @@ final class ModerationReadApiServer implements AutoCloseable {
     }
 
     private void handlePreflight(HttpExchange exchange) throws IOException {
-        if (!browserOrigin(exchange.getRequestHeaders().get(ORIGIN_HEADER))
+        if (!browserOriginFor(exchange.getRequestHeaders().get(ORIGIN_HEADER))
                 || !POST_METHOD.equals(exchange.getRequestHeaders().getFirst(REQUEST_METHOD_HEADER))
                 || !validPreflightHeaders(exchange.getRequestHeaders().getFirst(REQUEST_HEADERS_HEADER))) {
             respond(exchange, 403, new ModerationReadApiModel.ErrorResponse("forbidden", "Access denied."));
@@ -171,6 +178,14 @@ final class ModerationReadApiServer implements AutoCloseable {
         return origins != null && origins.size() == 1 && PREVIEW_ORIGIN.equals(origins.getFirst());
     }
 
+    private boolean originAllowedFor(List<String> origins) {
+        return origins == null || origins.isEmpty() || browserOriginFor(origins);
+    }
+
+    private boolean browserOriginFor(List<String> origins) {
+        return origins != null && origins.size() == 1 && allowedOrigin.equals(origins.getFirst());
+    }
+
     static boolean validPreflightHeaders(String raw) {
         if (raw == null || raw.isBlank()) {
             return false;
@@ -214,11 +229,11 @@ final class ModerationReadApiServer implements AutoCloseable {
         exchange.getResponseBody().write(bytes);
     }
 
-    private static void applyCorsHeaders(HttpExchange exchange) {
-        if (!browserOrigin(exchange.getRequestHeaders().get(ORIGIN_HEADER))) {
+    private void applyCorsHeaders(HttpExchange exchange) {
+        if (!browserOriginFor(exchange.getRequestHeaders().get(ORIGIN_HEADER))) {
             return;
         }
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", PREVIEW_ORIGIN);
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", allowedOrigin);
         exchange.getResponseHeaders().add("Vary", ORIGIN_HEADER);
     }
 

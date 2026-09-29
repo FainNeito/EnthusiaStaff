@@ -1,6 +1,7 @@
 package net.enthusia.staff.discordbot;
 
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -12,6 +13,8 @@ public final class StaffBotConfiguration {
     public static final String ENVIRONMENT_KEY = "ENTHUSIA_STAFF_BOT_ENVIRONMENT";
     public static final String TOKEN_KEY = "ENTHUSIA_STAFF_BOT_TOKEN";
     public static final String UI_PREVIEW_KEY = "ENTHUSIA_STAFF_BOT_UI_PREVIEW";
+    public static final String MODERATION_WEB_URL_KEY = "ENTHUSIA_STAFF_BOT_MODERATION_WEB_URL";
+    private static final URI PRODUCTION_MODERATION_WEB_URI = URI.create("https://staff.enthusia.info");
     public static final String HEALTH_HOST_KEY = "ENTHUSIA_STAFF_BOT_HEALTH_HOST";
     public static final String HEALTH_PORT_KEY = "ENTHUSIA_STAFF_BOT_HEALTH_PORT";
     public static final String WORKER_THREADS_KEY = "ENTHUSIA_STAFF_BOT_WORKER_THREADS";
@@ -40,6 +43,7 @@ public final class StaffBotConfiguration {
     private final int interactionCapacity;
     private final Duration interactionTtl;
     private final ModerationPreviewWebConfig previewWebConfig;
+    private final java.util.Optional<URI> moderationWebUri;
 
     StaffBotConfiguration(
             StaffBotEnvironment environment,
@@ -59,6 +63,7 @@ public final class StaffBotConfiguration {
         this.interactionCapacity = bounded("interaction capacity", interactionCapacity, 16, 65536);
         this.interactionTtl = Objects.requireNonNull(interactionTtl, "interactionTtl");
         this.previewWebConfig = ModerationPreviewWebConfig.fromEnvironment(Map.of());
+        this.moderationWebUri = java.util.Optional.empty();
         validateRuntimeBounds();
     }
 
@@ -73,6 +78,20 @@ public final class StaffBotConfiguration {
         this.interactionCapacity = source.interactionCapacity;
         this.interactionTtl = source.interactionTtl;
         this.previewWebConfig = Objects.requireNonNull(previewWebConfig, "previewWebConfig");
+        this.moderationWebUri = source.moderationWebUri;
+    }
+
+    private StaffBotConfiguration(StaffBotConfiguration source, URI moderationWebUri) {
+        this.environment = source.environment;
+        this.discordToken = source.discordToken;
+        this.uiPreviewEnabled = source.uiPreviewEnabled;
+        this.healthAddress = source.healthAddress;
+        this.workerThreads = source.workerThreads;
+        this.workerQueueCapacity = source.workerQueueCapacity;
+        this.interactionCapacity = source.interactionCapacity;
+        this.interactionTtl = source.interactionTtl;
+        this.previewWebConfig = source.previewWebConfig;
+        this.moderationWebUri = java.util.Optional.of(moderationWebUri);
     }
 
     StaffBotConfiguration(
@@ -141,6 +160,7 @@ public final class StaffBotConfiguration {
         effectiveValues.put(UI_PREVIEW_KEY, Boolean.FALSE.toString());
         effectiveValues.put(TOKEN_KEY, StaffBotTokenFile.read(commandLine.tokenFile().orElseThrow(
                 () -> new IllegalArgumentException("file-backed startup requires a token file"))));
+        commandLine.moderationWebUrl().ifPresent(value -> effectiveValues.put(MODERATION_WEB_URL_KEY, value));
         return fromEnvironment(effectiveValues);
     }
 
@@ -172,10 +192,29 @@ public final class StaffBotConfiguration {
                 queueCapacity,
                 interactionCapacity,
                 Duration.ofSeconds(interactionTtlSeconds));
-        if (!uiPreviewEnabled) {
+        if (uiPreviewEnabled) {
+            return new StaffBotConfiguration(base, ModerationPreviewWebConfig.fromEnvironment(values));
+        }
+        String webUrl = values.getOrDefault(MODERATION_WEB_URL_KEY, "").trim();
+        if (webUrl.isEmpty()) {
             return base;
         }
-        return new StaffBotConfiguration(base, ModerationPreviewWebConfig.fromEnvironment(values));
+        if (environment != StaffBotEnvironment.PRODUCTION) {
+            throw new IllegalArgumentException("moderation website requires production environment");
+        }
+        URI uri = URI.create(webUrl);
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
+                || uri.getUserInfo() != null || uri.getPort() != -1
+                || uri.getRawQuery() != null || uri.getRawFragment() != null
+                || (uri.getRawPath() != null && !uri.getRawPath().isEmpty()
+                && !"/".equals(uri.getRawPath()))) {
+            throw new IllegalArgumentException("moderation website URL must be an HTTPS origin");
+        }
+        URI origin = URI.create("https://" + uri.getHost());
+        if (!PRODUCTION_MODERATION_WEB_URI.equals(origin)) {
+            throw new IllegalArgumentException("moderation website URL must match the pinned production origin");
+        }
+        return new StaffBotConfiguration(base, origin);
     }
 
     public StaffBotEnvironment environment() {
@@ -212,6 +251,10 @@ public final class StaffBotConfiguration {
 
     ModerationPreviewWebConfig previewWebConfig() {
         return previewWebConfig;
+    }
+
+    java.util.Optional<URI> moderationWebUri() {
+        return moderationWebUri;
     }
 
     public int maxReconnectDelaySeconds() {

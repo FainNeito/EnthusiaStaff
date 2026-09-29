@@ -15,6 +15,7 @@ final class StaffBotCommandLine {
     private static final String TUNNEL_TOKEN_FILE_PREFIX = "--tunnel-token-file=";
     private static final String PREVIEW_WEB_BIND_PREFIX = "--preview-web-bind=";
     private static final String PREVIEW_PUBLIC_URL_PREFIX = "--preview-public-url=";
+    private static final String MODERATION_WEB_URL_PREFIX = "--moderation-web-url=";
 
     private final boolean smokeTest;
     private final boolean stagingUiPreview;
@@ -25,6 +26,7 @@ final class StaffBotCommandLine {
     private final Path tunnelTokenFile;
     private final String previewWebBind;
     private final String previewPublicUrl;
+    private final String moderationWebUrl;
 
     private StaffBotCommandLine(Parser parser) {
         this.smokeTest = parser.smokeTest;
@@ -36,6 +38,7 @@ final class StaffBotCommandLine {
         this.tunnelTokenFile = parser.tunnelTokenFile;
         this.previewWebBind = parser.previewWebBind;
         this.previewPublicUrl = parser.previewPublicUrl;
+        this.moderationWebUrl = parser.moderationWebUrl;
     }
 
     static StaffBotCommandLine parse(String[] arguments) {
@@ -90,6 +93,10 @@ final class StaffBotCommandLine {
         return Optional.ofNullable(previewPublicUrl);
     }
 
+    Optional<String> moderationWebUrl() {
+        return Optional.ofNullable(moderationWebUrl);
+    }
+
     @Override
     public String toString() {
         return "StaffBotCommandLine[smokeTest=" + smokeTest
@@ -101,7 +108,8 @@ final class StaffBotCommandLine {
                 + ", tunnelBinaryFile=" + configured(tunnelBinaryFile)
                 + ", tunnelTokenFile=" + configured(tunnelTokenFile)
                 + ", previewWebBind=" + configured(previewWebBind)
-                + ", previewPublicUrl=" + configured(previewPublicUrl) + "]";
+                + ", previewPublicUrl=" + configured(previewPublicUrl)
+                + ", moderationWebUrl=" + configured(moderationWebUrl) + "]";
     }
 
     private static String configured(Object value) {
@@ -149,6 +157,7 @@ final class StaffBotCommandLine {
         private Path tunnelTokenFile;
         private String previewWebBind;
         private String previewPublicUrl;
+        private String moderationWebUrl;
 
         private void accept(String argument) {
             if (acceptFlag(argument) || acceptPath(argument) || acceptPreviewValue(argument)) {
@@ -206,6 +215,10 @@ final class StaffBotCommandLine {
                 previewPublicUrl = setStringOnce(previewPublicUrl, argument, PREVIEW_PUBLIC_URL_PREFIX);
                 return true;
             }
+            if (argument.startsWith(MODERATION_WEB_URL_PREFIX)) {
+                moderationWebUrl = setStringOnce(moderationWebUrl, argument, MODERATION_WEB_URL_PREFIX);
+                return true;
+            }
             return false;
         }
 
@@ -238,7 +251,7 @@ final class StaffBotCommandLine {
         }
 
         private void validatePreviewMode() {
-            if (tokenFile == null || environment != null) {
+            if (tokenFile == null || environment != null || moderationWebUrl != null) {
                 throw invalidArguments();
             }
         }
@@ -249,10 +262,14 @@ final class StaffBotCommandLine {
             if (environment != null && tokenFile == null) {
                 throw invalidArguments();
             }
+            if (moderationWebUrl != null && (environment != StaffBotEnvironment.PRODUCTION
+                    || !tunnelRequested || tokenFile == null)) {
+                throw invalidArguments();
+            }
         }
 
         private void validateNoPreviewOptions(boolean tunnelRequested) {
-            if (tunnelRequested) {
+            if (tunnelRequested && moderationWebUrl == null) {
                 throw invalidArguments();
             }
             if (previewWebBind != null) {
