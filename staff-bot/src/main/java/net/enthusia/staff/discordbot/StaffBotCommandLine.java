@@ -8,6 +8,7 @@ import java.util.Optional;
 final class StaffBotCommandLine {
     private static final String SMOKE_TEST_ARGUMENT = "--smoke-test";
     private static final String STAGING_UI_PREVIEW_ARGUMENT = "--staging-ui-preview";
+    private static final String ENVIRONMENT_PREFIX = "--environment=";
     private static final String TOKEN_FILE_PREFIX = "--token-file=";
     private static final String MODERATION_CONFIG_FILE_PREFIX = "--moderation-config-file=";
     private static final String TUNNEL_BINARY_FILE_PREFIX = "--tunnel-binary-file=";
@@ -17,6 +18,7 @@ final class StaffBotCommandLine {
 
     private final boolean smokeTest;
     private final boolean stagingUiPreview;
+    private final String environment;
     private final Path tokenFile;
     private final Path moderationConfigFile;
     private final Path tunnelBinaryFile;
@@ -27,6 +29,7 @@ final class StaffBotCommandLine {
     private StaffBotCommandLine(
             boolean smokeTest,
             boolean stagingUiPreview,
+            String environment,
             Path tokenFile,
             Path moderationConfigFile,
             Path tunnelBinaryFile,
@@ -36,6 +39,7 @@ final class StaffBotCommandLine {
     ) {
         this.smokeTest = smokeTest;
         this.stagingUiPreview = stagingUiPreview;
+        this.environment = environment;
         this.tokenFile = tokenFile;
         this.moderationConfigFile = moderationConfigFile;
         this.tunnelBinaryFile = tunnelBinaryFile;
@@ -66,6 +70,10 @@ final class StaffBotCommandLine {
         return stagingUiPreview;
     }
 
+    Optional<String> environment() {
+        return Optional.ofNullable(environment);
+    }
+
     Optional<Path> tokenFile() {
         return Optional.ofNullable(tokenFile);
     }
@@ -92,6 +100,7 @@ final class StaffBotCommandLine {
     public String toString() {
         return "StaffBotCommandLine[smokeTest=" + smokeTest
                 + ", stagingUiPreview=" + stagingUiPreview
+                + ", environment=" + configured(environment)
                 + ", tokenFile=" + configured(tokenFile)
                 + ", moderationConfigFile=" + configured(moderationConfigFile)
                 + ", tunnelBinaryFile=" + configured(tunnelBinaryFile)
@@ -138,6 +147,7 @@ final class StaffBotCommandLine {
     private static final class Parser {
         private boolean smokeTest;
         private boolean stagingUiPreview;
+        private String environment;
         private Path tokenFile;
         private Path moderationConfigFile;
         private Path tunnelBinaryFile;
@@ -186,6 +196,10 @@ final class StaffBotCommandLine {
         }
 
         private boolean acceptValue(String argument) {
+            if (argument.startsWith(ENVIRONMENT_PREFIX)) {
+                environment = setStringOnce(environment, argument, ENVIRONMENT_PREFIX);
+                return true;
+            }
             if (argument.startsWith(PREVIEW_WEB_BIND_PREFIX)) {
                 previewWebBind = setStringOnce(previewWebBind, argument, PREVIEW_WEB_BIND_PREFIX);
                 return true;
@@ -198,17 +212,14 @@ final class StaffBotCommandLine {
         }
 
         private StaffBotCommandLine finish() {
-            validatePreviewTokenPair();
             boolean tunnelRequested = tunnelRequested();
             validateTunnelConfiguration(tunnelRequested);
-            validatePreviewOnlyConfiguration(tunnelRequested);
-            return commandLine();
-        }
-
-        private void validatePreviewTokenPair() {
-            if (stagingUiPreview != (tokenFile != null)) {
-                throw invalidArguments();
+            if (stagingUiPreview) {
+                validatePreviewConfiguration();
+            } else {
+                validateNormalConfiguration(tunnelRequested);
             }
+            return commandLine();
         }
 
         private boolean tunnelRequested() {
@@ -224,12 +235,18 @@ final class StaffBotCommandLine {
             }
         }
 
-        private void validatePreviewOnlyConfiguration(boolean tunnelRequested) {
-            if (stagingUiPreview) {
-                return;
+        private void validatePreviewConfiguration() {
+            if (tokenFile == null || environment != null) {
+                throw invalidArguments();
             }
-            if (moderationConfigFile != null
-                    || tunnelRequested || previewWebBind != null || previewPublicUrl != null) {
+        }
+
+        private void validateNormalConfiguration(boolean tunnelRequested) {
+            if (tunnelRequested || previewWebBind != null || previewPublicUrl != null) {
+                throw invalidArguments();
+            }
+            boolean fileModeRequested = environment != null || tokenFile != null || moderationConfigFile != null;
+            if (fileModeRequested && (environment == null || tokenFile == null || moderationConfigFile == null)) {
                 throw invalidArguments();
             }
         }
@@ -238,6 +255,7 @@ final class StaffBotCommandLine {
             return new StaffBotCommandLine(
                     smokeTest,
                     stagingUiPreview,
+                    environment,
                     tokenFile,
                     moderationConfigFile,
                     tunnelBinaryFile,
