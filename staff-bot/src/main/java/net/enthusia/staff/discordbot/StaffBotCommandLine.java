@@ -26,26 +26,16 @@ final class StaffBotCommandLine {
     private final String previewWebBind;
     private final String previewPublicUrl;
 
-    private StaffBotCommandLine(
-            boolean smokeTest,
-            boolean stagingUiPreview,
-            String environment,
-            Path tokenFile,
-            Path moderationConfigFile,
-            Path tunnelBinaryFile,
-            Path tunnelTokenFile,
-            String previewWebBind,
-            String previewPublicUrl
-    ) {
-        this.smokeTest = smokeTest;
-        this.stagingUiPreview = stagingUiPreview;
-        this.environment = environment;
-        this.tokenFile = tokenFile;
-        this.moderationConfigFile = moderationConfigFile;
-        this.tunnelBinaryFile = tunnelBinaryFile;
-        this.tunnelTokenFile = tunnelTokenFile;
-        this.previewWebBind = previewWebBind;
-        this.previewPublicUrl = previewPublicUrl;
+    private StaffBotCommandLine(Parser parser) {
+        this.smokeTest = parser.smokeTest;
+        this.stagingUiPreview = parser.stagingUiPreview;
+        this.environment = parser.environment;
+        this.tokenFile = parser.tokenFile;
+        this.moderationConfigFile = parser.moderationConfigFile;
+        this.tunnelBinaryFile = parser.tunnelBinaryFile;
+        this.tunnelTokenFile = parser.tunnelTokenFile;
+        this.previewWebBind = parser.previewWebBind;
+        this.previewPublicUrl = parser.previewPublicUrl;
     }
 
     static StaffBotCommandLine parse(String[] arguments) {
@@ -219,7 +209,7 @@ final class StaffBotCommandLine {
             } else {
                 validateNormalConfiguration(tunnelRequested);
             }
-            return commandLine();
+            return new StaffBotCommandLine(this);
         }
 
         private boolean tunnelRequested() {
@@ -249,19 +239,6 @@ final class StaffBotCommandLine {
             if (fileModeRequested && (environment == null || tokenFile == null || moderationConfigFile == null)) {
                 throw invalidArguments();
             }
-        }
-
-        private StaffBotCommandLine commandLine() {
-            return new StaffBotCommandLine(
-                    smokeTest,
-                    stagingUiPreview,
-                    environment,
-                    tokenFile,
-                    moderationConfigFile,
-                    tunnelBinaryFile,
-                    tunnelTokenFile,
-                    previewWebBind,
-                    previewPublicUrl);
         }
 
         private static Path setPathOnce(Path current, String argument, String prefix) {
