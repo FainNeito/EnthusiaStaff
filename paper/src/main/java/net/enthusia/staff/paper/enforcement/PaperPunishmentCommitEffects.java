@@ -79,7 +79,8 @@ public final class PaperPunishmentCommitEffects implements AutoCloseable {
     }
 
     private void invalidateMuteIfNeeded(UUID playerId, List<SanctionSpec> sanctions) {
-        if (sanctions.stream().noneMatch(spec -> spec.type() == SanctionType.MUTE)) {
+        if (sanctions.stream().noneMatch(spec ->
+                spec.type() == SanctionType.MUTE || spec.type() == SanctionType.PUBLIC_MUTE)) {
             return;
         }
         MuteEnforcementListener enforcement = muteEnforcement.get();

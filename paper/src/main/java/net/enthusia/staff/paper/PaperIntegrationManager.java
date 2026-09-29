@@ -252,7 +252,10 @@ final class PaperIntegrationManager implements Listener {
                     dependencies.evidence().muteEnforcement(),
                     dependencies.players().freeze(),
                     dependencies.players().visibility(),
-                    dependencies.evidence().chatContext().get()
+                    dependencies.evidence().chatContext().get(),
+                    plugin(),
+                    dependencies.stores().punishmentService(),
+                    dependencies.policy().reasons()
             );
             if (discovery.integration().isEmpty()) {
                 activateMuteFallback();
