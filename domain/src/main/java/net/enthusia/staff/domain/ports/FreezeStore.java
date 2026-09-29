@@ -15,9 +15,7 @@ public interface FreezeStore {
 
     void disconnected(UUID playerId, Instant offlineExpiration, Instant now);
 
-    default Optional<FreezeRecord> connected(UUID playerId, long expectedRevision, Instant now) {
-        throw new UnsupportedOperationException("freeze reconnect persistence is unavailable");
-    }
+    Optional<FreezeRecord> connected(UUID playerId, long expectedRevision, Instant now);
 
     Optional<FreezeRecord> readActive(UUID playerId, Instant now);
 
