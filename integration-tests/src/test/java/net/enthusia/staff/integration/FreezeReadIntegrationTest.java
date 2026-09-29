@@ -40,6 +40,7 @@ class FreezeReadIntegrationTest {
     @Test
     void readQueriesReturnCurrentRowsWithoutTransitioningExpiredState() throws Exception {
         try (MariaDbRuntime runtime = MariaDb.initialize(MariaDbIntegrationSupport.databaseConfig(DATABASE))) {
+            clearFreezeRows();
             insertPlayers();
             FreezeStore store = runtime.freezeStore();
             store.apply(ONLINE, ACTOR, "Online investigation", NOW);
@@ -70,6 +71,7 @@ class FreezeReadIntegrationTest {
     @Test
     void disconnectAndReconnectTransitionsAreRevisionFenced() throws Exception {
         try (MariaDbRuntime runtime = MariaDb.initialize(MariaDbIntegrationSupport.databaseConfig(DATABASE))) {
+            clearFreezeRows();
             MariaDbIntegrationSupport.insertPlayer(DATABASE, RECONNECT, "ReconnectFrozen", NOW);
             MariaDbIntegrationSupport.insertPlayer(DATABASE, EXPIRED_RECONNECT, "ExpiredReconnect", NOW);
             FreezeStore store = runtime.freezeStore();
@@ -135,6 +137,13 @@ class FreezeReadIntegrationTest {
                     expiringOffline.revision(),
                     NOW.plusSeconds(56)
             ).isPresent());
+        }
+    }
+
+    private static void clearFreezeRows() throws Exception {
+        try (Connection connection = MariaDbIntegrationSupport.connection(DATABASE);
+             PreparedStatement statement = connection.prepareStatement("DELETE FROM player_freezes")) {
+            statement.executeUpdate();
         }
     }
 
