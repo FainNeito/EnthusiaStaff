@@ -4,6 +4,7 @@ import java.util.function.Supplier;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.paper.auth.PaperStaffRankResolver;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.enthusia.staff.paper.staff.StaffModeManager;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
@@ -35,20 +36,37 @@ public final class StaffModeCommand implements CommandExecutor {
             sender.sendMessage(Component.text("Only a player can enter staff mode."));
             return true;
         }
-        if (mode.get() != OperationalMode.ACTIVE) {
-            player.sendMessage(Component.text("Staff-mode transitions are disabled while moderation is " + mode.get() + '.'));
+        if (recoveryRequested(arguments)) {
+            player.sendMessage(StaffMessageStyle.style(
+                    "Checking your durable staff-mode snapshot and repairing local state..."
+            ));
+            manager.recover(player);
             return true;
         }
-        if (manager.active(player.getUniqueId())) {
+        boolean activeSession = manager.active(player.getUniqueId());
+        OperationalMode currentMode = mode.get();
+        if (!StaffOperationalModeGate.staffModeTransitionAllowed(currentMode, activeSession)) {
+            player.sendMessage(StaffMessageStyle.style(
+                    "Staff-mode entry is disabled while moderation is " + currentMode + '.'
+            ));
+            return true;
+        }
+        if (activeSession) {
             manager.exit(player);
             return true;
         }
         StaffRank rank = PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
         if (rank == null) {
-            player.sendMessage(Component.text("An explicit EnthusiaStaff rank is required before entering staff mode."));
+            player.sendMessage(StaffMessageStyle.style(
+                    "An explicit EnthusiaStaff rank is required before entering staff mode."
+            ));
             return true;
         }
         manager.enter(player, rank);
         return true;
+    }
+
+    private static boolean recoveryRequested(String[] arguments) {
+        return arguments.length == 1 && "recover".equalsIgnoreCase(arguments[0]);
     }
 }

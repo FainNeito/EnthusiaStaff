@@ -19,8 +19,11 @@ import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.paper.api.StaffVisibilityService;
 import net.enthusia.staff.paper.freeze.FreezeManager;
 import net.enthusia.staff.paper.integration.RoseChatIntegration;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.ServicesManager;
@@ -53,7 +56,9 @@ class StaffChatCommandTest {
 
         assertTrue(command.onCommand(player, null, STAFF_CHAT_LABEL, new String[0]));
         assertEquals(0, lookups.get());
-        assertEquals(List.of(Component.text("You do not have permission to use staff chat.")), messages);
+        assertEquals(List.of(StaffMessageStyle.error(
+                "You do not have permission to use staff chat."
+        )), messages);
     }
 
     @Test
@@ -68,7 +73,9 @@ class StaffChatCommandTest {
 
         assertTrue(command.onCommand(sender, null, STAFF_CHAT_LABEL, new String[0]));
         assertEquals(0, lookups.get());
-        assertEquals(List.of("RoseChat channel state belongs to an online player."), messages);
+        assertEquals(List.of(StaffMessageStyle.warning(
+                "RoseChat channel state belongs to an online player."
+        )), messages);
     }
 
     @Test
@@ -83,7 +90,7 @@ class StaffChatCommandTest {
 
         assertTrue(command.onCommand(player, null, "sc", new String[]{"extra"}));
         assertEquals(0, lookups.get());
-        assertEquals(List.of(Component.text("Usage: /sc")), messages);
+        assertEquals(List.of(StaffMessageStyle.usage("Usage: /sc")), messages);
     }
 
     @Test
@@ -92,7 +99,9 @@ class StaffChatCommandTest {
         StaffChatCommand missing = new StaffChatCommand(() -> null);
 
         assertTrue(missing.onCommand(player(true, missingMessages), null, STAFF_CHAT_LABEL, new String[0]));
-        assertEquals(List.of(Component.text("RoseChat staff-channel integration is unavailable.")), missingMessages);
+        assertEquals(List.of(StaffMessageStyle.warning(
+                "RoseChat staff-channel integration is unavailable."
+        )), missingMessages);
 
         List<Object> inactiveMessages = new ArrayList<>();
         RoseChatIntegration inactiveIntegration = integration(
@@ -104,7 +113,9 @@ class StaffChatCommandTest {
         StaffChatCommand inactive = new StaffChatCommand(() -> inactiveIntegration);
 
         assertTrue(inactive.onCommand(player(true, inactiveMessages), null, STAFF_CHAT_LABEL, new String[0]));
-        assertEquals(List.of(Component.text("RoseChat staff-channel integration is unavailable.")), inactiveMessages);
+        assertEquals(List.of(StaffMessageStyle.warning(
+                "RoseChat staff-channel integration is unavailable."
+        )), inactiveMessages);
     }
 
     @Test
@@ -116,7 +127,9 @@ class StaffChatCommandTest {
 
         assertTrue(command.onCommand(player(true, messages), null, STAFF_CHAT_LABEL, new String[0]));
         assertEquals(PLAYER_ID, toggledPlayer.get());
-        assertEquals(List.of(Component.text("RoseChat has no configured staff channel.")), messages);
+        assertEquals(List.of(StaffMessageStyle.warning(
+                "RoseChat has no configured staff channel."
+        )), messages);
     }
 
     @Test
@@ -128,7 +141,15 @@ class StaffChatCommandTest {
 
         assertTrue(command.onCommand(player(true, messages), null, STAFF_CHAT_LABEL, new String[0]));
         assertEquals(PLAYER_ID, toggledPlayer.get());
-        assertEquals(List.of(Component.text("RoseChat channel switched to staff.")), messages);
+        assertEquals(List.of(
+                Component.text("STAFF CHAT", NamedTextColor.AQUA, TextDecoration.BOLD)
+                        .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                        .append(Component.text("Now speaking in ", NamedTextColor.GRAY))
+                        .append(Component.text(STAFF_CHANNEL, NamedTextColor.GREEN, TextDecoration.BOLD))
+                        .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                        .append(Component.text("/staffchat", NamedTextColor.AQUA))
+                        .append(Component.text(" to switch again", NamedTextColor.GRAY))
+        ), messages);
     }
 
     private static RoseChatIntegration integration(
