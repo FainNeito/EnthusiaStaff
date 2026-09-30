@@ -4,6 +4,7 @@ import java.util.function.Supplier;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.paper.auth.PaperStaffRankResolver;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.enthusia.staff.paper.staff.StaffModeManager;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
@@ -38,7 +39,9 @@ public final class StaffModeCommand implements CommandExecutor {
         boolean activeSession = manager.active(player.getUniqueId());
         OperationalMode currentMode = mode.get();
         if (!StaffOperationalModeGate.staffModeTransitionAllowed(currentMode, activeSession)) {
-            player.sendMessage(Component.text("Staff-mode entry is disabled while moderation is " + currentMode + '.'));
+            player.sendMessage(StaffMessageStyle.style(
+                    "Staff-mode entry is disabled while moderation is " + currentMode + '.'
+            ));
             return true;
         }
         if (activeSession) {
@@ -47,7 +50,9 @@ public final class StaffModeCommand implements CommandExecutor {
         }
         StaffRank rank = PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
         if (rank == null) {
-            player.sendMessage(Component.text("An explicit EnthusiaStaff rank is required before entering staff mode."));
+            player.sendMessage(StaffMessageStyle.style(
+                    "An explicit EnthusiaStaff rank is required before entering staff mode."
+            ));
             return true;
         }
         manager.enter(player, rank);

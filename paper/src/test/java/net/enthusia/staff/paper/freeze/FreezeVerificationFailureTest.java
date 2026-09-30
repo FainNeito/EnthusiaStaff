@@ -20,6 +20,7 @@ import java.util.function.BiFunction;
 import java.util.logging.Logger;
 import net.enthusia.staff.domain.freeze.FreezeRecord;
 import net.enthusia.staff.domain.ports.FreezeStore;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ final class FreezeVerificationFailureTest {
     private static final String EXECUTE_METHOD = "execute";
     private static final UUID PLAYER_ID = UUID.fromString("a321230f-30ce-499e-bd08-58126273d74c");
     private static final String PLAYER_NAME = "ReviewTarget";
-    private static final Component PLAYER_MESSAGE = Component.text(
+    private static final Component PLAYER_MESSAGE = StaffMessageStyle.error(
             "Your freeze status could not be verified. You remain restricted until staff review."
     );
     private static final List<String> SECURE_ORDER = List.of("leaveVehicle", "closeInventory", "sendMessage");

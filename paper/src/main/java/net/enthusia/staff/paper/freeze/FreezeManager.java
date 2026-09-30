@@ -18,6 +18,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.enthusia.staff.domain.freeze.FreezeRecord;
 import net.enthusia.staff.domain.ports.FreezeStore;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -62,7 +63,7 @@ public final class FreezeManager implements Listener {
     private static final Duration OFFLINE_EXPIRATION = Duration.ofMinutes(10);
     private static final String VERIFICATION_UNAVAILABLE_MESSAGE =
             "Your freeze status could not be verified. You remain restricted until staff review.";
-    private static final Component COMMAND_RESTRICTION_MESSAGE = Component.text(
+    private static final Component COMMAND_RESTRICTION_MESSAGE = StaffMessageStyle.error(
             "You are frozen; commands are unavailable until staff releases the freeze."
     );
 
@@ -155,7 +156,7 @@ public final class FreezeManager implements Listener {
             if (!runtimeState.isCurrentRelease(playerId, generation)) {
                 return;
             }
-            player.sendMessage(Component.text("Your staff freeze has been released."));
+            player.sendMessage(StaffMessageStyle.success("Your staff freeze has been released."));
         }, () -> runtimeState.retireIfCurrent(playerId, generation));
     }
 
@@ -506,7 +507,7 @@ public final class FreezeManager implements Listener {
     private void securePlayer(Player player) {
         player.leaveVehicle();
         player.closeInventory();
-        player.sendMessage(Component.text("You have been frozen by network staff."));
+        player.sendMessage(StaffMessageStyle.error("You have been frozen by network staff."));
     }
 
     private boolean restricted(Player player) {
@@ -522,8 +523,8 @@ public final class FreezeManager implements Listener {
     private void relayFrozenChat(Player player, Component body) {
         UUID playerId = player.getUniqueId();
         String playerName = player.getName();
-        Component rendered = Component.text("<" + playerName + "> ").append(body);
-        Component staffMessage = Component.text("[Frozen Chat] ").append(rendered);
+        Component rendered = StaffMessageStyle.player("<" + playerName + "> ").append(body);
+        Component staffMessage = StaffMessageStyle.info("[Frozen Chat] ").append(rendered);
         scheduleGlobal(() -> {
             List<Player> online = new ArrayList<>(plugin.getServer().getOnlinePlayers());
             online.forEach(recipient -> scheduleRecipient(plugin, recipient, () -> {
@@ -561,7 +562,7 @@ public final class FreezeManager implements Listener {
             }
             player.leaveVehicle();
             player.closeInventory();
-            player.sendMessage(Component.text(VERIFICATION_UNAVAILABLE_MESSAGE));
+            player.sendMessage(StaffMessageStyle.error(VERIFICATION_UNAVAILABLE_MESSAGE));
         });
         alertStaffDuringVerification(playerId, generation, staffMessage);
     }
@@ -579,7 +580,7 @@ public final class FreezeManager implements Listener {
             staffAlertSink.accept(message);
             return;
         }
-        Component alert = Component.text(message);
+        Component alert = StaffMessageStyle.style(message);
         List<Player> online = new ArrayList<>(plugin.getServer().getOnlinePlayers());
         online.forEach(player -> scheduleRecipient(plugin, player, () -> {
             if (player.hasPermission("enthusiastaff.freeze")) {
