@@ -35,11 +35,13 @@ public final class StaffModeCommand implements CommandExecutor {
             sender.sendMessage(Component.text("Only a player can enter staff mode."));
             return true;
         }
-        if (mode.get() != OperationalMode.ACTIVE) {
-            player.sendMessage(Component.text("Staff-mode transitions are disabled while moderation is " + mode.get() + '.'));
+        boolean activeSession = manager.active(player.getUniqueId());
+        OperationalMode currentMode = mode.get();
+        if (!StaffOperationalModeGate.staffModeTransitionAllowed(currentMode, activeSession)) {
+            player.sendMessage(Component.text("Staff-mode entry is disabled while moderation is " + currentMode + '.'));
             return true;
         }
-        if (manager.active(player.getUniqueId())) {
+        if (activeSession) {
             manager.exit(player);
             return true;
         }
