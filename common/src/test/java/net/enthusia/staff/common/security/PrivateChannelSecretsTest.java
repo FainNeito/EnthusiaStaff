@@ -39,11 +39,7 @@ class PrivateChannelSecretsTest {
 
     @Test
     void privateFileProvidesSecretsWhenEnvironmentIsEmpty() throws IOException {
-        Files.writeString(tempDir.resolve(PrivateChannelSecrets.FILE_NAME), String.join("\n",
-                "channel.backend-secret=backend-file",
-                "channel.proxy-secret=proxy-file",
-                "channel.tls-store-password=store-file",
-                ""));
+        writeValidFile();
 
         Map<String, String> loaded = PrivateChannelSecrets.load(tempDir, SOURCES, ignored -> null);
 
@@ -54,11 +50,7 @@ class PrivateChannelSecretsTest {
 
     @Test
     void partialEnvironmentSourceFailsClosedInsteadOfMixingWithFile() throws IOException {
-        Files.writeString(tempDir.resolve(PrivateChannelSecrets.FILE_NAME), String.join("\n",
-                "channel.backend-secret=backend-file",
-                "channel.proxy-secret=proxy-file",
-                "channel.tls-store-password=store-file",
-                ""));
+        writeValidFile();
 
         assertThrows(IllegalStateException.class, () -> PrivateChannelSecrets.load(
                 tempDir,
@@ -69,24 +61,62 @@ class PrivateChannelSecretsTest {
 
     @Test
     void fileWithUnexpectedEntriesFailsClosed() throws IOException {
-        Files.writeString(tempDir.resolve(PrivateChannelSecrets.FILE_NAME), String.join("\n",
+        Files.writeString(channelFile(), String.join("\n",
                 "channel.backend-secret=backend-file",
                 "channel.proxy-secret=proxy-file",
                 "channel.tls-store-password=store-file",
                 "unexpected=value",
                 ""));
 
+        assertFileRejected();
+    }
+
+    @Test
+    void blankRequiredFileValueFailsClosed() throws IOException {
+        Files.writeString(channelFile(), String.join("\n",
+                "channel.backend-secret=backend-file",
+                "channel.proxy-secret=   ",
+                "channel.tls-store-password=store-file",
+                ""));
+
+        assertFileRejected();
+    }
+
+    @Test
+    void oversizedPrivateFileFailsClosed() throws IOException {
+        Files.writeString(channelFile(), "x".repeat(16_385));
+
+        assertFileRejected();
+    }
+
+    @Test
+    void nonRegularPrivateFileFailsClosed() throws IOException {
+        Files.createDirectory(channelFile());
+
+        assertFileRejected();
+    }
+
+    @Test
+    void missingPrivateFileFailsClosed() {
+        assertFileRejected();
+    }
+
+    private void writeValidFile() throws IOException {
+        Files.writeString(channelFile(), String.join("\n",
+                "channel.backend-secret=backend-file",
+                "channel.proxy-secret=proxy-file",
+                "channel.tls-store-password=store-file",
+                ""));
+    }
+
+    private void assertFileRejected() {
         assertThrows(
                 IllegalStateException.class,
                 () -> PrivateChannelSecrets.load(tempDir, SOURCES, ignored -> null)
         );
     }
 
-    @Test
-    void missingPrivateFileFailsClosed() {
-        assertThrows(
-                IllegalStateException.class,
-                () -> PrivateChannelSecrets.load(tempDir, SOURCES, ignored -> null)
-        );
+    private Path channelFile() {
+        return tempDir.resolve(PrivateChannelSecrets.FILE_NAME);
     }
 }
