@@ -111,10 +111,40 @@ final class DiscordPunishmentService {
     }
 
     MutationResult confirmIssue(long actorDiscordId, String actorName, UUID token) {
+        return confirmIssue(actorDiscordId, actorName, token, UUID.randomUUID(), Optional.empty());
+    }
+
+    synchronized MutationResult confirmWebIssue(long actorDiscordId, String actorName, long targetDiscordId, UUID token) {
+        Optional<StoredPunishment> existing = webPunishment(actorDiscordId, actorName, targetDiscordId, token);
+        if (existing.isPresent()) {
+            StoredPunishment stored = existing.orElseThrow();
+            return new MutationResult(token, stored.punishment().state(), true);
+        }
+        return confirmIssue(actorDiscordId, actorName, token, token, Optional.of(discordUser(targetDiscordId)));
+    }
+
+    Optional<StoredPunishment> webPunishment(long actorDiscordId, String actorName, long targetDiscordId, UUID id) {
+        Actor actor = actor(actorDiscordId, actorName);
+        Optional<StoredPunishment> existing = punishments.find(id);
+        existing.ifPresent(stored -> {
+            DiscordPunishment punishment = stored.punishment();
+            if (!punishment.issuer().id().equals(actor.id()) || !punishment.guildId().equals(guildId)
+                    || !punishment.targetUserId().equals(discordUser(targetDiscordId))) {
+                throw new IllegalArgumentException("punishment does not belong to this request");
+            }
+        });
+        return existing;
+    }
+
+    private MutationResult confirmIssue(long actorDiscordId, String actorName, UUID token,
+            UUID punishmentId, Optional<DiscordUserId> expectedTarget) {
         Actor actor = actor(actorDiscordId, actorName);
         DiscordPunishmentConfirmationStore.Draft draft = confirmations.claimForActor(token, actor.id());
         if (draft.kind() != DiscordPunishmentConfirmationStore.Kind.ISSUE) {
             throw new IllegalArgumentException("confirmation does not issue a punishment");
+        }
+        if (expectedTarget.isPresent() && !expectedTarget.orElseThrow().equals(draft.targetUserId())) {
+            throw new IllegalArgumentException("confirmation target changed");
         }
         StaffModerationReadService.Target target = reads.discordTarget(draft.targetUserId());
         Optional<Actor> targetStaff = actors.targetStaff(target);
@@ -123,7 +153,6 @@ final class DiscordPunishmentService {
         gateway.preflight(guildId, draft.targetUserId(), intent);
         Instant now = clock.instant();
         ModerationSubjectId subjectId = subjects.apply(draft.targetUserId(), now);
-        UUID punishmentId = UUID.randomUUID();
         String operationKey = "d07:issue:" + punishmentId;
         DiscordPunishment punishment = DiscordPunishment.pending(
                 punishmentId, subjectId, draft.targetUserId(), guildId, actor, intent, now, operationKey
