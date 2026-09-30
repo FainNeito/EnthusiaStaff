@@ -12,7 +12,6 @@ import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
@@ -59,7 +58,15 @@ public final class HelperObserverProtectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onProjectileHit(ProjectileHitEvent event) {
-        if (!(event.getHitEntity() instanceof Player player) || !activeHelper(player)) {
+        if (!(event.getHitEntity() instanceof Player player)) {
+            return;
+        }
+        StaffRank rank = rank(player);
+        if (!HelperObserverPolicy.blocksProjectileCollision(
+                staffMode.active(player.getUniqueId()),
+                rank,
+                true
+        )) {
             return;
         }
         event.setCancelled(true);
@@ -74,9 +81,16 @@ public final class HelperObserverProtectionListener implements Listener {
     @SuppressWarnings("deprecation")
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFireworkCollision(ProjectileCollideEvent event) {
-        if (event.getEntity() instanceof Firework
-                && event.getCollidedWith() instanceof Player player
-                && activeHelper(player)) {
+        if (!(event.getEntity() instanceof Firework)
+                || !(event.getCollidedWith() instanceof Player player)) {
+            return;
+        }
+        StaffRank rank = rank(player);
+        if (HelperObserverPolicy.blocksProjectileCollision(
+                staffMode.active(player.getUniqueId()),
+                rank,
+                true
+        )) {
             event.setCancelled(true);
         }
     }
