@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -65,6 +67,8 @@ public final class PersistentChannelClient implements AutoCloseable {
     private final Map<UUID, CompletableFuture<Boolean>> pending = new ConcurrentHashMap<>();
     private final AtomicReference<Socket> socket = new AtomicReference<>();
     private final AtomicReference<DataOutputStream> output = new AtomicReference<>();
+    private final ScheduledExecutorService keepalives = Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().daemon(true).name("EnthusiaStaff-Channel-Keepalive").factory());
     private Thread connectionThread;
 
     public PersistentChannelClient(
@@ -102,7 +106,24 @@ public final class PersistentChannelClient implements AutoCloseable {
             connectionThread = new Thread(this::connectionLoop, "EnthusiaStaff-Channel-Client");
             connectionThread.setDaemon(true);
             connectionThread.start();
+            keepalives.scheduleAtFixedRate(this::keepalive, 30, 30, TimeUnit.SECONDS);
         }
+    }
+
+    private void keepalive() {
+        Socket current = socket.get();
+        if (!running.get() || current == null || current.isClosed()) {
+            return;
+        }
+        send(UUID.randomUUID(), "KEEPALIVE", "{}", Duration.ofSeconds(5)).thenAccept(acknowledged -> {
+            if (!acknowledged) {
+                try {
+                    current.close();
+                } catch (IOException ignored) {
+                    // The reader owns disconnect and reconnect; never close a later connection.
+                }
+            }
+        });
     }
 
     public boolean connected() {
@@ -256,6 +277,7 @@ public final class PersistentChannelClient implements AutoCloseable {
     public void close() {
         synchronized (lifecycleLock) {
             running.set(false);
+            keepalives.shutdownNow();
             disconnect();
             if (connectionThread != null) {
                 connectionThread.interrupt();

@@ -10,11 +10,40 @@ import java.util.List;
 import java.util.Map;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.CommandMap;
 import org.junit.jupiter.api.Test;
 
 class RoseChatCommandOwnershipCoordinatorTest {
     private static final String MUTE = "mute";
     private static final String STAFF = "staff";
+
+    @Test
+    void paperForwardingMapClaimsThroughItsBrigadierAccessors() {
+        Map<String, Command> dispatcher = new HashMap<>();
+        Map<String, Command> forwarding = new HashMap<>() {
+            @Override
+            public Command get(Object key) { return dispatcher.get(key); }
+
+            @Override
+            public Command put(String key, Command value) { return dispatcher.put(key, value); }
+        };
+        CommandMap commandMap = (CommandMap) java.lang.reflect.Proxy.newProxyInstance(
+                CommandMap.class.getClassLoader(), new Class<?>[]{CommandMap.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("getKnownCommands")) return forwarding;
+                    if (method.getName().equals("getCommand")) return forwarding.get(arguments[0]);
+                    throw new UnsupportedOperationException(method.getName());
+                });
+        var registry = new RoseChatCommandOwnershipCoordinator.PaperCommandRegistry(commandMap);
+        Command old = new StubCommand(MUTE);
+        Command replacement = new StubCommand(MUTE);
+        dispatcher.put(MUTE, old);
+        assertTrue(registry.claim(MUTE, old, replacement));
+        assertSame(replacement, dispatcher.get(MUTE));
+        assertTrue(registry.claim(STAFF, null, replacement));
+        org.junit.jupiter.api.Assertions.assertFalse(registry.claim(MUTE, old, old));
+        assertSame(replacement, dispatcher.get(MUTE));
+    }
 
     @Test
     void roseChatFirstBootRestoresBothControlledLabelsAndKeepsFallbacks() {
