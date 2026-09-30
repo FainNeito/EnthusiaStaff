@@ -680,11 +680,20 @@ public final class EnthusiaStaffVelocityPlugin {
         if (loaded.backendSecretEnvironments().isEmpty()) {
             throw new IllegalStateException("No required backend channel secrets are configured");
         }
-        Map<String, SecretKey> backendKeys = new LinkedHashMap<>();
-        loaded.backendSecretEnvironments().forEach((serverId, environment) ->
-                backendKeys.put(serverId, secretFromEnvironment(environment)));
-        SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
-        SSLContext tlsContext = serverTlsContext(loaded);
+        VelocityChannelSecrets.Loaded secrets = VelocityChannelSecrets.load(
+        loaded,
+        dataDirectory,
+        System::getenv
+);
+Map<String, SecretKey> backendKeys = secrets.backendKeys();
+SecretKey proxyKey = secrets.proxyKey();
+char[] tlsStorePassword = secrets.tlsStorePassword();
+SSLContext tlsContext;
+try {
+    tlsContext = serverTlsContext(loaded, tlsStorePassword);
+} finally {
+    Arrays.fill(tlsStorePassword, '\0');
+}
         try {
             PersistentChannelServer server = createChannelServer(
                     loaded, outbox, backendKeys, proxyKey, tlsContext
@@ -867,27 +876,12 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private static SecretKey secretFromEnvironment(String environment) {
-        String encoded = System.getenv(environment);
-        return SecretKeyMaterial.hmacSha256FromBase64(encoded);
-    }
-
-    private static SSLContext serverTlsContext(VelocityConfiguration configuration) {
-        char[] password = passwordFromEnvironment(configuration.channelTlsKeyStorePasswordEnvironment());
-        try {
-            return TlsContextLoader.server(configuration.channelTlsKeyStorePath(), password);
-        } finally {
-            Arrays.fill(password, '\0');
-        }
-    }
-
-    private static char[] passwordFromEnvironment(String environment) {
-        String value = System.getenv(environment);
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException("A required channel TLS store password environment variable is missing");
-        }
-        return value.toCharArray();
-    }
+    private static SSLContext serverTlsContext(
+        VelocityConfiguration configuration,
+        char[] password
+) {
+    return TlsContextLoader.server(configuration.channelTlsKeyStorePath(), password);
+}
 
     @SuppressWarnings("PMD.GuardLogStatement") // SLF4J placeholders defer formatting; arguments are enums.
     private void refreshOperationalState() {

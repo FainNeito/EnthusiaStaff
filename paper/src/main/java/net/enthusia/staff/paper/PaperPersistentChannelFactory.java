@@ -4,14 +4,15 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
+import net.enthusia.staff.common.security.PrivateChannelSecrets;
 import net.enthusia.staff.common.security.SecretKeyMaterial;
 import net.enthusia.staff.protocol.PersistentChannelClient;
 import net.enthusia.staff.protocol.ProtocolEnvelope;
@@ -23,6 +24,9 @@ final class PaperPersistentChannelFactory {
     private static final String VERIFY_REQUEST = "VERIFY_REQUEST";
     private static final String VERIFY_REPORT = "VERIFY_REPORT";
     private static final Duration VERIFY_RESPONSE_TIMEOUT = Duration.ofSeconds(2);
+    private static final String BACKEND_KEY_PROPERTY = "channel.backend-secret";
+    private static final String PROXY_KEY_PROPERTY = "channel.proxy-secret";
+    private static final String TLS_STORE_PROPERTY = "channel.tls-store-password";
 
     private PaperPersistentChannelFactory() {
     }
@@ -114,32 +118,37 @@ final class PaperPersistentChannelFactory {
     }
 
     private static ChannelConfiguration loadConfiguration(Settings settings) {
-        return new ChannelConfiguration(
-                settings.backendId(),
-                new PersistentChannelClient.Configuration(
-                        settings.backendId(),
-                        settings.host(),
-                        settings.port(),
-                        secretFromEnvironment(settings.backendSecretEnvironment()),
-                        settings.proxyId(),
-                        secretFromEnvironment(settings.proxySecretEnvironment()),
-                        clientTlsContext(settings)
-                )
+        Map<String, String> secrets = PrivateChannelSecrets.load(
+                settings.dataDirectory(),
+                Map.of(
+                        BACKEND_KEY_PROPERTY, settings.backendSecretEnvironment(),
+                        PROXY_KEY_PROPERTY, settings.proxySecretEnvironment(),
+                        TLS_STORE_PROPERTY, settings.trustStorePasswordEnvironment()
+                ),
+                System::getenv
         );
-    }
-
-    private static SecretKey secretFromEnvironment(String environment) {
-        return SecretKeyMaterial.hmacSha256FromBase64(System.getenv(environment));
-    }
-
-    private static SSLContext clientTlsContext(Settings settings) {
-        char[] password = passwordFromEnvironment(settings.trustStorePasswordEnvironment());
+        char[] password = secrets.get(TLS_STORE_PROPERTY).toCharArray();
         try {
-            Path resolved = resolveChannelTlsPath(settings.dataDirectory(), Path.of(settings.trustStore()));
-            return TlsContextLoader.client(resolved, password);
+            return new ChannelConfiguration(
+                    settings.backendId(),
+                    new PersistentChannelClient.Configuration(
+                            settings.backendId(),
+                            settings.host(),
+                            settings.port(),
+                            SecretKeyMaterial.hmacSha256FromBase64(secrets.get(BACKEND_KEY_PROPERTY).trim()),
+                            settings.proxyId(),
+                            SecretKeyMaterial.hmacSha256FromBase64(secrets.get(PROXY_KEY_PROPERTY).trim()),
+                            clientTlsContext(settings, password)
+                    )
+            );
         } finally {
             Arrays.fill(password, '\0');
         }
+    }
+
+    private static SSLContext clientTlsContext(Settings settings, char[] password) {
+        Path resolved = resolveChannelTlsPath(settings.dataDirectory(), Path.of(settings.trustStore()));
+        return TlsContextLoader.client(resolved, password);
     }
 
     private static Path resolveChannelTlsPath(Path dataDirectory, Path configured) {
@@ -151,14 +160,6 @@ final class PaperPersistentChannelFactory {
             throw new IllegalArgumentException("A relative channel TLS path must remain in the plugin data directory");
         }
         return resolved;
-    }
-
-    private static char[] passwordFromEnvironment(String environment) {
-        String value = System.getenv(environment);
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException("A required channel TLS store password environment variable is missing");
-        }
-        return value.toCharArray();
     }
 
     record Settings(
