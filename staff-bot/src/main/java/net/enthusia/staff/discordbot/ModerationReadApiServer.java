@@ -19,7 +19,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Loopback-only authenticated private read API. It exposes no mutation route. */
+/** Loopback-only authenticated moderation API with explicit read and confirmation routes. */
 final class ModerationReadApiServer implements AutoCloseable {
     private static final System.Logger LOGGER = System.getLogger(ModerationReadApiServer.class.getName());
     private static final String BIND_HOST = "127.0.0.1";
@@ -72,6 +72,9 @@ final class ModerationReadApiServer implements AutoCloseable {
         server.setExecutor(executor);
         server.createContext("/v1/moderation/bootstrap", exchange -> handle(exchange, true));
         server.createContext("/v1/moderation/messages", exchange -> handle(exchange, false));
+        for (String operation : List.of("capabilities", "prepare", "confirm", "status")) {
+            server.createContext("/v1/moderation/actions/" + operation, exchange -> handle(exchange, false));
+        }
     }
 
     static InetSocketAddress bindAddress() {
@@ -144,10 +147,18 @@ final class ModerationReadApiServer implements AutoCloseable {
 
     private void execute(HttpExchange exchange, byte[] body, boolean bootstrap) throws IOException {
         try {
+            String path = exchange.getRequestURI().getPath();
+            if (path.startsWith("/v1/moderation/actions/")) {
+                ModerationActionApiService.Request action = parseActionRequest(json, body);
+                if (action == null) throw new IllegalArgumentException("action request must be present");
+                respond(exchange, 200, service.action(path.substring("/v1/moderation/actions/".length()), action));
+                return;
+            }
             ModerationReadApiModel.ReadRequest request = parseRequest(json, body);
             Object response = bootstrap ? service.bootstrap(request) : service.messages(request);
             respond(exchange, 200, response);
-        } catch (StaffReadAuthorization.DeniedException | LinkedStaffActorResolver.MissingStaffLinkException exception) {
+        } catch (StaffReadAuthorization.DeniedException | LinkedStaffActorResolver.MissingStaffLinkException
+                | DiscordPunishmentAuthorization.DeniedException exception) {
             respond(exchange, 403, new ModerationReadApiModel.ErrorResponse("forbidden", "Access denied."));
         } catch (IllegalArgumentException exception) {
             respond(exchange, 400, new ModerationReadApiModel.ErrorResponse("invalid_request", "Request rejected."));
@@ -167,6 +178,14 @@ final class ModerationReadApiServer implements AutoCloseable {
             return request;
         } catch (JsonProcessingException exception) {
             throw new IllegalArgumentException("request JSON is invalid", exception);
+        }
+    }
+
+    static ModerationActionApiService.Request parseActionRequest(ObjectMapper json, byte[] body) throws IOException {
+        try {
+            return json.readValue(body, ModerationActionApiService.Request.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("action JSON is invalid", exception);
         }
     }
 

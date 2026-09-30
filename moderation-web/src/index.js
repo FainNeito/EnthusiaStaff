@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { inspectLaunchToken, validTargetKey } from './security.js';
 import { readBoundedBody } from './request-body.js';
-import { prepareModerationRead } from './backend.js';
+import { prepareModerationRead, prepareModerationAction } from './backend.js';
 
 const SESSION_COOKIE = '__Host-enthusia_mod_preview';
 const SESSION_TTL_SECONDS = 15 * 60;
@@ -24,7 +24,9 @@ const STATIC_PATHS = new Set([
   '/assets/live-shell-usability.js',
   '/assets/live-message-usability.js',
   '/assets/live-record-usability.js',
-  '/assets/live-browse-workspace.js'
+  '/assets/live-browse-workspace.js',
+  '/assets/live-filter-focus.js',
+  '/assets/live-actions.js'
 ]);
 const ROUTE_HANDLERS = new Map([
   ['/health', handleHealth],
@@ -32,7 +34,9 @@ const ROUTE_HANDLERS = new Map([
   ['/api/session', handleSession],
   ['/api/bootstrap', handleBootstrap],
   ['/api/messages', handleMessages],
-  ['/api/simulate', handleSimulation]
+  ['/api/simulate', handleSimulation],
+  ...['capabilities', 'prepare', 'confirm', 'status'].map(operation =>
+    ['/api/actions/' + operation, (request, env) => handleAction(request, env, operation)])
 ]);
 const encoder = new TextEncoder();
 
@@ -140,7 +144,8 @@ function isProtectedAssetPath(pathname) {
 
 function handleHealth(request, env) {
   if (request.method !== 'GET') return methodNotAllowed();
-  return jsonResponse({ status: 'ok', environment: runtimeEnvironment(env), mode: 'simulation-only' });
+  return jsonResponse({ status: 'ok', environment: runtimeEnvironment(env),
+    mode: runtimeEnvironment(env) === 'production' ? 'backend-controlled' : 'simulation-only' });
 }
 
 async function handleLaunch(request, env, url) {
@@ -176,6 +181,19 @@ function handleBootstrap(request, env) {
 
 function handleMessages(request, env) {
   return handleRead(request, env, 'messages');
+}
+
+async function handleAction(request, env, operation) {
+  if (request.method !== 'POST') return methodNotAllowed();
+  const session = await authorizedMutationSession(request, env);
+  if (!session) return textResponse('Session verification failed.', 403);
+  const parsed = await readJsonPayload(request);
+  if (parsed.error) return parsed.error;
+  try {
+    return await prepareModerationAction(env, session, operation, parsed.value);
+  } catch {
+    return jsonResponse({code:'invalid_request', message:'Action request is invalid.'}, 400);
+  }
 }
 
 async function handleRead(request, env, endpoint) {

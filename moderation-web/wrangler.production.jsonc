@@ -2,6 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "enthusia-staff-moderation-production",
   "main": "src/index.js",
+  "build": { "command": "node scripts/build.mjs --production" },
   "compatibility_date": "2026-09-01",
   "workers_dev": false,
   "routes": [{ "pattern": "staff.enthusia.info", "custom_domain": true }],

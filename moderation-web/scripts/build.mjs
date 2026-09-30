@@ -13,7 +13,7 @@ const webAssets = [
   'direct-read.js', 'live-context-page-policy.js', 'live-context-pagination.js', 'live-loading.js',
   'real-policy.js', 'live-enhancements.js', 'live-review-hardening.js', 'live-shell-usability.js',
   'live-message-usability.js', 'live-record-usability.js', 'live-browse-workspace.js',
-  'live-filter-focus.js'
+  'live-filter-focus.js', 'live-actions.js'
 ];
 
 await rm(output, { recursive: true, force: true });
@@ -22,11 +22,13 @@ await cp(resolve(source, 'index.html'), resolve(output, 'index.html'));
 for (const name of webAssets) {
   await cp(resolve(source, name), resolve(assets, name));
 }
-if (process.env.MODERATION_WEB_ENVIRONMENT === 'production') {
-  const directRead = resolve(assets, 'direct-read.js');
-  const staging = 'https://moderation-read-staging.enthusia.info';
-  const production = 'https://moderation-read.enthusia.info';
-  const contents = await readFile(directRead, 'utf8');
-  if (!contents.includes(staging)) throw new Error('staging read origin missing from source asset');
-  await writeFile(directRead, contents.replaceAll(staging, production));
+if (process.argv.includes('--production') || process.env.MODERATION_WEB_ENVIRONMENT === 'production') {
+  for (const name of ['direct-read.js', 'live-actions.js']) {
+    const directRead = resolve(assets, name);
+    const staging = 'https://moderation-read-staging.enthusia.info';
+    const production = 'https://moderation-read.enthusia.info';
+    const contents = await readFile(directRead, 'utf8');
+    if (!contents.includes(staging)) throw new Error('staging read origin missing from source asset');
+    await writeFile(directRead, contents.replaceAll(staging, production));
+  }
 }

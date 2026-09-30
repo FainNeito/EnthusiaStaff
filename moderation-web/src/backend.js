@@ -40,6 +40,36 @@ export async function prepareModerationRead(env, session, endpoint, browserInput
   });
 }
 
+/** Action proofs bind a CSRF-verified session to an exact allowlisted operation and body. */
+export async function prepareModerationAction(env, session, operation, input) {
+  if (env.RUNTIME_ENVIRONMENT !== 'production') throw new Error('live actions require production');
+  if (!['capabilities', 'prepare', 'confirm', 'status'].includes(operation)) throw new Error('invalid action operation');
+  requireFilterObject(input);
+  requireFilterKeys(input, new Set(['targetKey', 'intent', 'confirmationId']));
+  const targetKey = input.targetKey === undefined ? session.targetKey : input.targetKey;
+  if (typeof targetKey !== 'string' || !/^(channel:[1-9][0-9]{0,19}|discord:[1-9][0-9]{0,19}|discord-channel:[1-9][0-9]{0,19}:[1-9][0-9]{0,19}|message:[1-9][0-9]{0,19}:[1-9][0-9]{0,19}:[1-9][0-9]{0,19})$/.test(targetKey)) throw new Error('invalid action target');
+  if (operation === 'prepare') {
+    if (input.confirmationId !== undefined) throw new Error('invalid draft');
+    requireFilterObject(input.intent);
+    requireFilterKeys(input.intent, new Set(['type', 'duration', 'reason', 'explanation', 'restriction']));
+  } else if (input.intent !== undefined) throw new Error('cannot change prepared intent');
+  if (operation === 'confirm' || operation === 'status') {
+    if (typeof input.confirmationId !== 'string' || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(input.confirmationId)) throw new Error('invalid confirmation');
+  } else if (input.confirmationId !== undefined) throw new Error('invalid confirmation');
+  const keyHex = readSigningKey(env);
+  if (!keyHex) return unavailable();
+  const sessionBinding = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', textEncoder.encode(session.csrfToken))));
+  const body = JSON.stringify({actorId:session.actorId, guildId:session.guildId, targetKey,
+    sessionBinding, intent:input.intent ?? null, confirmationId:input.confirmationId ?? null});
+  if (textEncoder.encode(body).length > 65_536) throw new Error('action body too large');
+  const path = '/v1/moderation/actions/' + operation;
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = randomToken(24);
+  const signature = await signRequest(keyHex, 'POST', path, body, timestamp, nonce);
+  return new Response(JSON.stringify({origin:PRODUCTION_READ_API_ORIGIN, path, method:'POST', body, timestamp, nonce, signature}),
+    {headers:{'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'private, no-store'}});
+}
+
 export function browserMessageQuery(input) {
   requireFilterObject(input);
   requireFilterKeys(input, MESSAGE_FILTER_KEYS);

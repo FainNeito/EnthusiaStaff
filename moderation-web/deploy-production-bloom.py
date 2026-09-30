@@ -21,6 +21,9 @@ REMOTE_NAME = "prod-tunnel"
 REMOTE_JAR = "EnthusiaStaff-StaffBot.jar"
 PREVIOUS_JAR_SHA256 = "9a12cefd06b5158829ec8df4c4ed28c2d07bb119b2f1adbe546bc3fd31a7ce01"
 FIRST_WEB_JAR_SHA256 = "0e4a9c7c3cb4bceddd550843578d9b74e184f94c6fd132c3f35a7f9e1bc88ba8"
+PRODUCTION_WEB_JAR_SHA256 = "8cd85417ce26c66a851054fcb8ea2a4df29871917fd9bf86019271317d56ed4c"
+ACTION_WEB_JAR_SHA256 = "4702525c31861cdf0692288e38583fd32a0adc586b93c318e302745bcb585caf"
+HISTORY_WEB_JAR_SHA256 = "8d682c8edc8c7c88bae5441719d19dd10060c3b74b619d1073d35d36186a3708"
 LOCAL_JAR = Path(__file__).resolve().parent.parent / "staff-bot/build/libs/EnthusiaStaff-StaffBot-0.1.0-SNAPSHOT.jar"
 DETAILS_FILE = Path.home() / "OneDrive/Desktop/SFTP Details- ENTHUSIA NETWORK.md"
 HOST_KEYS_FILE = Path.home() / ".ssh/known_hosts_sentinel_bloom"
@@ -89,7 +92,8 @@ def upload_jar(sftp: paramiko.SFTPClient) -> None:
     if current_digest == expected:
         print(f"production_staff_jar_sha256={expected} (already installed)")
         return
-    if current_digest not in (PREVIOUS_JAR_SHA256, FIRST_WEB_JAR_SHA256):
+    if current_digest not in (PREVIOUS_JAR_SHA256, FIRST_WEB_JAR_SHA256, PRODUCTION_WEB_JAR_SHA256,
+                              ACTION_WEB_JAR_SHA256, HISTORY_WEB_JAR_SHA256):
         raise RuntimeError("Remote Staff Bot JAR differs from the verified previous deployment")
 
     temporary = ".EnthusiaStaff-StaffBot.jar.upload"

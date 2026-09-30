@@ -115,6 +115,12 @@ final class StaffModerationRuntime implements AutoCloseable {
         return readService;
     }
 
+    net.enthusia.staff.persistence.DiscordPunishmentHistoryReader.Page discordHistory(long guildId, long userId) {
+        return data.discordHistory(
+                new net.enthusia.staff.domain.moderation.DiscordGuildId(Long.toUnsignedString(guildId)),
+                new net.enthusia.staff.domain.moderation.DiscordUserId(Long.toUnsignedString(userId)), 50);
+    }
+
     LinkedStaffActorResolver actors() {
         return actorResolver;
     }
