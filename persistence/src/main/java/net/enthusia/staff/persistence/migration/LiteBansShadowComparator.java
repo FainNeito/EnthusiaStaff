@@ -205,7 +205,9 @@ final class LiteBansShadowComparator {
             if (!comparison.expirationMatches()) {
                 expirationMismatches++;
             }
-            decisionCounter(legacy.type()).record(comparison.decisionMatches());
+            if (legacy.type() != LegacySanctionType.WARNING && legacy.type() != LegacySanctionType.KICK) {
+                decisionCounter(legacy.type()).record(comparison.decisionMatches());
+            }
         }
 
         private RowComparison comparison(LegacySanction legacy, ImportedRow row) {
@@ -213,7 +215,7 @@ final class LiteBansShadowComparator {
             boolean typeMatches = row != null
                     && row.type() == LiteBansTargetImporter.sanctionType(legacy.type());
             return new RowComparison(
-                    row != null && checksum.calculate(List.of(legacy)).equals(row.checksum()),
+                    row != null && typeMatches && checksum.calculate(List.of(legacy)).equals(row.checksum()),
                     activeMatches,
                     uuidMatches(legacy, row),
                     row != null && legacy.expiresAt().equals(row.expiresAt()),
@@ -222,7 +224,7 @@ final class LiteBansShadowComparator {
         }
 
         private boolean activeMatches(LegacySanction legacy, ImportedRow row) {
-            boolean expectedActive = legacy.active()
+            boolean expectedActive = legacy.type() != LegacySanctionType.KICK && legacy.active()
                     && legacy.expiresAt().map(expiration -> expiration.isAfter(now)).orElse(true);
             return row != null && row.active() == expectedActive;
         }

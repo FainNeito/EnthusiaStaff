@@ -55,6 +55,14 @@ public final class LiteBansReader {
                 sourceCounts,
                 highWatermarks
         );
+        for (String kind : List.of("warnings", "kicks")) {
+            LiteBansSchemaReport.TableMapping mapping = report.importTables().get(kind);
+            if (mapping != null) {
+                readTable(connection, mapping,
+                        kind.equals("warnings") ? LegacySanctionType.WARNING : LegacySanctionType.KICK,
+                        batchSize, records, rejected, sourceCounts, highWatermarks);
+            }
+        }
         readHistory(
                 connection,
                 report.importTables().get("history"),
@@ -166,7 +174,7 @@ public final class LiteBansReader {
                 expiration,
                 row.endedAt(),
                 networkAddress,
-                row.active()
+                defaultType != LegacySanctionType.KICK && row.active()
         );
     }
 
