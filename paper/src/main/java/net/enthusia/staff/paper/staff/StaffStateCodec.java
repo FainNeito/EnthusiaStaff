@@ -159,9 +159,10 @@ public final class StaffStateCodec {
                 boolean ambient = input.readBoolean();
                 boolean particles = input.readBoolean();
                 boolean icon = input.readBoolean();
-                if (type == null || duration < 0 || amplifier < 0) {
+                if (type == null) {
                     throw new IllegalArgumentException("staff snapshot contains an unavailable potion effect");
                 }
+                validatePotionEffectValues(duration, amplifier);
                 effects.add(new PotionEffect(type, duration, amplifier, ambient, particles, icon));
             }
             NamespacedKey worldKey = NamespacedKey.fromString(input.readUTF());
@@ -199,6 +200,12 @@ public final class StaffStateCodec {
             );
         } catch (IOException | IllegalArgumentException exception) {
             throw new IllegalArgumentException("Staff snapshot cannot be decoded safely", exception);
+        }
+    }
+
+    static void validatePotionEffectValues(int duration, int amplifier) {
+        if ((duration < 0 && duration != PotionEffect.INFINITE_DURATION) || amplifier < 0) {
+            throw new IllegalArgumentException("staff snapshot contains invalid potion effect values");
         }
     }
 
