@@ -6,7 +6,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
@@ -72,6 +75,7 @@ public final class FreezeManager implements Listener {
     private final Logger logger;
     private final Consumer<String> staffAlertSink;
     private final FreezeRuntimeState runtimeState = new FreezeRuntimeState();
+    private final Map<UUID, PendingDisconnect> pendingDisconnects = new ConcurrentHashMap<>();
     private volatile FreezeNoticeSink noticeSink = FreezeNoticeSink.noOp();
 
     public FreezeManager(
@@ -124,6 +128,10 @@ public final class FreezeManager implements Listener {
 
     public boolean isCurrentFrozen(UUID playerId, long generation) {
         return runtimeState.isCurrentFrozen(playerId, generation);
+    }
+
+    boolean hasPendingDisconnect(UUID playerId) {
+        return pendingDisconnects.containsKey(playerId);
     }
 
     public void setNoticeSink(FreezeNoticeSink noticeSink) {
@@ -192,9 +200,14 @@ public final class FreezeManager implements Listener {
                 }
                 return;
             }
-            FreezeRecord record = loaded.active(playerId, clock.instant()).orElse(null);
-            boolean active = record != null;
-            if (!runtimeState.resolveVerification(playerId, verificationToken, active) || !active) {
+            flushPendingDisconnect(loaded, playerId);
+            Instant now = clock.instant();
+            FreezeRecord record = loadConnectedRecord(loaded, playerId, verificationToken, now);
+            if (record == null) {
+                runtimeState.resolveVerification(playerId, verificationToken, false);
+                return;
+            }
+            if (!runtimeState.resolveVerification(playerId, verificationToken, true)) {
                 return;
             }
             noticeSink.show(record, null, verificationToken);
@@ -217,6 +230,30 @@ public final class FreezeManager implements Listener {
         }
     }
 
+    private FreezeRecord loadConnectedRecord(
+            FreezeStore loaded,
+            UUID playerId,
+            long verificationToken,
+            Instant now
+    ) {
+        FreezeRecord record = loaded.active(playerId, now).orElse(null);
+        for (int attempt = 0; record != null && attempt < 2; attempt++) {
+            if (!runtimeState.isVerificationCurrent(playerId, verificationToken)) {
+                flushPendingDisconnect(loaded, playerId);
+                return null;
+            }
+            Optional<FreezeRecord> connected = loaded.connected(playerId, record.revision(), now);
+            if (connected.isPresent()) {
+                return connected.get();
+            }
+            record = loaded.active(playerId, now).orElse(null);
+        }
+        if (record != null && runtimeState.isVerificationCurrent(playerId, verificationToken)) {
+            throw new IllegalStateException("Freeze reconnect state changed repeatedly during verification");
+        }
+        return null;
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
@@ -224,12 +261,64 @@ public final class FreezeManager implements Listener {
             return;
         }
         Instant now = clock.instant();
-        submit(() -> {
+        PendingDisconnect pending = new PendingDisconnect(now, now.plus(OFFLINE_EXPIRATION));
+        pendingDisconnects.put(playerId, pending);
+        if (!submit(() -> persistPendingDisconnect(playerId, pending))) {
+            logger.severe("Freeze disconnect persistence was not scheduled for " + playerId
+                    + "; the transition remains pending and fail-closed");
+        }
+    }
+
+    private void persistPendingDisconnect(UUID playerId, PendingDisconnect pending) {
+        try {
             FreezeStore loaded = store.get();
-            if (loaded != null) {
-                loaded.disconnected(playerId, now.plus(OFFLINE_EXPIRATION), now);
+            if (loaded == null) {
+                logger.severe("Freeze storage is unavailable while persisting disconnect for " + playerId
+                        + "; the transition remains pending");
+                return;
             }
-        });
+            persistPendingDisconnect(loaded, playerId, pending);
+        } catch (RuntimeException exception) {
+            logger.log(Level.SEVERE,
+                    "Freeze disconnect persistence failed for " + playerId
+                            + "; the transition remains pending",
+                    exception);
+        }
+    }
+
+    private void flushPendingDisconnect(FreezeStore loaded, UUID playerId) {
+        PendingDisconnect pending = pendingDisconnects.get(playerId);
+        if (pending != null) {
+            persistPendingDisconnect(loaded, playerId, pending);
+        }
+    }
+
+    private void persistPendingDisconnect(
+            FreezeStore loaded,
+            UUID playerId,
+            PendingDisconnect pending
+    ) {
+        FreezeRecord current = loaded.readActive(playerId, pending.disconnectedAt()).orElse(null);
+        for (int attempt = 0; current != null && attempt < 2; attempt++) {
+            if (current.frozenAt().isAfter(pending.disconnectedAt())) {
+                pendingDisconnects.remove(playerId, pending);
+                return;
+            }
+            Optional<FreezeRecord> persisted = loaded.disconnected(
+                    playerId,
+                    current.revision(),
+                    pending.offlineExpiration(),
+                    pending.disconnectedAt()
+            );
+            if (persisted.isPresent()) {
+                pendingDisconnects.remove(playerId, pending);
+                return;
+            }
+            current = loaded.readActive(playerId, pending.disconnectedAt()).orElse(null);
+        }
+        if (current == null) {
+            pendingDisconnects.remove(playerId, pending);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -540,5 +629,8 @@ public final class FreezeManager implements Listener {
     @FunctionalInterface
     interface PlayerDispatcher {
         void dispatch(UUID playerId, Consumer<Player> operation, Runnable unavailable);
+    }
+
+    private record PendingDisconnect(Instant disconnectedAt, Instant offlineExpiration) {
     }
 }
