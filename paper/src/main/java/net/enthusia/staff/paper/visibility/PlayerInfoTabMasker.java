@@ -48,6 +48,9 @@ final class PlayerInfoTabMasker {
     }
 
     private EntryRewrite rewriteEntry(UUID viewerId, PlayerInfoData entry) {
+        if (entry == null) {
+            return EntryRewrite.removed();
+        }
         UUID targetId = entry.getProfileId();
         if (targetId == null) {
             return EntryRewrite.unchanged(entry);

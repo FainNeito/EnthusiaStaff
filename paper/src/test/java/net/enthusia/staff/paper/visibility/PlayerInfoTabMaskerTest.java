@@ -17,6 +17,25 @@ class PlayerInfoTabMaskerTest {
     private static final UUID TARGET_ID = UUID.fromString("20000000-0000-0000-0000-000000000001");
 
     @Test
+    void nullProtocolEntryDoesNotDisableMaskingForValidStaffEntries() {
+        PlayerInfoData source = entry(true, EnumWrappers.NativeGameMode.SPECTATOR);
+        PlayerInfoTabMasker masker = new PlayerInfoTabMasker(
+                (viewer, target) -> true,
+                target -> StaffRank.ADMIN,
+                target -> false
+        );
+
+        PlayerInfoTabMasker.RewriteResult result = masker.rewriteResult(
+                VIEWER_ID, java.util.Arrays.asList(null, source)
+        );
+
+        assertTrue(result.changed());
+        assertEquals(1, result.entries().size());
+        assertEquals(TARGET_ID, result.entries().getFirst().getProfileId());
+        assertEquals(EnumWrappers.NativeGameMode.CREATIVE, result.entries().getFirst().getGameMode());
+    }
+
+    @Test
     void visibleStaffSpectatorIsPresentedAsCreativeWithoutLosingTabFields() {
         PlayerInfoData source = entry(true, EnumWrappers.NativeGameMode.SPECTATOR);
         PlayerInfoTabMasker masker = new PlayerInfoTabMasker(
