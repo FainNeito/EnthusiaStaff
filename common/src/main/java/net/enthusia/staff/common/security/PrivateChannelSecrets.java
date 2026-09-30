@@ -1,10 +1,14 @@
 package net.enthusia.staff.common.security;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -22,7 +26,7 @@ import java.util.function.Function;
  */
 public final class PrivateChannelSecrets {
     public static final String FILE_NAME = "channel.properties";
-    private static final long MAXIMUM_FILE_BYTES = 16_384L;
+    private static final int MAXIMUM_FILE_BYTES = 16_384;
 
     private PrivateChannelSecrets() {
     }
@@ -62,21 +66,7 @@ public final class PrivateChannelSecrets {
     private static Map<String, String> fromFile(Path dataDirectory, Set<String> expectedProperties) {
         Path base = dataDirectory.toAbsolutePath().normalize();
         Path file = base.resolve(FILE_NAME).normalize();
-        if (!file.startsWith(base) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IllegalStateException("Private channel.properties file is missing or not a regular file");
-        }
-
-        Properties properties = new Properties();
-        try {
-            if (Files.size(file) > MAXIMUM_FILE_BYTES) {
-                throw new IllegalStateException("Private channel.properties file is too large");
-            }
-            try (InputStream input = Files.newInputStream(file)) {
-                properties.load(input);
-            }
-        } catch (IOException exception) {
-            throw new IllegalStateException("Private channel.properties file cannot be read", exception);
-        }
+        Properties properties = readProperties(file);
         if (!properties.stringPropertyNames().equals(expectedProperties)) {
             throw new IllegalStateException("Private channel.properties entries do not match the configured channel");
         }
@@ -86,6 +76,32 @@ public final class PrivateChannelSecrets {
             loaded.put(property, requireSecret(properties.getProperty(property)));
         }
         return Map.copyOf(loaded);
+    }
+
+    private static Properties readProperties(Path file) {
+        try (SeekableByteChannel channel = Files.newByteChannel(
+                file,
+                Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
+        )) {
+            if (channel.size() > MAXIMUM_FILE_BYTES) {
+                throw new IllegalStateException("Private channel.properties file is too large");
+            }
+            byte[] contents = readBounded(channel);
+            Properties properties = new Properties();
+            properties.load(new ByteArrayInputStream(contents));
+            return properties;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Private channel.properties file cannot be read", exception);
+        }
+    }
+
+    private static byte[] readBounded(SeekableByteChannel channel) throws IOException {
+        InputStream input = Channels.newInputStream(channel);
+        byte[] contents = input.readNBytes(MAXIMUM_FILE_BYTES + 1);
+        if (contents.length > MAXIMUM_FILE_BYTES) {
+            throw new IllegalStateException("Private channel.properties file is too large");
+        }
+        return contents;
     }
 
     private static String requireName(String value, String label) {

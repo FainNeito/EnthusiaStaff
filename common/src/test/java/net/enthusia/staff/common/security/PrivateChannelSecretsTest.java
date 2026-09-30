@@ -2,6 +2,7 @@ package net.enthusia.staff.common.security;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -39,7 +40,7 @@ class PrivateChannelSecretsTest {
 
     @Test
     void privateFileProvidesSecretsWhenEnvironmentIsEmpty() throws IOException {
-        writeValidFile();
+        writeValidFile(channelFile());
 
         Map<String, String> loaded = PrivateChannelSecrets.load(tempDir, SOURCES, ignored -> null);
 
@@ -50,7 +51,7 @@ class PrivateChannelSecretsTest {
 
     @Test
     void partialEnvironmentSourceFailsClosedInsteadOfMixingWithFile() throws IOException {
-        writeValidFile();
+        writeValidFile(channelFile());
 
         assertThrows(IllegalStateException.class, () -> PrivateChannelSecrets.load(
                 tempDir,
@@ -97,12 +98,25 @@ class PrivateChannelSecretsTest {
     }
 
     @Test
+    void symbolicLinkPrivateFileFailsClosed() throws IOException {
+        Path target = tempDir.resolve("channel-target.properties");
+        writeValidFile(target);
+        try {
+            Files.createSymbolicLink(channelFile(), target.getFileName());
+        } catch (UnsupportedOperationException | IOException exception) {
+            assumeTrue(false, "Symbolic links are unavailable on this test filesystem");
+        }
+
+        assertFileRejected();
+    }
+
+    @Test
     void missingPrivateFileFailsClosed() {
         assertFileRejected();
     }
 
-    private void writeValidFile() throws IOException {
-        Files.writeString(channelFile(), String.join("\n",
+    private static void writeValidFile(Path path) throws IOException {
+        Files.writeString(path, String.join("\n",
                 "channel.backend-secret=backend-file",
                 "channel.proxy-secret=proxy-file",
                 "channel.tls-store-password=store-file",
