@@ -24,6 +24,66 @@ final class VelocityConfigurationTest {
     private static final String TLS_KEY_STORE = "channel.tls-key-store";
 
     @Test
+    void privateDatabaseFileSuppliesBothStoresWhenEnvironmentIsUnavailable(@TempDir Path directory)
+            throws IOException {
+        VelocityConfiguration configuration = VelocityConfiguration.load(directory);
+        Properties secrets = new Properties();
+        secrets.setProperty("db.jdbc-url", "jdbc:mariadb://example.invalid:3306/staff");
+        secrets.setProperty("db.username", "staff-user");
+        secrets.setProperty("db.password", "staff-secret");
+        secrets.setProperty("litebans.jdbc-url", "jdbc:mariadb://example.invalid:3306/litebans");
+        secrets.setProperty("litebans.username", "litebans-user");
+        secrets.setProperty("litebans.password", "litebans-secret");
+        try (OutputStream output = Files.newOutputStream(directory.resolve("database.properties"))) {
+            secrets.store(output, null);
+        }
+
+        assertEquals("staff-user", configuration.database(directory).username());
+        assertEquals("jdbc:mariadb://example.invalid:3306/litebans",
+                configuration.liteBansDatabase(directory).jdbcUrl());
+    }
+
+    @Test
+    void privateDatabaseFileRejectsMissingCredentials(@TempDir Path directory) throws IOException {
+        VelocityConfiguration configuration = VelocityConfiguration.load(directory);
+        assertThrows(IllegalStateException.class, () -> configuration.database(directory));
+
+        Properties incomplete = new Properties();
+        incomplete.setProperty("db.jdbc-url", "jdbc:mariadb://example.invalid:3306/staff");
+        incomplete.setProperty("db.username", "staff-user");
+        try (OutputStream output = Files.newOutputStream(directory.resolve("database.properties"))) {
+            incomplete.store(output, null);
+        }
+        assertThrows(IllegalStateException.class, () -> configuration.database(directory));
+    }
+
+    @Test
+    void privateSecretsFileSuppliesIndependentNetworkIdentityKeys(@TempDir Path directory) throws IOException {
+        VelocityConfiguration configuration = VelocityConfiguration.load(directory);
+        Properties secrets = new Properties();
+        secrets.setProperty(configuration.networkIdentityHmacSecretEnvironment(), "a".repeat(44));
+        secrets.setProperty(configuration.networkIdentityEncryptionSecretEnvironment(), "b".repeat(44));
+        try (OutputStream output = Files.newOutputStream(directory.resolve("secrets.properties"))) {
+            secrets.store(output, null);
+        }
+
+        assertEquals("a".repeat(44), configuration.networkIdentitySecret(
+                directory, configuration.networkIdentityHmacSecretEnvironment()));
+        assertEquals("b".repeat(44), configuration.networkIdentitySecret(
+                directory, configuration.networkIdentityEncryptionSecretEnvironment()));
+        assertThrows(IllegalArgumentException.class,
+                () -> configuration.networkIdentitySecret(directory, "UNRECOGNIZED_SECRET"));
+    }
+
+    @Test
+    void privateNetworkIdentitySecretIsRequiredWhenEnabled(@TempDir Path directory) throws IOException {
+        VelocityConfiguration configuration = VelocityConfiguration.load(directory);
+
+        assertThrows(IllegalStateException.class, () -> configuration.networkIdentitySecret(
+                directory, configuration.networkIdentityHmacSecretEnvironment()));
+    }
+
+    @Test
     void bundledDefaultsLoadAndResolveInsideDataDirectory(@TempDir Path directory) throws IOException {
         VelocityConfiguration configuration = VelocityConfiguration.load(directory);
 

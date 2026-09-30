@@ -48,6 +48,7 @@ import net.enthusia.staff.common.CaseId;
 import net.enthusia.staff.common.security.HmacTokenService;
 import net.enthusia.staff.common.security.NetworkIdentityProtector;
 import net.enthusia.staff.common.security.SecretKeyMaterial;
+import net.enthusia.staff.common.security.PrivateRuntimeSecrets;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.alt.AltRelationshipState;
 import net.enthusia.staff.domain.alt.AltRelationshipSummary;
@@ -368,7 +369,7 @@ public final class EnthusiaStaffVelocityPlugin {
         VelocityConfiguration loaded = loadStorageConfiguration();
         MariaDbRuntime opened = null;
         try {
-            opened = MariaDb.initialize(loaded.databaseFromEnvironment());
+            opened = MariaDb.initialize(loaded.database(dataDirectory));
             OperationalStateSnapshot state = validateStorageState(opened);
             StorageBindings bindings = storageBindings(opened);
             initializeStorageResources(loaded, opened);
@@ -623,7 +624,7 @@ public final class EnthusiaStaffVelocityPlugin {
             workers.execute(() -> {
                 try {
                     MigrationExecutionReport report = migrationService(runtime, MigrationMode.SHADOW).execute(
-                            loaded.liteBansDatabaseFromEnvironment(),
+                            loaded.liteBansDatabase(dataDirectory),
                             loaded.liteBansTablePrefix(),
                             loaded.liteBansBatchSize(),
                             MigrationMode.SHADOW
@@ -749,10 +750,10 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         SecretKey equalityKey = SecretKeyMaterial.hmacSha256FromBase64(
-                System.getenv(loaded.networkIdentityHmacSecretEnvironment())
+                loaded.networkIdentitySecret(dataDirectory, loaded.networkIdentityHmacSecretEnvironment())
         );
         SecretKey encryptionKey = SecretKeyMaterial.aesFromBase64(
-                System.getenv(loaded.networkIdentityEncryptionSecretEnvironment())
+                loaded.networkIdentitySecret(dataDirectory, loaded.networkIdentityEncryptionSecretEnvironment())
         );
         networkIdentityProtector = new NetworkIdentityProtector(
                 new HmacTokenService(loaded.networkIdentityHmacKeyVersion(), equalityKey),
@@ -867,12 +868,12 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private static SecretKey secretFromEnvironment(String environment) {
-        String encoded = System.getenv(environment);
+    private SecretKey secretFromEnvironment(String environment) {
+        String encoded = PrivateRuntimeSecrets.required(dataDirectory, environment, System::getenv);
         return SecretKeyMaterial.hmacSha256FromBase64(encoded);
     }
 
-    private static SSLContext serverTlsContext(VelocityConfiguration configuration) {
+    private SSLContext serverTlsContext(VelocityConfiguration configuration) {
         char[] password = passwordFromEnvironment(configuration.channelTlsKeyStorePasswordEnvironment());
         try {
             return TlsContextLoader.server(configuration.channelTlsKeyStorePath(), password);
@@ -881,8 +882,8 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private static char[] passwordFromEnvironment(String environment) {
-        String value = System.getenv(environment);
+    private char[] passwordFromEnvironment(String environment) {
+        String value = PrivateRuntimeSecrets.required(dataDirectory, environment, System::getenv);
         if (value == null || value.isBlank()) {
             throw new IllegalStateException("A required channel TLS store password environment variable is missing");
         }
@@ -1804,7 +1805,7 @@ public final class EnthusiaStaffVelocityPlugin {
         ) {
             try {
                 MigrationExecutionReport report = migrationService(runtime, migrationMode).execute(
-                        loaded.liteBansDatabaseFromEnvironment(),
+                        loaded.liteBansDatabase(dataDirectory),
                         loaded.liteBansTablePrefix(),
                         loaded.liteBansBatchSize(),
                         migrationMode

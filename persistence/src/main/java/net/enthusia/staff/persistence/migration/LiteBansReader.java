@@ -145,8 +145,8 @@ public final class LiteBansReader {
     private static LegacySanction toSanction(String table, Row row, LegacySanctionType defaultType) {
         Optional<UUID> playerId = optionalUuid(row.uuid());
         Optional<String> username = Optional.ofNullable(row.username()).filter(value -> !value.isBlank());
-        LegacySanctionType type = row.ipBan() ? LegacySanctionType.IP_BAN : defaultType;
-        Optional<LegacyNetworkAddress> networkAddress = row.ipBan()
+        LegacySanctionType type = effectiveSanctionType(defaultType, row.ipBan(), row.ip());
+        Optional<LegacyNetworkAddress> networkAddress = type == LegacySanctionType.IP_BAN
                 ? Optional.of(parseNetworkAddress(row.ip().orElseThrow(
                         () -> new IllegalArgumentException("LiteBans IP ban address is missing")
                 )))
@@ -185,6 +185,20 @@ public final class LiteBansReader {
             throw new IllegalArgumentException("non-canonical legacy UUID");
         }
         return Optional.of(parsed);
+    }
+
+    static LegacySanctionType effectiveSanctionType(
+            LegacySanctionType defaultType,
+            boolean ipBan,
+            Optional<String> address
+    ) {
+        return ipBan && address.filter(value -> !liteBansNullSentinel(value)).isPresent()
+                ? LegacySanctionType.IP_BAN
+                : defaultType;
+    }
+
+    static boolean liteBansNullSentinel(String value) {
+        return value != null && value.startsWith("#");
     }
 
     private static String defaultString(String value, String fallback) {
@@ -238,6 +252,9 @@ public final class LiteBansReader {
                 lastId = Math.max(lastId, row.id());
                 highWatermark = Math.max(highWatermark, row.id());
                 count++;
+                if (liteBansNullSentinel(row.ip())) {
+                    continue;
+                }
                 try {
                     UUID playerId = optionalUuid(row.uuid()).orElseThrow(
                             () -> new IllegalArgumentException("LiteBans history UUID is missing")
