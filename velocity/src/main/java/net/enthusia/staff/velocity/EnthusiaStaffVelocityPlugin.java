@@ -133,6 +133,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private final AtomicBoolean reloadRunning = new AtomicBoolean();
     private final AtomicBoolean migrationRunning = new AtomicBoolean();
     private final VelocitySecurityEventDispatcher securityEventDispatcher;
+    private final VelocityNetworkVerifier networkVerifier;
     private final java.util.concurrent.ConcurrentHashMap<UUID, CompletableFuture<Void>> presenceUpdates =
             new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -166,6 +167,15 @@ public final class EnthusiaStaffVelocityPlugin {
         this.logger = logger;
         this.dataDirectory = dataDirectory;
         this.securityEventDispatcher = new VelocitySecurityEventDispatcher(() -> workers, shuttingDown::get);
+        this.networkVerifier = new VelocityNetworkVerifier(new VelocityNetworkVerifier.Dependencies(
+                authorityMode::get,
+                () -> databaseRuntime,
+                () -> configuration,
+                () -> channelServer,
+                () -> networkIdentityStore != null && networkIdentityProtector != null,
+                () -> discordOutboxWorker != null,
+                () -> websiteApiServer != null && websiteModerationStore != null
+        ));
     }
 
     @Subscribe
@@ -716,6 +726,9 @@ public final class EnthusiaStaffVelocityPlugin {
                 ),
                 Clock.systemUTC(),
                 envelope -> {
+                    if (networkVerifier.acceptReport(envelope)) {
+                        return true;
+                    }
                     outbox.recordInboxOnce(
                             loaded.serverId(),
                             envelope.messageId(),
@@ -1136,7 +1149,7 @@ public final class EnthusiaStaffVelocityPlugin {
                     : previous.handle((value, failure) -> null);
             return start.thenRunAsync(update, executor);
         });
-        next.whenComplete((ignored, failure) -> {
+        var unused = next.whenComplete((ignored, failure) -> {
             presenceUpdates.remove(playerId, next);
             if (failure != null) {
                 logger.error("Unable to persist an ordered player-presence update", failure);
@@ -1428,11 +1441,33 @@ public final class EnthusiaStaffVelocityPlugin {
             String[] arguments = invocation.arguments();
             switch (normalizedArgument(arguments, ROOT_OPERATION_INDEX)) {
                 case "reload" -> executeReload(source, arguments);
+                case "verify" -> executeVerify(source, arguments);
                 case "migration" -> executeMigration(source, arguments);
                 case "cutover" -> executeCutover(source, arguments);
                 case "discord" -> executeDiscord(source, arguments);
                 case "website" -> executeWebsite(source, arguments);
                 default -> showStatus(source);
+            }
+        }
+
+        private void executeVerify(CommandSource source, String[] arguments) {
+            if (arguments.length != 2 || !"full".equals(normalizedArgument(arguments, SUB_OPERATION_INDEX))) {
+                source.sendMessage(Component.text("Usage: /estaff verify full"));
+                return;
+            }
+            if (!source.hasPermission("enthusiastaff.verify")
+                    || !source.hasPermission("enthusiastaff.diagnostics")) {
+                source.sendMessage(Component.text("You do not have permission to run full EnthusiaStaff diagnostics."));
+                return;
+            }
+            submitVerification(source);
+        }
+
+        private void submitVerification(CommandSource source) {
+            try {
+                workers.execute(() -> networkVerifier.verify().forEach(source::sendMessage));
+            } catch (RejectedExecutionException exception) {
+                source.sendMessage(Component.text("The bounded work queue is full; verification did not start."));
             }
         }
 
@@ -1462,8 +1497,12 @@ public final class EnthusiaStaffVelocityPlugin {
         @Override
         public boolean hasPermission(Invocation invocation) {
             String[] arguments = invocation.arguments();
-            if (normalizedArgument(arguments, ROOT_OPERATION_INDEX).equals("reload")) {
+            String operation = normalizedArgument(arguments, ROOT_OPERATION_INDEX);
+            if (operation.equals("reload")) {
                 return invocation.source().hasPermission("enthusiastaff.reload");
+            }
+            if (operation.equals("verify")) {
+                return invocation.source().hasPermission("enthusiastaff.verify");
             }
             return invocation.source().hasPermission("enthusiastaff.status");
         }
