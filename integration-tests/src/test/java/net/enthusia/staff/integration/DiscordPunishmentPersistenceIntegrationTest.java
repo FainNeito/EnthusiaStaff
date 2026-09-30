@@ -100,7 +100,7 @@ class DiscordPunishmentPersistenceIntegrationTest {
             assertEquals(1, page.total());
             assertEquals(punishment.punishmentId(), page.records().getFirst().punishmentId());
             assertEquals(0, history.recent(new DiscordGuildId("1410303324745371710"), userId, 10).total());
-            assertEquals(0, history.recent(GUILD_ID, new DiscordUserId("18446744073709551002"), 10).total());
+            assertEquals(0, history.recent(GUILD_ID, new DiscordUserId("18446744073709551599"), 10).total());
             assertThrows(IllegalArgumentException.class, () -> history.recent(GUILD_ID, userId, 51));
 
             var firstLease = repository.claimDue(NOW, 1, "worker-a", NOW.plusSeconds(30));
