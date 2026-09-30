@@ -82,11 +82,11 @@ public final class PrivateChannelSecrets {
         try (SeekableByteChannel channel = Files.newByteChannel(
                 file,
                 Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
-        )) {
+        ); InputStream input = Channels.newInputStream(channel)) {
             if (channel.size() > MAXIMUM_FILE_BYTES) {
                 throw new IllegalStateException("Private channel.properties file is too large");
             }
-            byte[] contents = readBounded(channel);
+            byte[] contents = readBounded(input);
             Properties properties = new Properties();
             properties.load(new ByteArrayInputStream(contents));
             return properties;
@@ -95,8 +95,7 @@ public final class PrivateChannelSecrets {
         }
     }
 
-    private static byte[] readBounded(SeekableByteChannel channel) throws IOException {
-        InputStream input = Channels.newInputStream(channel);
+    private static byte[] readBounded(InputStream input) throws IOException {
         byte[] contents = input.readNBytes(MAXIMUM_FILE_BYTES + 1);
         if (contents.length > MAXIMUM_FILE_BYTES) {
             throw new IllegalStateException("Private channel.properties file is too large");
