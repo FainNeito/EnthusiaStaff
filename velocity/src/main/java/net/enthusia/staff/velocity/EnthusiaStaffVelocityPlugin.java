@@ -775,7 +775,7 @@ public final class EnthusiaStaffVelocityPlugin {
                 Clock.systemUTC(),
                 workers,
                 store,
-                loaded.discordWebhooksFromEnvironment(),
+                loaded.discordWebhooks(dataDirectory),
                 loaded.discordMaximumAttempts(),
                 loaded.discordFailureThreshold(),
                 Duration.ofSeconds(loaded.discordCircuitOpenSeconds()),
@@ -814,7 +814,7 @@ public final class EnthusiaStaffVelocityPlugin {
             MariaDbRuntime runtime
     ) throws java.io.IOException {
         WebsiteModerationStore store = runtime.websiteModerationStore(
-                loaded.punishmentCodeProtectorFromEnvironment()
+                loaded.punishmentCodeProtector(dataDirectory)
         );
         AuthorizationPolicy authorization = new DefaultAuthorizationPolicy();
         Clock apiClock = Clock.systemUTC();
@@ -832,8 +832,8 @@ public final class EnthusiaStaffVelocityPlugin {
                         loaded.websiteApiQueueCapacity()
                 ),
                 new WebsiteApiAuthenticator(
-                        loaded.websiteApiBearerTokenFromEnvironment(),
-                        loaded.websiteApiHmacSecretFromEnvironment(),
+                        loaded.websiteApiBearerToken(dataDirectory),
+                        loaded.websiteApiHmacSecret(dataDirectory),
                         Duration.ofSeconds(loaded.websiteApiTimestampSkewSeconds()),
                         store
                 ),

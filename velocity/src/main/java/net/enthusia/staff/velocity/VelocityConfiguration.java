@@ -168,7 +168,15 @@ public record VelocityConfiguration(
     }
 
     public Map<String, DiscordWebhookRoute> discordWebhooksFromEnvironment() {
-        String routeClass = System.getenv(ROUTE_CLASS_VARIABLE);
+        return discordWebhooks(System::getenv);
+    }
+
+    public Map<String, DiscordWebhookRoute> discordWebhooks(Path dataDirectory) {
+        return discordWebhooks(name -> runtimeSecret(dataDirectory, name));
+    }
+
+    private Map<String, DiscordWebhookRoute> discordWebhooks(java.util.function.Function<String, String> values) {
+        String routeClass = values.apply(ROUTE_CLASS_VARIABLE);
         final DiscordRouteEnvironment routeEnvironment;
         try {
             routeEnvironment = DiscordRouteEnvironment.parse(routeClass);
@@ -176,11 +184,11 @@ public record VelocityConfiguration(
             throw new IllegalStateException("The Discord route environment is missing or invalid", exception);
         }
         Set<String> stagingHosts = routeEnvironment == DiscordRouteEnvironment.STAGING
-                ? discordStagingHostsFromEnvironment()
+                ? discordStagingHosts(values)
                 : Set.of();
         Map<String, DiscordWebhookRoute> routes = new LinkedHashMap<>();
         discordWebhookEnvironments.forEach((destination, environmentName) -> {
-            String raw = System.getenv(environmentName);
+            String raw = values.apply(environmentName);
             URI uri = DiscordWebhookUriParser.parse(raw);
             final DiscordWebhookRoute route;
             try {
@@ -195,8 +203,8 @@ public record VelocityConfiguration(
         return Map.copyOf(routes);
     }
 
-    private static Set<String> discordStagingHostsFromEnvironment() {
-        String raw = System.getenv(STAGING_HOSTS_VARIABLE);
+    private static Set<String> discordStagingHosts(java.util.function.Function<String, String> values) {
+        String raw = values.apply(STAGING_HOSTS_VARIABLE);
         if (raw == null || raw.isBlank()) {
             throw new IllegalStateException("The Discord staging approved-host environment variable is missing");
         }
@@ -346,6 +354,23 @@ public record VelocityConfiguration(
         return websiteSecret(websiteApiBearerTokenEnvironment, "bearer token");
     }
 
+    public String websiteApiBearerToken(Path dataDirectory) {
+        return checkedWebsiteSecret(runtimeSecret(dataDirectory, websiteApiBearerTokenEnvironment), "bearer token");
+    }
+
+    public String websiteApiHmacSecret(Path dataDirectory) {
+        return checkedWebsiteSecret(runtimeSecret(dataDirectory, websiteApiHmacSecretEnvironment), "HMAC secret");
+    }
+
+    public PunishmentCodeProtector punishmentCodeProtector(Path dataDirectory) {
+        return new PunishmentCodeProtector(punishmentCodeKeyVersion,
+                SecretKeyMaterial.hmacSha256FromBase64(runtimeSecret(dataDirectory, punishmentCodeSecretEnvironment)));
+    }
+
+    private static String runtimeSecret(Path dataDirectory, String environment) {
+        return net.enthusia.staff.common.security.PrivateRuntimeSecrets.required(dataDirectory, environment, System::getenv);
+    }
+
     public String websiteApiHmacSecretFromEnvironment() {
         return websiteSecret(websiteApiHmacSecretEnvironment, "HMAC secret");
     }
@@ -359,7 +384,10 @@ public record VelocityConfiguration(
     }
 
     private static String websiteSecret(String environment, String label) {
-        String value = System.getenv(environment);
+        return checkedWebsiteSecret(System.getenv(environment), label);
+    }
+
+    private static String checkedWebsiteSecret(String value, String label) {
         if (value == null || value.isBlank()
                 || value.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalStateException("The website API " + label + " must contain at least 32 bytes");
