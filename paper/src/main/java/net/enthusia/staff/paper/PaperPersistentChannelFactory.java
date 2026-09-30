@@ -24,9 +24,9 @@ final class PaperPersistentChannelFactory {
     private static final String VERIFY_REQUEST = "VERIFY_REQUEST";
     private static final String VERIFY_REPORT = "VERIFY_REPORT";
     private static final Duration VERIFY_RESPONSE_TIMEOUT = Duration.ofSeconds(2);
-    private static final String BACKEND_SECRET_PROPERTY = "channel.backend-secret";
-    private static final String PROXY_SECRET_PROPERTY = "channel.proxy-secret";
-    private static final String TLS_PASSWORD_PROPERTY = "channel.tls-store-password";
+    private static final String BACKEND_KEY_PROPERTY = "channel.backend-secret";
+    private static final String PROXY_KEY_PROPERTY = "channel.proxy-secret";
+    private static final String TLS_STORE_PROPERTY = "channel.tls-store-password";
 
     private PaperPersistentChannelFactory() {
     }
@@ -121,13 +121,13 @@ final class PaperPersistentChannelFactory {
         Map<String, String> secrets = PrivateChannelSecrets.load(
                 settings.dataDirectory(),
                 Map.of(
-                        BACKEND_SECRET_PROPERTY, settings.backendSecretEnvironment(),
-                        PROXY_SECRET_PROPERTY, settings.proxySecretEnvironment(),
-                        TLS_PASSWORD_PROPERTY, settings.trustStorePasswordEnvironment()
+                        BACKEND_KEY_PROPERTY, settings.backendSecretEnvironment(),
+                        PROXY_KEY_PROPERTY, settings.proxySecretEnvironment(),
+                        TLS_STORE_PROPERTY, settings.trustStorePasswordEnvironment()
                 ),
                 System::getenv
         );
-        char[] password = secrets.get(TLS_PASSWORD_PROPERTY).toCharArray();
+        char[] password = secrets.get(TLS_STORE_PROPERTY).toCharArray();
         try {
             return new ChannelConfiguration(
                     settings.backendId(),
@@ -135,9 +135,9 @@ final class PaperPersistentChannelFactory {
                             settings.backendId(),
                             settings.host(),
                             settings.port(),
-                            SecretKeyMaterial.hmacSha256FromBase64(secrets.get(BACKEND_SECRET_PROPERTY).trim()),
+                            SecretKeyMaterial.hmacSha256FromBase64(secrets.get(BACKEND_KEY_PROPERTY).trim()),
                             settings.proxyId(),
-                            SecretKeyMaterial.hmacSha256FromBase64(secrets.get(PROXY_SECRET_PROPERTY).trim()),
+                            SecretKeyMaterial.hmacSha256FromBase64(secrets.get(PROXY_KEY_PROPERTY).trim()),
                             clientTlsContext(settings, password)
                     )
             );

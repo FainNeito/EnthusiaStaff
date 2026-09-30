@@ -10,8 +10,8 @@ import net.enthusia.staff.common.security.PrivateChannelSecrets;
 import net.enthusia.staff.common.security.SecretKeyMaterial;
 
 final class VelocityChannelSecrets {
-    static final String PROXY_SECRET_PROPERTY = "channel.proxy-secret";
-    static final String TLS_PASSWORD_PROPERTY = "channel.tls-store-password";
+    static final String PROXY_KEY_PROPERTY = "channel.proxy-secret";
+    static final String TLS_STORE_PROPERTY = "channel.tls-store-password";
     private static final String BACKEND_PREFIX = "channel.backend.";
     private static final String BACKEND_SUFFIX = ".secret";
 
@@ -25,8 +25,8 @@ final class VelocityChannelSecrets {
     ) {
         Objects.requireNonNull(configuration, "configuration");
         LinkedHashMap<String, String> sources = new LinkedHashMap<>();
-        sources.put(PROXY_SECRET_PROPERTY, configuration.channelProxySecretEnvironment());
-        sources.put(TLS_PASSWORD_PROPERTY, configuration.channelTlsKeyStorePasswordEnvironment());
+        sources.put(PROXY_KEY_PROPERTY, configuration.channelProxySecretEnvironment());
+        sources.put(TLS_STORE_PROPERTY, configuration.channelTlsKeyStorePasswordEnvironment());
         configuration.backendSecretEnvironments().forEach((serverId, variable) ->
                 sources.put(backendProperty(serverId), variable));
 
@@ -38,8 +38,8 @@ final class VelocityChannelSecrets {
         ));
         return new Loaded(
                 Map.copyOf(backends),
-                SecretKeyMaterial.hmacSha256FromBase64(values.get(PROXY_SECRET_PROPERTY).trim()),
-                values.get(TLS_PASSWORD_PROPERTY).toCharArray()
+                SecretKeyMaterial.hmacSha256FromBase64(values.get(PROXY_KEY_PROPERTY).trim()),
+                values.get(TLS_STORE_PROPERTY).toCharArray()
         );
     }
 
