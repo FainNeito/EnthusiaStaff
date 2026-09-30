@@ -47,8 +47,10 @@ public final class VanishCommand implements CommandExecutor {
             player.sendMessage(Component.text("Usage: /" + label + " | /" + label + " tab <show|hide>"));
             return true;
         }
-        if (mode.get() != OperationalMode.ACTIVE) {
-            player.sendMessage(Component.text("Vanish changes are disabled while moderation is " + mode.get() + '.'));
+        OperationalMode currentMode = mode.get();
+        boolean currentlyVanished = vanish.isVanished(player.getUniqueId());
+        if (!StaffOperationalModeGate.vanishChangeAllowed(currentMode, currentlyVanished)) {
+            player.sendMessage(Component.text("Vanish enable is disabled while moderation is " + currentMode + '.'));
             return true;
         }
         vanish.toggle(player);
