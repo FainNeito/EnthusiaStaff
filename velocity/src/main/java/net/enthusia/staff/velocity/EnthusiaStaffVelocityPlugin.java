@@ -1137,7 +1137,12 @@ public final class EnthusiaStaffVelocityPlugin {
                 return;
             }
             StaffSessionStore sessions = staffSessionStore;
-            if (sessions != null && sessions.active(event.getPlayer().getUniqueId()).isPresent()) {
+            var session = sessions == null ? Optional.<net.enthusia.staff.domain.staff.StaffSessionSnapshot>empty()
+                    : sessions.active(event.getPlayer().getUniqueId());
+            if (session.isPresent() && !StaffSessionTransferPolicy.recoveryReturnAllowed(
+                    session.orElseThrow().serverId(), session.orElseThrow().state(),
+                    event.getPreviousServer().getServerInfo().getName(),
+                    event.getResult().getServer().orElse(event.getOriginalServer()).getServerInfo().getName())) {
                 denyServerSwitch(event, "You cannot switch backends while a staff-mode snapshot is active.");
             }
         } catch (RuntimeException exception) {
