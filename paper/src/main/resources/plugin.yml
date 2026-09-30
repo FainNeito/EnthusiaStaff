@@ -260,6 +260,16 @@ permissions:
     default: false
   enthusiastaff.owner.recovery:
     default: false
+  enthusiastaff.identity.helper:
+    default: false
+  enthusiastaff.identity.mod:
+    default: false
+  enthusiastaff.identity.admin:
+    default: false
+  enthusiastaff.identity.owner:
+    default: false
+  enthusiastaff.identity.developer:
+    default: false
   enthusiastaff.rank.helper:
     default: false
     children:
