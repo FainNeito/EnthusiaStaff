@@ -66,11 +66,28 @@ final class VelocitySecurityEventSubmissionTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             EnthusiaStaffVelocityPlugin plugin = plugin(executor);
+            setMode(plugin, OperationalMode.SHADOW_MIGRATION);
             LoginEvent event = loginEvent(new AtomicInteger());
 
             await(plugin.onLogin(event));
 
             assertTrue(event.getResult().isAllowed());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void startupAndMaintenanceDenyRealLoginEventsWithoutPriorActiveAuthority() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            EnthusiaStaffVelocityPlugin plugin = plugin(executor);
+            for (OperationalMode mode : List.of(OperationalMode.BOOTSTRAP, OperationalMode.MAINTENANCE)) {
+                setMode(plugin, mode);
+                LoginEvent event = loginEvent(new AtomicInteger());
+                await(plugin.onLogin(event));
+                assertFalse(event.getResult().isAllowed(), mode.name());
+            }
         } finally {
             executor.shutdownNow();
         }
@@ -113,6 +130,7 @@ final class VelocitySecurityEventSubmissionTest {
     void saturatedLoginHonorsExplicitConfiguredFailOpenOnly() throws Exception {
         try (SaturatedExecutor saturated = SaturatedExecutor.create()) {
             EnthusiaStaffVelocityPlugin plugin = plugin(saturated.executor());
+            setMode(plugin, OperationalMode.SHADOW_MIGRATION);
             CONFIGURATION.set(plugin, configuration(tempDirectory.resolve("open"), false));
             AtomicInteger securityReads = new AtomicInteger();
             LoginEvent event = loginEvent(securityReads);
@@ -122,6 +140,18 @@ final class VelocitySecurityEventSubmissionTest {
             assertTrue(event.getResult().isAllowed());
             assertEquals(0, securityReads.get());
             await(task);
+        }
+    }
+
+    @Test
+    void saturatedMaintenanceLoginCannotUseLegacyFailOpenConfiguration() throws Exception {
+        try (SaturatedExecutor saturated = SaturatedExecutor.create()) {
+            EnthusiaStaffVelocityPlugin plugin = plugin(saturated.executor());
+            setMode(plugin, OperationalMode.MAINTENANCE);
+            CONFIGURATION.set(plugin, configuration(tempDirectory.resolve("maintenance"), false));
+            LoginEvent event = loginEvent(new AtomicInteger());
+            await(plugin.onLogin(event));
+            assertFalse(event.getResult().isAllowed());
         }
     }
 
@@ -142,6 +172,7 @@ final class VelocitySecurityEventSubmissionTest {
     void recoveredLoginCapacityAdmitsLaterRealListenerWork() throws Exception {
         try (SaturatedExecutor saturated = SaturatedExecutor.create()) {
             EnthusiaStaffVelocityPlugin plugin = plugin(saturated.executor());
+            setMode(plugin, OperationalMode.SHADOW_MIGRATION);
             LoginEvent rejected = loginEvent(new AtomicInteger());
             await(plugin.onLogin(rejected));
             assertFalse(rejected.getResult().isAllowed());

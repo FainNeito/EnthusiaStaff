@@ -925,7 +925,7 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         if (current != OperationalMode.ACTIVE) {
-            enforceInactiveLoginPolicy(event);
+            enforceInactiveLoginPolicy(event, current);
             return;
         }
         enforceActiveLoginPolicy(event);
@@ -949,8 +949,8 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private void enforceInactiveLoginPolicy(LoginEvent event) {
-        if (activeAuthorityObserved && failClosedConfigured()) {
+    private void enforceInactiveLoginPolicy(LoginEvent event, OperationalMode current) {
+        if (VelocityLoginAdmissionPolicy.blocksInactiveLogin(current, activeAuthorityObserved, failClosedConfigured())) {
             denyUnavailable(event);
         }
     }
@@ -1049,7 +1049,8 @@ public final class EnthusiaStaffVelocityPlugin {
     }
 
     private void denyUnavailable(LoginEvent event) {
-        if (failClosedConfigured()) {
+        if (failClosedConfigured()
+                || VelocityLoginAdmissionPolicy.blocksInactiveLogin(authorityMode.get(), false, false)) {
             event.setResult(ResultedEvent.ComponentResult.denied(Component.text(
                     "The moderation service cannot safely verify network access. Please try again shortly."
             )));
