@@ -28,6 +28,7 @@ import net.enthusia.staff.paper.inventory.InventoryCoordinator;
 import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.inventory.InventoryRecoveryGuard;
 import net.enthusia.staff.paper.report.ReportEvidenceMaintenance;
+import net.enthusia.staff.paper.staff.HelperObserverProtectionListener;
 import net.enthusia.staff.paper.staff.StaffModeManager;
 import net.enthusia.staff.paper.staff.StaffModeWorldInteractionListener;
 import net.enthusia.staff.paper.staff.StaffStatePresentation;
@@ -190,6 +191,7 @@ record PaperRuntimeComponents(
                 dependencies.environment().workers()
         );
         registerListener(plugin, new StaffToolTransferListener(plugin, staffMode));
+        registerListener(plugin, new HelperObserverProtectionListener(staffMode));
         registerListener(plugin, new StaffModeWorldInteractionListener(staffMode));
         registerListener(plugin, staffMode);
         return staffMode;
