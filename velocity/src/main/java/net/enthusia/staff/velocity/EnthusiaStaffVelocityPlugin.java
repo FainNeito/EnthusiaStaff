@@ -157,6 +157,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile DiscordOutboxWorker discordOutboxWorker;
     private volatile WebsiteModerationStore websiteModerationStore;
     private volatile WebsiteApiServer websiteApiServer;
+    private volatile WebsiteTunnelConnector websiteTunnel;
+    private volatile boolean websiteTunnelInstalled;
     private volatile ScheduledTask websiteMaintenanceTask;
     private volatile ScheduledTask shadowMigrationTask;
     private volatile VelocityBootstrapCoordinator bootstrapCoordinator;
@@ -175,7 +177,7 @@ public final class EnthusiaStaffVelocityPlugin {
                 () -> channelServer,
                 () -> networkIdentityStore != null && networkIdentityProtector != null,
                 () -> discordOutboxWorker != null,
-                () -> websiteApiServer != null && websiteModerationStore != null
+                this::websiteBridgeReady
         ));
     }
 
@@ -572,6 +574,9 @@ public final class EnthusiaStaffVelocityPlugin {
     @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
     // Clear the published reference before closing; SLF4J placeholders defer formatting.
     private void closeWebsiteServer() {
+        WebsiteTunnelConnector connector = websiteTunnel;
+        websiteTunnel = null;
+        if (connector != null) connector.close();
         WebsiteApiServer server = websiteApiServer;
         websiteApiServer = null;
         if (server != null) {
@@ -795,6 +800,10 @@ public final class EnthusiaStaffVelocityPlugin {
             websiteModerationStore = website.store();
             websiteApiServer = website.server();
             websiteMaintenanceTask = website.maintenance();
+            websiteTunnelInstalled = java.nio.file.Files.exists(dataDirectory.resolve("website-tunnel/connector-token"));
+            websiteTunnel = WebsiteTunnelConnector.startIfInstalled(dataDirectory,
+                    () -> logger.error("Website tunnel connector stopped; the loopback API remains protected"))
+                    .orElse(null);
             if (logger.isInfoEnabled()) {
                 logger.info(
                         "Restricted website API started on loopback; {} eligible punishment codes were backfilled",
@@ -1045,7 +1054,15 @@ public final class EnthusiaStaffVelocityPlugin {
             issues.put("website-api", "The private punishment and appeal bridge is disabled");
         } else if (websiteApiServer == null || websiteModerationStore == null) {
             issues.put("website-api", "The configured private punishment and appeal bridge failed to start");
+        } else if (!websiteBridgeReady()) {
+            issues.put("website-api", "The installed website tunnel connector is unavailable");
         }
+    }
+
+    private boolean websiteBridgeReady() {
+        WebsiteTunnelConnector connector = websiteTunnel;
+        return websiteApiServer != null && websiteModerationStore != null
+                && (!websiteTunnelInstalled || connector != null && connector.running());
     }
 
     private void denyUnavailable(LoginEvent event) {
