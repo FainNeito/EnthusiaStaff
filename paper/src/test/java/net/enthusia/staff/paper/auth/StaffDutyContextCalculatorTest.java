@@ -12,6 +12,16 @@ import org.junit.jupiter.api.Test;
 
 class StaffDutyContextCalculatorTest {
     private static final UUID PLAYER_ID = UUID.fromString("30000000-0000-0000-0000-000000000001");
+    private static final Map<Class<?>, Object> PRIMITIVE_DEFAULTS = Map.of(
+            boolean.class, false,
+            byte.class, (byte) 0,
+            short.class, (short) 0,
+            int.class, 0,
+            long.class, 0L,
+            float.class, 0F,
+            double.class, 0D,
+            char.class, '\0'
+    );
 
     @Test
     void activeStaffSessionPublishesDutyContext() {
@@ -48,33 +58,9 @@ class StaffDutyContextCalculatorTest {
     }
 
     private static Object defaultValue(Class<?> type) {
-        if (!type.isPrimitive()) {
+        if (type == void.class || !type.isPrimitive()) {
             return null;
         }
-        if (type == boolean.class) {
-            return false;
-        }
-        if (type == byte.class) {
-            return (byte) 0;
-        }
-        if (type == short.class) {
-            return (short) 0;
-        }
-        if (type == int.class) {
-            return 0;
-        }
-        if (type == long.class) {
-            return 0L;
-        }
-        if (type == float.class) {
-            return 0F;
-        }
-        if (type == double.class) {
-            return 0D;
-        }
-        if (type == char.class) {
-            return '\0';
-        }
-        return null;
+        return PRIMITIVE_DEFAULTS.get(type);
     }
 }
