@@ -48,8 +48,21 @@ final class StaffModeAccessPolicy {
         return rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER;
     }
 
+    /** Default game mode applied on Staff Mode entry/profile refresh. */
     static GameMode requiredGameMode(StaffRank rank) {
         return usesCreativeMode(rank) ? GameMode.CREATIVE : GameMode.SPECTATOR;
+    }
+
+    /** Runtime modes a rank may deliberately switch to while Staff Mode remains active. */
+    static boolean allowsGameMode(StaffRank rank, GameMode gameMode) {
+        Objects.requireNonNull(gameMode, "gameMode");
+        if (rank == StaffRank.HELPER) {
+            return gameMode == GameMode.SURVIVAL || gameMode == GameMode.SPECTATOR;
+        }
+        if (rank == null || rank == StaffRank.SYSTEM) {
+            return false;
+        }
+        return gameMode == requiredGameMode(rank);
     }
 
     static boolean hasAdvancedStaffTools(StaffRank rank) {
