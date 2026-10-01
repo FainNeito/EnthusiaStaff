@@ -2,6 +2,8 @@ package net.enthusia.staff.paper.staff;
 
 import java.util.Objects;
 import java.util.UUID;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -41,6 +43,10 @@ public final class StaffModeDeathListener implements Listener {
 
     static void contain(PlayerDeathEvent event) {
         event.setCancelled(true);
+        AttributeInstance maximumHealth = event.getPlayer().getAttribute(Attribute.MAX_HEALTH);
+        if (maximumHealth != null) {
+            event.setReviveHealth(maximumHealth.getValue());
+        }
         event.setKeepInventory(true);
         event.getDrops().clear();
         event.setKeepLevel(true);
