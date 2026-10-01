@@ -37,6 +37,26 @@ class HelperObserverProtectionWiringTest {
         );
     }
 
+    @Test
+    void retainedMobTargetsAreReconciledThroughEntitySchedulers() throws IOException {
+        String listener = Files.readString(paperModule().resolve(
+                "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
+        ));
+
+        assertTrue(
+                listener.contains("player.getScheduler().run(plugin, ignoredPlayer -> reconcileRetainedTargets(player), null)"),
+                "Retained-target discovery must run on the Helper's entity scheduler"
+        );
+        assertTrue(
+                listener.contains("mob.getScheduler().run(plugin, ignoredMob ->"),
+                "Mob target mutation must run on the mob's own entity scheduler"
+        );
+        assertTrue(
+                listener.contains("mob.setTarget(null)"),
+                "A mob that still targets an active Helper must be detached"
+        );
+    }
+
     private static Path paperModule() {
         Path current = Path.of("").toAbsolutePath().normalize();
         if (Files.exists(current.resolve("src/main/java/net/enthusia/staff/paper/PaperRuntimeComponents.java"))) {
