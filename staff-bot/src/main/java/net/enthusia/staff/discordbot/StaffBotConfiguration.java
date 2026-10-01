@@ -166,55 +166,65 @@ public final class StaffBotConfiguration {
 
     public static StaffBotConfiguration fromEnvironment(Map<String, String> values) {
         Objects.requireNonNull(values, "values");
+        StaffBotConfiguration base = baseConfiguration(values);
+        if (base.uiPreviewEnabled) {
+            return new StaffBotConfiguration(base, ModerationPreviewWebConfig.fromEnvironment(values));
+        }
+        return productionWebsiteConfiguration(values, base);
+    }
+
+    private static StaffBotConfiguration baseConfiguration(Map<String, String> values) {
         StaffBotEnvironment environment = StaffBotEnvironment.parse(required(values, ENVIRONMENT_KEY));
         String token = requireSecret(values.get(TOKEN_KEY));
         boolean uiPreviewEnabled = booleanValue(values, UI_PREVIEW_KEY, false);
         String healthHost = values.getOrDefault(HEALTH_HOST_KEY, IPV4_LOOPBACK_HOST).trim();
-        if (!LOOPBACK_HOSTS.contains(healthHost)) {
-            throw new IllegalArgumentException("staff bot health endpoint must bind to loopback");
-        }
+        requireLoopbackHealthHost(healthHost);
         int healthPort = integer(values, HEALTH_PORT_KEY, DEFAULT_HEALTH_PORT, 0, 65535);
         int workerThreads = integer(values, WORKER_THREADS_KEY, DEFAULT_WORKER_THREADS, 1, 16);
         int queueCapacity = integer(values, WORKER_QUEUE_CAPACITY_KEY, DEFAULT_WORKER_QUEUE_CAPACITY, 1, 4096);
         int interactionCapacity = integer(values, INTERACTION_CAPACITY_KEY, DEFAULT_INTERACTION_CAPACITY, 16, 65536);
-        int interactionTtlSeconds = integer(
-                values,
-                INTERACTION_TTL_SECONDS_KEY,
-                DEFAULT_INTERACTION_TTL_SECONDS,
-                1,
-                86400);
-        StaffBotConfiguration base = new StaffBotConfiguration(
-                environment,
-                token,
-                uiPreviewEnabled,
-                loopbackSocketAddress(healthHost, healthPort),
-                workerThreads,
-                queueCapacity,
-                interactionCapacity,
-                Duration.ofSeconds(interactionTtlSeconds));
-        if (uiPreviewEnabled) {
-            return new StaffBotConfiguration(base, ModerationPreviewWebConfig.fromEnvironment(values));
+        int ttlSeconds = integer(values, INTERACTION_TTL_SECONDS_KEY, DEFAULT_INTERACTION_TTL_SECONDS, 1, 86400);
+        return new StaffBotConfiguration(environment, token, uiPreviewEnabled,
+                loopbackSocketAddress(healthHost, healthPort), workerThreads, queueCapacity,
+                interactionCapacity, Duration.ofSeconds(ttlSeconds));
+    }
+
+    private static void requireLoopbackHealthHost(String healthHost) {
+        if (!LOOPBACK_HOSTS.contains(healthHost)) {
+            throw new IllegalArgumentException("staff bot health endpoint must bind to loopback");
         }
+    }
+
+    private static StaffBotConfiguration productionWebsiteConfiguration(
+            Map<String, String> values, StaffBotConfiguration base) {
         String webUrl = values.getOrDefault(MODERATION_WEB_URL_KEY, "").trim();
         if (webUrl.isEmpty()) {
             return base;
         }
-        if (environment != StaffBotEnvironment.PRODUCTION) {
+        if (base.environment != StaffBotEnvironment.PRODUCTION) {
             throw new IllegalArgumentException("moderation website requires production environment");
         }
+        URI origin = productionWebsiteOrigin(webUrl);
+        return new StaffBotConfiguration(base, origin);
+    }
+
+    private static URI productionWebsiteOrigin(String webUrl) {
         URI uri = URI.create(webUrl);
-        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
-                || uri.getUserInfo() != null || uri.getPort() != -1
-                || uri.getRawQuery() != null || uri.getRawFragment() != null
-                || (uri.getRawPath() != null && !uri.getRawPath().isEmpty()
-                && !"/".equals(uri.getRawPath()))) {
+        if (!validHttpsOrigin(uri)) {
             throw new IllegalArgumentException("moderation website URL must be an HTTPS origin");
         }
         URI origin = URI.create("https://" + uri.getHost());
         if (!PRODUCTION_MODERATION_WEB_URI.equals(origin)) {
             throw new IllegalArgumentException("moderation website URL must match the pinned production origin");
         }
-        return new StaffBotConfiguration(base, origin);
+        return origin;
+    }
+
+    private static boolean validHttpsOrigin(URI uri) {
+        return "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null
+                && uri.getUserInfo() == null && uri.getPort() == -1
+                && uri.getRawQuery() == null && uri.getRawFragment() == null
+                && (uri.getRawPath() == null || uri.getRawPath().isEmpty() || "/".equals(uri.getRawPath()));
     }
 
     public StaffBotEnvironment environment() {

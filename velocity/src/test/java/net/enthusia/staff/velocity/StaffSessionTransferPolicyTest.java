@@ -7,24 +7,27 @@ import net.enthusia.staff.domain.staff.StaffSessionState;
 import org.junit.jupiter.api.Test;
 
 class StaffSessionTransferPolicyTest {
+    private static final String HUB = "HUB";
+    private static final String SMP = "SMP";
+
     @Test
     void strandedRecoveryMayReturnOnlyToItsOriginalBackend() {
         for (var state : new StaffSessionState[]{StaffSessionState.ACTIVE, StaffSessionState.RECOVERY_REQUIRED, StaffSessionState.EXITING}) {
-            assertTrue(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "HUB", "smp"));
-            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "HUB", "TEST"));
-            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "SMP", "HUB"));
-            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "SMP", "SMP"));
+            assertTrue(StaffSessionTransferPolicy.recoveryReturnAllowed(SMP, state, HUB, "smp"));
+            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(SMP, state, HUB, "TEST"));
+            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(SMP, state, SMP, HUB));
+            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(SMP, state, SMP, SMP));
         }
     }
 
     @Test
     void incompleteSessionsAndMissingOwnershipRemainBlocked() {
         for (var state : new StaffSessionState[]{StaffSessionState.ENTERING, StaffSessionState.CLOSED}) {
-            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "HUB", "SMP"));
+            assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(SMP, state, HUB, SMP));
         }
-        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(null, StaffSessionState.RECOVERY_REQUIRED, "HUB", "SMP"));
-        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("", StaffSessionState.RECOVERY_REQUIRED, "HUB", "SMP"));
-        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", StaffSessionState.RECOVERY_REQUIRED, null, "SMP"));
-        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", StaffSessionState.RECOVERY_REQUIRED, "HUB", null));
+        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(null, StaffSessionState.RECOVERY_REQUIRED, HUB, SMP));
+        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("", StaffSessionState.RECOVERY_REQUIRED, HUB, SMP));
+        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(SMP, StaffSessionState.RECOVERY_REQUIRED, null, SMP));
+        assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(SMP, StaffSessionState.RECOVERY_REQUIRED, HUB, null));
     }
 }

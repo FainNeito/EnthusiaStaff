@@ -19,11 +19,14 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 class VelocitabStaffBridgeTest {
+    private static final String MOD = "Mod";
+    private static final String ADMIN = "Admin";
+
     @Test
     void presenceQueryUsesAcceptedJdbcLimit() {
         java.util.concurrent.atomic.AtomicBoolean connected = new java.util.concurrent.atomic.AtomicBoolean();
         javax.sql.DataSource source = (javax.sql.DataSource) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[]{javax.sql.DataSource.class}, (ignored, method, args) -> {
+                Thread.currentThread().getContextClassLoader(), new Class<?>[]{javax.sql.DataSource.class}, (ignored, method, args) -> {
                     if (method.getName().equals("getConnection")) {
                         connected.set(true);
                         throw new java.sql.SQLException("test database unavailable");
@@ -40,7 +43,7 @@ class VelocitabStaffBridgeTest {
         var record = new net.enthusia.staff.domain.staff.VanishRecord(
                 UUID.randomUUID(), StaffRank.MOD, java.time.Instant.now(), 1);
         var store = (net.enthusia.staff.domain.ports.VanishStore) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[]{net.enthusia.staff.domain.ports.VanishStore.class},
+                Thread.currentThread().getContextClassLoader(), new Class<?>[]{net.enthusia.staff.domain.ports.VanishStore.class},
                 (ignored, method, args) -> {
                     assertEquals("active", method.getName());
                     assertEquals(10_000, args[0]);
@@ -70,24 +73,24 @@ class VelocitabStaffBridgeTest {
     void unknownAndStalePresenceFailClosedAndVerifiedMatrixApplies() throws ReflectiveOperationException {
         UUID modId = UUID.randomUUID();
         UUID adminId = UUID.randomUUID();
-        Player mod = player(modId, "Mod", "mod");
-        Player admin = player(adminId, "Admin", "admin");
+        Player mod = player(modId, MOD, "mod");
+        Player admin = player(adminId, ADMIN, "admin");
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api, List.of(mod, admin));
-        assertTrue(api.integration.isVanished("Admin"));
-        assertFalse(api.integration.canSee("Mod", "Admin"));
+        assertTrue(api.integration.isVanished(ADMIN));
+        assertFalse(api.integration.canSee(MOD, ADMIN));
         var presence = VelocitabStaffBridge.class.getDeclaredField("presence");
-        presence.setAccessible(true);
+        presence.trySetAccessible();
         presence.set(bridge, new StaffTabPresence(Map.of(adminId, StaffRank.ADMIN), Set.of()));
         var verifiedAt = VelocitabStaffBridge.class.getDeclaredField("verifiedAt");
-        verifiedAt.setAccessible(true);
+        verifiedAt.trySetAccessible();
         verifiedAt.setLong(bridge, System.nanoTime());
-        assertFalse(api.integration.canSee("Mod", "Admin"));
-        assertTrue(api.integration.canSee("Admin", "Admin"));
-        assertFalse(api.integration.isVanished("Mod"));
+        assertFalse(api.integration.canSee(MOD, ADMIN));
+        assertTrue(api.integration.canSee(ADMIN, ADMIN));
+        assertFalse(api.integration.isVanished(MOD));
         verifiedAt.setLong(bridge, System.nanoTime() - java.time.Duration.ofSeconds(6).toNanos());
-        assertTrue(api.integration.isVanished("Mod"));
-        assertFalse(api.integration.canSee("Admin", "Mod"));
+        assertTrue(api.integration.isVanished(MOD));
+        assertFalse(api.integration.canSee(ADMIN, MOD));
         bridge.close();
     }
 
@@ -98,7 +101,7 @@ class VelocitabStaffBridgeTest {
         VanishIntegration previous = api.integration;
         VelocitabStaffBridge bridge = bridge(api, List.of(player));
         var update = VelocitabStaffBridge.class.getDeclaredMethod("updateName", Player.class, String.class);
-        update.setAccessible(true);
+        update.trySetAccessible();
         update.invoke(bridge, player, "<aqua>[V]</aqua> ");
         assertEquals("<aqua>[V]</aqua> Staff", api.name);
         update.invoke(bridge, player, "<aqua>[V]</aqua> ");
@@ -119,7 +122,7 @@ class VelocitabStaffBridgeTest {
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api, List.of(player));
         var update = VelocitabStaffBridge.class.getDeclaredMethod("updateName", Player.class, String.class);
-        update.setAccessible(true);
+        update.trySetAccessible();
         update.invoke(bridge, player, "[V] ");
         api.name = "New nickname";
         VanishIntegration newer = new VanishIntegration() {
@@ -133,7 +136,7 @@ class VelocitabStaffBridgeTest {
     }
 
     private static VelocitabStaffBridge bridge(FakeApi api, List<Player> players) throws ReflectiveOperationException {
-        ProxyServer proxy = (ProxyServer) Proxy.newProxyInstance(ProxyServer.class.getClassLoader(),
+        ProxyServer proxy = (ProxyServer) Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(),
                 new Class<?>[]{ProxyServer.class}, (ignored, method, args) -> switch (method.getName()) {
                     case "getAllPlayers" -> players;
                     case "getPlayer" -> players.stream().filter(player -> player.getUsername().equals(args[0])).findFirst();
@@ -144,7 +147,7 @@ class VelocitabStaffBridgeTest {
     }
 
     private static Player player(UUID id, String name, String rank) {
-        return (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+        return (Player) Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class<?>[]{Player.class},
                 (ignored, method, args) -> switch (method.getName()) {
                     case "getUniqueId" -> id;
                     case "getUsername" -> name;

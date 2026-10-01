@@ -1,7 +1,7 @@
 package net.enthusia.staff.discordbot;
 
 import java.time.Instant;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,9 +13,14 @@ import net.enthusia.staff.domain.sanction.SanctionLength;
 /** Website confirmations reuse the durable D07 service and its current-authority checks. */
 final class ModerationActionApiService {
     private static final int MAX_DRAFTS = 1000;
+    private static final String CAPABILITIES = "capabilities";
+    private static final String PREPARE = "prepare";
+    private static final String CONFIRM = "confirm";
+    private static final String STATUS = "status";
     private final StaffModerationRuntime moderation;
     private final ModerationReadRequestAuthorizer authorizer;
-    private final Map<UUID, Binding> drafts = new HashMap<>();
+    private final Map<UUID, Binding> drafts = new ConcurrentHashMap<>();
+    private final Object draftLock = new Object();
 
     record Request(String actorId, String guildId, String targetKey, String sessionBinding,
             Optional<IntentInput> intent, Optional<UUID> confirmationId,
@@ -81,67 +86,126 @@ final class ModerationActionApiService {
         this.authorizer = authorizer;
     }
 
-    synchronized Object execute(String operation, Request request) {
+    Object execute(String operation, Request request) {
+        synchronized (draftLock) {
+            return executeGuarded(operation, request);
+        }
+    }
+
+    private Object executeGuarded(String operation, Request request) {
         ModerationReadContext context = authorizer.authorize(new ModerationReadApiModel.ReadRequest(
                 request.actorId(), request.guildId(), request.targetKey(), Optional.empty()));
-        if (operation.equals("capabilities")) {
-            com.fasterxml.jackson.databind.JsonNode minecraft;
-            try {
-                minecraft = minecraftRequest("capabilities", request, context);
-            } catch (StaffAuthorityClient.UnavailableException | SecurityException exception) {
-                minecraft = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
-                        .put("enabled", false).set("reasons", new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode());
-            }
-            return Map.of("discordEnabled", moderation.punishmentService().isPresent(),
-                    "minecraftEnabled", minecraft.path("enabled").asBoolean(false),
-                    "minecraftReasons", minecraft.path("reasons"), "messageDeletionEnabled", false);
+        if (CAPABILITIES.equals(operation)) {
+            return capabilities(request, context);
         }
-        if (request.minecraftTarget().isPresent() || request.minecraftIntent().isPresent()) {
+        if (minecraftOperation(request)) {
             return minecraftRequest(operation, request, context);
         }
-        long target = context.readTarget().userId().orElseThrow(() -> new IllegalArgumentException("select a target"));
+        return discordRequest(operation, request, context);
+    }
+
+    private Object capabilities(Request request, ModerationReadContext context) {
+        com.fasterxml.jackson.databind.JsonNode minecraft;
+        try {
+            minecraft = minecraftRequest(CAPABILITIES, request, context);
+        } catch (StaffAuthorityClient.UnavailableException | SecurityException exception) {
+            minecraft = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
+                    .put("enabled", false).set("reasons",
+                            new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode());
+        }
+        return Map.of("discordEnabled", moderation.punishmentService().isPresent(),
+                "minecraftEnabled", minecraft.path("enabled").asBoolean(false),
+                "minecraftReasons", minecraft.path("reasons"), "messageDeletionEnabled", false);
+    }
+
+    private static boolean minecraftOperation(Request request) {
+        return request.minecraftTarget().isPresent() || request.minecraftIntent().isPresent();
+    }
+
+    private Object discordRequest(String operation, Request request, ModerationReadContext context) {
+        long target = context.readTarget().userId()
+                .orElseThrow(() -> new IllegalArgumentException("select a target"));
         DiscordPunishmentService service = moderation.punishmentService()
                 .orElseThrow(() -> new IllegalStateException("Discord enforcement is disabled"));
         return switch (operation) {
-            case "prepare" -> prepare(request, context, service, target);
-            case "confirm" -> confirm(request, context, service, target);
-            case "status" -> status(request, context, service, target);
+            case PREPARE -> prepare(request, context, service, target);
+            case CONFIRM -> confirm(request, context, service, target);
+            case STATUS -> status(request, context, service, target);
             default -> throw new IllegalArgumentException("unknown moderation action operation");
         };
     }
 
     private com.fasterxml.jackson.databind.JsonNode minecraftRequest(
             String operation, Request request, ModerationReadContext context) {
-        if (request.intent().isPresent()) throw new IllegalArgumentException("cannot mix Discord and Minecraft intent");
-        var actor = moderation.actors().invoker(new net.enthusia.staff.domain.moderation.DiscordUserId(request.actorId()),
+        rejectMixedIntent(request);
+        var actor = moderation.actors().invoker(
+                new net.enthusia.staff.domain.moderation.DiscordUserId(request.actorId()),
                 context.actorMember().getEffectiveName());
-        UUID target = null;
-        if (!"capabilities".equals(operation)) {
-            var resolved = moderation.reads().resolveMinecraft(request.minecraftTarget().orElseThrow());
-            if (!(resolved instanceof StaffModerationReadService.MinecraftResolution.Resolved found)) {
-                throw new IllegalArgumentException("Minecraft player is unknown or ambiguous; use its exact UUID");
-            }
-            target = found.target().minecraftId().orElseThrow();
-        } else if (request.minecraftTarget().isPresent() || request.minecraftIntent().isPresent() || request.confirmationId().isPresent()) {
+        UUID target = minecraftTarget(operation, request);
+        validateMinecraftOperation(operation, request);
+        return moderation.authority().punishment(operation, minecraftInput(request, actor.id(), target));
+    }
+
+    private static void rejectMixedIntent(Request request) {
+        if (request.intent().isPresent()) {
+            throw new IllegalArgumentException("cannot mix Discord and Minecraft intent");
+        }
+    }
+
+    private UUID minecraftTarget(String operation, Request request) {
+        if (CAPABILITIES.equals(operation)) {
+            return null;
+        }
+        var resolved = moderation.reads().resolveMinecraft(request.minecraftTarget().orElseThrow());
+        if (!(resolved instanceof StaffModerationReadService.MinecraftResolution.Resolved found)) {
+            throw new IllegalArgumentException("Minecraft player is unknown or ambiguous; use its exact UUID");
+        }
+        return found.target().minecraftId().orElseThrow();
+    }
+
+    private static void validateMinecraftOperation(String operation, Request request) {
+        if (CAPABILITIES.equals(operation)) {
+            validateCapabilitiesRequest(request);
+            return;
+        }
+        if (PREPARE.equals(operation)) {
+            validateMinecraftPrepare(request);
+            return;
+        }
+        validateMinecraftConfirmation(operation, request);
+    }
+
+    private static void validateCapabilitiesRequest(Request request) {
+        if (request.minecraftTarget().isPresent() || request.minecraftIntent().isPresent()
+                || request.confirmationId().isPresent()) {
             throw new IllegalArgumentException("capabilities cannot carry intent");
         }
-        if ("prepare".equals(operation)) {
-            if (request.confirmationId().isPresent() || request.minecraftIntent().isEmpty()) {
-                throw new IllegalArgumentException("configured Minecraft intent is required");
-            }
-        } else if (request.minecraftIntent().isPresent()) {
+    }
+
+    private static void validateMinecraftPrepare(Request request) {
+        if (request.confirmationId().isPresent() || request.minecraftIntent().isEmpty()) {
+            throw new IllegalArgumentException("configured Minecraft intent is required");
+        }
+    }
+
+    private static void validateMinecraftConfirmation(String operation, Request request) {
+        if (request.minecraftIntent().isPresent()) {
             throw new IllegalArgumentException("confirmation cannot change Minecraft intent");
         }
-        if (("confirm".equals(operation) || "status".equals(operation)) && request.confirmationId().isEmpty()) {
+        if ((CONFIRM.equals(operation) || STATUS.equals(operation)) && request.confirmationId().isEmpty()) {
             throw new IllegalArgumentException("Minecraft confirmation is required");
         }
+    }
+
+    private static java.util.Map<String, Object> minecraftInput(Request request, UUID actorId, UUID target) {
         var input = new java.util.LinkedHashMap<String, Object>();
-        input.put("actorId", actor.id()); input.put("targetId", target);
+        input.put("actorId", actorId);
+        input.put("targetId", target);
         input.put("sessionBinding", minecraftSessionBinding(request));
         input.put("confirmationId", request.confirmationId().orElse(null));
         input.put("reasonId", request.minecraftIntent().map(MinecraftIntent::reasonId).orElse(null));
         input.put("explanation", request.minecraftIntent().map(MinecraftIntent::explanation).orElse(null));
-        return moderation.authority().punishment(operation, input);
+        return input;
     }
 
     private static String minecraftSessionBinding(Request request) {

@@ -18,6 +18,7 @@ import net.enthusia.staff.domain.migration.LegacySanctionType;
 
 public final class LiteBansReader {
     private static final int MAX_BATCH_SIZE = 5_000;
+    private static final int MAX_IPV4_COMPONENT = 255;
 
     public LiteBansReadReport read(
             Connection connection,
@@ -264,9 +265,7 @@ public final class LiteBansReader {
                     continue;
                 }
                 try {
-                    UUID playerId = optionalUuid(row.uuid()).orElseThrow(
-                            () -> new IllegalArgumentException("LiteBans history UUID is missing")
-                    );
+                    UUID playerId = requiredHistoryUuid(row.uuid());
                     Optional<String> username = Optional.ofNullable(row.username())
                             .filter(value -> value.matches("[A-Za-z0-9_]{1,32}"));
                     observations.add(new LegacyNetworkObservation(
@@ -284,6 +283,12 @@ public final class LiteBansReader {
                 }
             }
         }
+    }
+
+
+    private static UUID requiredHistoryUuid(String value) {
+        return optionalUuid(value).orElseThrow(
+                () -> new IllegalArgumentException("LiteBans history UUID is missing"));
     }
 
     private static List<HistoryRow> readHistoryBatch(
@@ -333,7 +338,7 @@ public final class LiteBansReader {
             byte[] bytes = new byte[4];
             for (int index = 0; index < parts.length; index++) {
                 int part = Integer.parseInt(parts[index]);
-                if (part > 255) {
+                if (part > MAX_IPV4_COMPONENT) {
                     throw new IllegalArgumentException("legacy IPv4 component is out of range");
                 }
                 bytes[index] = (byte) part;

@@ -18,6 +18,8 @@ import net.enthusia.staff.domain.sanction.*;
 import org.junit.jupiter.api.Test;
 
 final class StaffWebPunishmentServiceTest {
+    private static final String CONFIRM_OPERATION = "confirm";
+
     private static final UUID ACTOR = UUID.fromString("10000000-0000-4000-8000-000000000001");
     private static final UUID TARGET = UUID.fromString("10000000-0000-4000-8000-000000000002");
     private static final String SESSION = "a".repeat(64);
@@ -41,10 +43,10 @@ final class StaffWebPunishmentServiceTest {
         assertTrue(fixture.plans.isEmpty());
         var request = confirm(prepared.confirmationId(), TARGET, SESSION);
         var applied = assertInstanceOf(StaffWebPunishmentService.Status.class,
-                fixture.service.execute("confirm", request));
+                fixture.service.execute(CONFIRM_OPERATION, request));
         assertEquals("APPLIED", applied.state());
         assertEquals("TESTCASE00000001", applied.caseId());
-        assertEquals(applied, fixture.service.execute("confirm", request));
+        assertEquals(applied, fixture.service.execute(CONFIRM_OPERATION, request));
         assertEquals(applied, fixture.service.execute("status", request));
         assertEquals(1, fixture.plans.size());
     }
@@ -53,11 +55,11 @@ final class StaffWebPunishmentServiceTest {
     void changedTargetSessionAndIntentCannotConfirmAnExistingDraft() {
         Fixture fixture = new Fixture();
         var prepared = fixture.prepare();
-        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute("confirm",
+        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 confirm(prepared.confirmationId(), TARGET, "b".repeat(64))));
-        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute("confirm",
+        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 confirm(prepared.confirmationId(), UUID.randomUUID(), SESSION)));
-        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute("confirm",
+        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 new StaffWebPunishmentService.Request(ACTOR, TARGET, SESSION, "chat.toxicity", "changed",
                         prepared.confirmationId())));
         assertTrue(fixture.plans.isEmpty());
@@ -68,7 +70,7 @@ final class StaffWebPunishmentServiceTest {
         Fixture fixture = new Fixture();
         var prepared = fixture.prepare();
         fixture.activeDuty.set(false);
-        assertThrows(SecurityException.class, () -> fixture.service.execute("confirm",
+        assertThrows(SecurityException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 confirm(prepared.confirmationId(), TARGET, SESSION)));
         assertTrue(fixture.plans.isEmpty());
     }
@@ -78,11 +80,11 @@ final class StaffWebPunishmentServiceTest {
         Fixture fixture = new Fixture();
         var prepared = fixture.prepare();
         fixture.actor.set(null);
-        assertThrows(SecurityException.class, () -> fixture.service.execute("confirm",
+        assertThrows(SecurityException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 confirm(prepared.confirmationId(), TARGET, SESSION)));
         fixture.actor.set(new Actor(ACTOR, "Moderator", StaffRank.MOD));
         fixture.targetRank.set(Optional.of(StaffRank.MOD));
-        assertThrows(SecurityException.class, () -> fixture.service.execute("confirm",
+        assertThrows(SecurityException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 confirm(prepared.confirmationId(), TARGET, SESSION)));
         assertTrue(fixture.plans.isEmpty());
     }
@@ -92,11 +94,11 @@ final class StaffWebPunishmentServiceTest {
         Fixture fixture = new Fixture();
         var prepared = fixture.prepare();
         fixture.mode.set(OperationalMode.SHADOW_MIGRATION);
-        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute("confirm",
+        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 confirm(prepared.confirmationId(), TARGET, SESSION)));
         fixture.mode.set(OperationalMode.ACTIVE);
         fixture.now.set(fixture.now.get().plusSeconds(120));
-        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute("confirm",
+        assertThrows(IllegalArgumentException.class, () -> fixture.service.execute(CONFIRM_OPERATION,
                 confirm(prepared.confirmationId(), TARGET, SESSION)));
         assertTrue(fixture.plans.isEmpty());
     }
@@ -164,7 +166,7 @@ final class StaffWebPunishmentServiceTest {
     }
 
     private static final class Drafts implements PunishmentDraftStore {
-        final Map<UUID, PunishmentDraft> entries = new HashMap<>();
+        final Map<UUID, PunishmentDraft> entries = new java.util.concurrent.ConcurrentHashMap<>();
         public void save(PunishmentDraft draft) { entries.put(draft.draftId(), draft); }
         public Optional<PunishmentDraft> find(UUID id, UUID actor, Instant now) {
             return Optional.ofNullable(entries.get(id)).filter(draft -> draft.actorId().equals(actor) && !draft.expiredAt(now));

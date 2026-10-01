@@ -6,6 +6,7 @@ import com.velocitypowered.api.scheduler.ScheduledTask;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -29,7 +30,8 @@ final class VelocitabStaffBridge implements AutoCloseable {
     private final Supplier<MariaDbRuntime> storage;
     private final Executor workers;
     private final AtomicBoolean running = new AtomicBoolean();
-    private final Map<UUID, NameOverride> names = new HashMap<>();
+    private final Map<UUID, NameOverride> names = new ConcurrentHashMap<>();
+    private final Object stateLock = new Object();
     private final Object api;
     private final Object previous;
     private final Object integration;
@@ -44,6 +46,8 @@ final class VelocitabStaffBridge implements AutoCloseable {
     private Runnable publicOnlinePlaceholderCleanup = () -> { };
     private boolean failureReported;
 
+    @SuppressWarnings("PMD.UseProperClassLoader")
+    // Velocitab API classes must be loaded from the discovered plugin instance's owning classloader.
     static Optional<VelocitabStaffBridge> start(Object owner, ProxyServer proxy, Logger logger,
             Supplier<MariaDbRuntime> storage, Executor workers) {
         Optional<Object> plugin = proxy.getPluginManager().getPlugin("velocitab")
@@ -57,10 +61,14 @@ final class VelocitabStaffBridge implements AutoCloseable {
             bridge.installPublicOnlinePlaceholder();
             bridge.task = proxy.getScheduler().buildTask(owner, bridge::refresh)
                     .repeat(1, TimeUnit.SECONDS).schedule();
-            logger.info("Velocitab staff visibility and state markers connected");
+            if (logger.isInfoEnabled()) {
+                logger.info("Velocitab staff visibility and state markers connected");
+            }
             return Optional.of(bridge);
         } catch (ReflectiveOperationException | RuntimeException exception) {
-            logger.error("Velocitab staff integration unavailable ({})", exception.getClass().getSimpleName());
+            if (logger.isErrorEnabled()) {
+                logger.error("Velocitab staff integration unavailable ({})", exception.getClass().getSimpleName());
+            }
             return Optional.empty();
         }
     }
@@ -73,6 +81,8 @@ final class VelocitabStaffBridge implements AutoCloseable {
                 Class.forName("net.william278.velocitab.vanish.VanishIntegration", true, loader));
     }
 
+    @SuppressWarnings("PMD.UseProperClassLoader")
+    // The generated proxy must use the classloader that defines Velocitab's integration interface.
     VelocitabStaffBridge(ProxyServer proxy, Logger logger, Supplier<MariaDbRuntime> storage,
             Executor workers, Object api, Class<?> integrationType) throws ReflectiveOperationException {
         this.proxy = proxy;
@@ -96,15 +106,19 @@ final class VelocitabStaffBridge implements AutoCloseable {
 
     private void installPublicOnlinePlaceholder() {
         if (proxy.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
-            logger.warn("MiniPlaceholders is unavailable; {} is not registered",
-                    PublicOnlineCountPolicy.PLACEHOLDER);
+            if (logger.isWarnEnabled()) {
+                logger.warn("MiniPlaceholders is unavailable; {} is not registered",
+                        PublicOnlineCountPolicy.PLACEHOLDER);
+            }
             return;
         }
         try {
             publicOnlinePlaceholderCleanup = MiniPlaceholdersPublicOnlineBridge.register(this::publicOnlineCount, logger);
         } catch (LinkageError | RuntimeException exception) {
-            logger.error("Staff public-online placeholder integration unavailable ({})",
-                    exception.getClass().getSimpleName());
+            if (logger.isErrorEnabled()) {
+                logger.error("Staff public-online placeholder integration unavailable ({})",
+                        exception.getClass().getSimpleName());
+            }
         }
     }
 
@@ -150,8 +164,10 @@ final class VelocitabStaffBridge implements AutoCloseable {
                 } catch (ReflectiveOperationException | RuntimeException exception) {
                     // Never publish an empty vanished set after a storage failure.
                     if (!failureReported) {
-                        logger.warn("Staff tab presence refresh unavailable; visibility fails closed ({})",
-                                exception.getClass().getSimpleName());
+                        if (logger.isWarnEnabled()) {
+                            logger.warn("Staff tab presence refresh unavailable; visibility fails closed ({})",
+                                    exception.getClass().getSimpleName());
+                        }
                         failureReported = true;
                     }
                     if (!fresh()) {
@@ -166,36 +182,51 @@ final class VelocitabStaffBridge implements AutoCloseable {
         }
     }
 
-    private synchronized void refreshVerified() throws ReflectiveOperationException {
+    private void refreshVerified() throws ReflectiveOperationException {
+        synchronized (stateLock) {
+            refreshVerifiedGuarded();
+        }
+    }
+
+    private void refreshVerifiedGuarded() throws ReflectiveOperationException {
         if (closed) {
             return;
         }
         MariaDbRuntime runtime = storage.get();
         if (runtime == null) {
-            hideUnavailablePresence();
+            hideUnavailablePresenceGuarded();
             return;
         }
-        var records = loadVanished(runtime.vanishStore());
+        var players = java.util.List.copyOf(proxy.getAllPlayers());
+        PresenceSnapshot snapshot = presenceSnapshot(runtime, players);
+        Map<UUID, Object> users = loadedUsers(players);
+        boolean changed = presenceChanged(snapshot, users);
+        publishPresence(snapshot, users);
+        refreshTabPlayers(players, users, snapshot.presence(), changed);
+    }
+
+    private static PresenceSnapshot presenceSnapshot(MariaDbRuntime runtime, java.util.List<Player> players) {
         Map<UUID, StaffRank> vanished = new HashMap<>();
-        records.forEach(record -> vanished.put(record.staffId(), record.rank()));
+        loadVanished(runtime.vanishStore()).forEach(record -> vanished.put(record.staffId(), record.rank()));
         Set<UUID> staffMode = new HashSet<>();
         Map<UUID, StaffRank> ranks = new HashMap<>();
-        var players = java.util.List.copyOf(proxy.getAllPlayers());
         Set<UUID> playerIds = new HashSet<>();
         for (Player player : players) {
             UUID id = player.getUniqueId();
             playerIds.add(id);
-            StaffRank rank = rank(player);
-            if (rank != null) {
-                ranks.put(id, rank);
+            StaffRank playerRank = rank(player);
+            if (playerRank != null) {
+                ranks.put(id, playerRank);
                 runtime.staffSessionStore().active(id)
                         .filter(session -> session.state() == StaffSessionState.ACTIVE)
                         .ifPresent(session -> staffMode.add(id));
             }
         }
-        StaffTabPresence updated = new StaffTabPresence(vanished, staffMode);
-        Object list = call(api, "getTabList");
-        Object vanishList = call(list, "getVanishTabList");
+        return new PresenceSnapshot(new StaffTabPresence(vanished, staffMode),
+                Map.copyOf(ranks), Set.copyOf(playerIds));
+    }
+
+    private Map<UUID, Object> loadedUsers(java.util.List<Player> players) throws ReflectiveOperationException {
         Map<UUID, Object> users = new HashMap<>();
         for (Player player : players) {
             Optional<?> user = (Optional<?>) api.getClass().getMethod("getUser", Player.class).invoke(api, player);
@@ -203,29 +234,57 @@ final class VelocitabStaffBridge implements AutoCloseable {
                 users.put(player.getUniqueId(), user.get());
             }
         }
-        boolean changed = !updated.equals(presence) || !ranks.equals(lastRanks) || !playerIds.equals(lastPlayers)
-                || !users.keySet().equals(lastUsers) || !fresh();
-        lastRanks = Map.copyOf(ranks);
-        lastPlayers = Set.copyOf(playerIds);
-        lastUsers = Set.copyOf(users.keySet());
-        presence = updated;
-        verifiedAt = System.nanoTime();
-        failureReported = false;
-        for (Player player : players) {
-            Object user = users.get(player.getUniqueId());
-            if (user == null) {
-                continue;
-            }
-            updateName(player, updated.marker(player.getUniqueId()));
-            if (changed) {
-                Method recalculate = vanishList.getClass().getMethod("recalculateVanishForPlayer", user.getClass());
-                recalculate.invoke(vanishList, user);
-            }
-        }
-        names.keySet().retainAll(playerIds);
+        return users;
     }
 
-    private synchronized void hideUnavailablePresence() {
+    private boolean presenceChanged(PresenceSnapshot snapshot, Map<UUID, Object> users) {
+        return !snapshot.presence().equals(presence) || !snapshot.ranks().equals(lastRanks)
+                || !snapshot.playerIds().equals(lastPlayers) || !users.keySet().equals(lastUsers) || !fresh();
+    }
+
+    private void publishPresence(PresenceSnapshot snapshot, Map<UUID, Object> users) {
+        lastRanks = snapshot.ranks();
+        lastPlayers = snapshot.playerIds();
+        lastUsers = Set.copyOf(users.keySet());
+        presence = snapshot.presence();
+        verifiedAt = System.nanoTime();
+        failureReported = false;
+    }
+
+    private void refreshTabPlayers(java.util.List<Player> players, Map<UUID, Object> users,
+            StaffTabPresence updated, boolean changed) throws ReflectiveOperationException {
+        Object vanishList = call(call(api, "getTabList"), "getVanishTabList");
+        for (Player player : players) {
+            Object user = users.get(player.getUniqueId());
+            if (user != null) {
+                updateName(player, updated.marker(player.getUniqueId()));
+                recalculateIfChanged(vanishList, user, changed);
+            }
+        }
+        names.keySet().retainAll(snapshotIds(players));
+    }
+
+    private static Set<UUID> snapshotIds(java.util.List<Player> players) {
+        Set<UUID> ids = new HashSet<>();
+        players.forEach(player -> ids.add(player.getUniqueId()));
+        return ids;
+    }
+
+    private static void recalculateIfChanged(Object vanishList, Object user, boolean changed)
+            throws ReflectiveOperationException {
+        if (changed) {
+            Method recalculate = vanishList.getClass().getMethod("recalculateVanishForPlayer", user.getClass());
+            recalculate.invoke(vanishList, user);
+        }
+    }
+
+    private void hideUnavailablePresence() {
+        synchronized (stateLock) {
+            hideUnavailablePresenceGuarded();
+        }
+    }
+
+    private void hideUnavailablePresenceGuarded() {
         if (closed || fresh()) {
             return;
         }
@@ -239,8 +298,10 @@ final class VelocitabStaffBridge implements AutoCloseable {
                 }
             }
         } catch (ReflectiveOperationException | RuntimeException exception) {
-            logger.debug("Unavailable staff presence could not refresh tab entries ({})",
-                    exception.getClass().getSimpleName());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Unavailable staff presence could not refresh tab entries ({})",
+                        exception.getClass().getSimpleName());
+            }
         }
     }
 
@@ -294,7 +355,13 @@ final class VelocitabStaffBridge implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
+        synchronized (stateLock) {
+            closeGuarded();
+        }
+    }
+
+    private void closeGuarded() {
         closed = true;
         publicOnlinePlaceholderCleanup.run();
         if (task != null) {
@@ -308,8 +375,13 @@ final class VelocitabStaffBridge implements AutoCloseable {
                 api.getClass().getMethod("setVanishIntegration", integrationType).invoke(api, previous);
             }
         } catch (ReflectiveOperationException | RuntimeException exception) {
-            logger.warn("Staff tab integration cleanup unavailable ({})", exception.getClass().getSimpleName());
+            if (logger.isWarnEnabled()) {
+                logger.warn("Staff tab integration cleanup unavailable ({})", exception.getClass().getSimpleName());
+            }
         }
+    }
+
+    private record PresenceSnapshot(StaffTabPresence presence, Map<UUID, StaffRank> ranks, Set<UUID> playerIds) {
     }
 
     private record NameOverride(Optional<String> original, String applied) {

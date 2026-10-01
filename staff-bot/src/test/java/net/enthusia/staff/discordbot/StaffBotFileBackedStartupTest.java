@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class StaffBotFileBackedStartupTest {
+    private static final String PRODUCTION_ARGUMENT = "--environment=production";
+
     @TempDir
     Path tempDir;
 
@@ -80,7 +82,7 @@ class StaffBotFileBackedStartupTest {
         StaffBotCommandLine commandLine = StaffBotCommandLine.parse(new String[] {
                 "--token-file=" + tokenFile,
                 "--moderation-config-file=" + tempDir.resolve("m"),
-                "--environment=production"
+                PRODUCTION_ARGUMENT
         });
 
         StaffBotConfiguration configuration = StaffBotConfiguration.fromStartup(commandLine, Map.of());
@@ -98,7 +100,7 @@ class StaffBotFileBackedStartupTest {
         StaffBotCommandLine commandLine = StaffBotCommandLine.parse(new String[] {
                 "--token-file=" + tokenFile,
                 "--moderation-config-file=" + tempDir.resolve("m"),
-                "--environment=production"
+                PRODUCTION_ARGUMENT
         });
 
         assertThrows(IllegalArgumentException.class, () -> StaffBotConfiguration.fromStartup(
@@ -108,13 +110,13 @@ class StaffBotFileBackedStartupTest {
     @Test
     void productionSelectionRequiresCompleteFilesAndRejectsPreview() {
         assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
-                "--environment=production"
+                PRODUCTION_ARGUMENT
         }));
         assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
-                "--environment=production", "--token-file=t"
+                PRODUCTION_ARGUMENT, "--token-file=t"
         }));
         assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
-                "--environment=production", "--token-file=t", "--moderation-config-file=m",
+                PRODUCTION_ARGUMENT, "--token-file=t", "--moderation-config-file=m",
                 "--staging-ui-preview"
         }));
     }

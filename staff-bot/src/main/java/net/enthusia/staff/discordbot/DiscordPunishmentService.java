@@ -62,6 +62,7 @@ final class DiscordPunishmentService {
     private final DiscordPunishmentGateway gateway;
     private final DiscordGuildId guildId;
     private final Clock clock;
+    private final Object webConfirmationLock = new Object();
 
     DiscordPunishmentService(
             Dependencies dependencies,
@@ -114,13 +115,15 @@ final class DiscordPunishmentService {
         return confirmIssue(actorDiscordId, actorName, token, UUID.randomUUID(), Optional.empty());
     }
 
-    synchronized MutationResult confirmWebIssue(long actorDiscordId, String actorName, long targetDiscordId, UUID token) {
-        Optional<StoredPunishment> existing = webPunishment(actorDiscordId, actorName, targetDiscordId, token);
-        if (existing.isPresent()) {
-            StoredPunishment stored = existing.orElseThrow();
-            return new MutationResult(token, stored.punishment().state(), true);
+    MutationResult confirmWebIssue(long actorDiscordId, String actorName, long targetDiscordId, UUID token) {
+        synchronized (webConfirmationLock) {
+            Optional<StoredPunishment> existing = webPunishment(actorDiscordId, actorName, targetDiscordId, token);
+            if (existing.isPresent()) {
+                StoredPunishment stored = existing.orElseThrow();
+                return new MutationResult(token, stored.punishment().state(), true);
+            }
+            return confirmIssue(actorDiscordId, actorName, token, token, Optional.of(discordUser(targetDiscordId)));
         }
-        return confirmIssue(actorDiscordId, actorName, token, token, Optional.of(discordUser(targetDiscordId)));
     }
 
     Optional<StoredPunishment> webPunishment(long actorDiscordId, String actorName, long targetDiscordId, UUID id) {

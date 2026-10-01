@@ -14,8 +14,9 @@ import net.enthusia.staff.protocol.ProtocolEnvelope;
 import org.bukkit.Bukkit;
 
 final class PaperNetworkMessageHandler {
+    private static final String PUNISHMENT_CREATED = "PUNISHMENT_CREATED";
     private static final Set<String> SANCTION_EVENTS = Set.of(
-            "PUNISHMENT_CREATED",
+            PUNISHMENT_CREATED,
             "SANCTION_CHANGED",
             "ALT_SANCTION_INHERITED"
     );
@@ -79,7 +80,7 @@ final class PaperNetworkMessageHandler {
     }
 
     private net.enthusia.staff.domain.network.PunishmentCommitNotification punishmentNotification(ProtocolEnvelope envelope) {
-        if (!"PUNISHMENT_CREATED".equals(envelope.messageType())) return null;
+        if (!PUNISHMENT_CREATED.equals(envelope.messageType())) return null;
         try {
             JsonNode payload = json.readTree(envelope.payloadJson());
             if (payload == null) throw new IllegalArgumentException("empty punishment notification");

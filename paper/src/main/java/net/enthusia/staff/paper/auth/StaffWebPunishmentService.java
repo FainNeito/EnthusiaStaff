@@ -4,12 +4,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import net.enthusia.staff.domain.OperationalMode;
@@ -24,6 +24,7 @@ import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.domain.auth.StaffTargetHierarchyPolicy;
 import net.enthusia.staff.domain.casefile.CaseVisibility;
 import net.enthusia.staff.domain.escalation.ReasonPolicy;
+import net.enthusia.staff.domain.player.PlayerIdentity;
 import net.enthusia.staff.domain.ports.PlayerDirectory;
 import net.enthusia.staff.domain.ports.ReasonPolicyRepository;
 import net.enthusia.staff.domain.sanction.SanctionSpec;
@@ -33,6 +34,10 @@ import net.enthusia.staff.domain.sanction.SanctionType;
 public final class StaffWebPunishmentService {
     private static final int CAPACITY = 1000;
     private static final Duration CONFIRMATION_LIFETIME = Duration.ofMinutes(2);
+    private static final String CAPABILITIES = "capabilities";
+    private static final String PREPARE = "prepare";
+    private static final String CONFIRM = "confirm";
+    private static final String STATUS = "status";
     private static final Set<SanctionType> SUPPORTED = Set.of(
             SanctionType.WARNING, SanctionType.KICK, SanctionType.MUTE, SanctionType.PUBLIC_MUTE,
             SanctionType.BAN, SanctionType.NETWORK_BAN, SanctionType.NETWORK_IDENTITY_BAN);
@@ -40,7 +45,8 @@ public final class StaffWebPunishmentService {
     private final Dependencies dependencies;
     private final Function<UUID, Actor> actors;
     private final Function<UUID, Optional<StaffRank>> targetRanks;
-    private final Map<UUID, Binding> confirmations = new HashMap<>();
+    private final Map<UUID, Binding> confirmations = new ConcurrentHashMap<>();
+    private final Object confirmationLock = new Object();
 
     public record Dependencies(Clock clock, Supplier<OperationalMode> mode,
             Supplier<PunishmentDraftWorkflow> workflows, Supplier<PlayerDirectory> players,
@@ -78,7 +84,9 @@ public final class StaffWebPunishmentService {
         private Status result;
 
         Binding(Request request, Instant expires) {
-            actor = request.actorId(); target = request.targetId(); session = request.sessionBinding();
+            actor = request.actorId();
+            target = request.targetId();
+            session = request.sessionBinding();
             this.expires = expires;
         }
 
@@ -95,45 +103,96 @@ public final class StaffWebPunishmentService {
         this.targetRanks = java.util.Objects.requireNonNull(targetRanks);
     }
 
-    public synchronized Object execute(String operation, Request request) {
+    public Object execute(String operation, Request request) {
+        synchronized (confirmationLock) {
+            return executeGuarded(operation, request);
+        }
+    }
+
+    private Object executeGuarded(String operation, Request request) {
+        Actor actor = authorizedActor(request);
+        if (CAPABILITIES.equals(operation)) {
+            return capabilities(request, actor);
+        }
+        PlayerIdentity target = authorizedTarget(request, actor);
+        PunishmentDraftWorkflow workflow = requiredWorkflow();
+        return switch (operation) {
+            case PREPARE -> prepare(request, actor, workflow,
+                    target.currentUsername().orElse(request.targetId().toString()));
+            case CONFIRM, STATUS -> confirmOrStatus(operation, request, actor, workflow);
+            default -> throw new IllegalArgumentException("unknown Minecraft punishment operation");
+        };
+    }
+
+    private Actor authorizedActor(Request request) {
         Actor actor = actors.apply(request.actorId());
         if (actor == null || !actor.id().equals(request.actorId()) || actor.rank() == StaffRank.SYSTEM
-                || (!dependencies.authorization().permits(actor, ModerationAction.ISSUE_POLICY_SANCTION)
-                && !dependencies.authorization().permits(actor, ModerationAction.REQUEST_POLICY_SANCTION))) {
+                || !hasPunishmentAuthority(actor)) {
             throw new SecurityException("current staff punishment authority is required");
         }
-        if ("capabilities".equals(operation)) {
-            requireNoIntent(request);
-            if (request.confirmationId() != null) throw new IllegalArgumentException("unexpected confirmation");
-            return Map.of("enabled", dependencies.mode().get() == OperationalMode.ACTIVE
-                            && dependencies.workflows().get() != null,
-                    "reasons", dependencies.policies().all().stream().filter(StaffWebPunishmentService::supported)
-                            .filter(policy -> visibleAtRank(actor, policy))
-                            .sorted(Comparator.comparing(ReasonPolicy::family).thenComparing(ReasonPolicy::id))
-                            .map(policy -> new Reason(policy.id(), policy.family(), policy.publicReason())).toList());
+        return actor;
+    }
+
+    private boolean hasPunishmentAuthority(Actor actor) {
+        return dependencies.authorization().permits(actor, ModerationAction.ISSUE_POLICY_SANCTION)
+                || dependencies.authorization().permits(actor, ModerationAction.REQUEST_POLICY_SANCTION);
+    }
+
+    private Object capabilities(Request request, Actor actor) {
+        requireNoIntent(request);
+        if (request.confirmationId() != null) {
+            throw new IllegalArgumentException("unexpected confirmation");
         }
-        if (request.targetId() == null) throw new IllegalArgumentException("a Minecraft target is required");
+        return Map.of("enabled", dependencies.mode().get() == OperationalMode.ACTIVE
+                        && dependencies.workflows().get() != null,
+                "reasons", dependencies.policies().all().stream().filter(StaffWebPunishmentService::supported)
+                        .filter(policy -> visibleAtRank(actor, policy))
+                        .sorted(Comparator.comparing(ReasonPolicy::family).thenComparing(ReasonPolicy::id))
+                        .map(policy -> new Reason(policy.id(), policy.family(), policy.publicReason())).toList());
+    }
+
+    private PlayerIdentity authorizedTarget(Request request, Actor actor) {
+        if (request.targetId() == null) {
+            throw new IllegalArgumentException("a Minecraft target is required");
+        }
         PlayerDirectory players = dependencies.players().get();
-        if (players == null) throw new IllegalStateException("player directory is unavailable");
-        var target = players.find(request.targetId().toString())
+        if (players == null) {
+            throw new IllegalStateException("player directory is unavailable");
+        }
+        PlayerIdentity target = players.find(request.targetId().toString())
                 .orElseThrow(() -> new IllegalArgumentException("Minecraft player is not known to the network"));
-        if (!target.playerId().equals(request.targetId())) throw new IllegalStateException("player identity mismatch");
+        if (!target.playerId().equals(request.targetId())) {
+            throw new IllegalStateException("player identity mismatch");
+        }
         if (!new StaffTargetHierarchyPolicy().permits(actor.rank(), targetRanks.apply(request.targetId()).orElse(null))) {
             throw new SecurityException("staff hierarchy protects this Minecraft player");
         }
+        return target;
+    }
+
+    private PunishmentDraftWorkflow requiredWorkflow() {
         PunishmentDraftWorkflow workflow = dependencies.workflows().get();
-        if (workflow == null) throw new IllegalStateException("punishment storage is unavailable");
-        return switch (operation) {
-            case "prepare" -> prepare(request, actor, workflow,
-                    target.currentUsername().orElse(request.targetId().toString()));
-            case "confirm", "status" -> confirmOrStatus(operation, request, actor, workflow);
-            default -> throw new IllegalArgumentException("unknown Minecraft punishment operation");
-        };
+        if (workflow == null) {
+            throw new IllegalStateException("punishment storage is unavailable");
+        }
+        return workflow;
     }
 
     private Prepared prepare(Request request, Actor actor, PunishmentDraftWorkflow workflow, String targetName) {
         Instant now = dependencies.clock().instant();
         confirmations.entrySet().removeIf(entry -> !now.isBefore(entry.getValue().expires));
+        validatePreparation(request);
+        ReasonPolicy policy = preparationPolicy(request);
+        PunishmentDraftEvaluation.Prepared prepared = preparedDraft(request, actor, workflow, policy);
+        Instant expires = now.plus(CONFIRMATION_LIFETIME);
+        confirmations.put(prepared.draft().draftId(), new Binding(request, expires));
+        return new Prepared(prepared.draft().draftId(), request.targetId(), targetName, policy.id(),
+                policy.publicReason(), prepared.draft().internalExplanation(),
+                prepared.assessment().sanctions().stream().map(StaffWebPunishmentService::consequence).toList(),
+                expires.toString());
+    }
+
+    private void validatePreparation(Request request) {
         if (request.confirmationId() != null || confirmations.size() >= CAPACITY) {
             throw new IllegalArgumentException("cannot prepare this punishment");
         }
@@ -142,9 +201,16 @@ public final class StaffWebPunishmentService {
                 || request.explanation().length() > 4000) {
             throw new IllegalArgumentException("configured reason and bounded explanation are required");
         }
-        ReasonPolicy policy = dependencies.policies().find(request.reasonId())
+    }
+
+    private ReasonPolicy preparationPolicy(Request request) {
+        return dependencies.policies().find(request.reasonId())
                 .filter(StaffWebPunishmentService::supported)
                 .orElseThrow(() -> new IllegalArgumentException("select a supported configured Minecraft reason"));
+    }
+
+    private PunishmentDraftEvaluation.Prepared preparedDraft(
+            Request request, Actor actor, PunishmentDraftWorkflow workflow, ReasonPolicy policy) {
         PunishmentDraftEvaluation evaluation = workflow.prepare(new PreparePunishmentDraftRequest(
                 request.targetId(), actor, policy.id(), request.explanation(),
                 policy.publicByDefault() ? CaseVisibility.PUBLIC : CaseVisibility.PRIVATE, "punish"),
@@ -152,50 +218,71 @@ public final class StaffWebPunishmentService {
         if (evaluation instanceof PunishmentDraftEvaluation.Rejected rejected) {
             throw new IllegalArgumentException(rejected.code() + ": " + rejected.message());
         }
-        var prepared = (PunishmentDraftEvaluation.Prepared) evaluation;
+        PunishmentDraftEvaluation.Prepared prepared = (PunishmentDraftEvaluation.Prepared) evaluation;
         if (prepared.assessment().sanctions().stream().anyMatch(spec -> !SUPPORTED.contains(spec.type()))) {
             workflow.discard(prepared.draft().draftId(), actor.id());
             throw new IllegalArgumentException("this consequence requires the in-game workflow");
         }
-        Instant expires = now.plus(CONFIRMATION_LIFETIME);
-        confirmations.put(prepared.draft().draftId(), new Binding(request, expires));
-        return new Prepared(prepared.draft().draftId(), request.targetId(), targetName, policy.id(),
-                policy.publicReason(), prepared.draft().internalExplanation(),
-                prepared.assessment().sanctions().stream().map(StaffWebPunishmentService::consequence).toList(), expires.toString());
+        return prepared;
     }
 
     private Status confirmOrStatus(String operation, Request request, Actor actor, PunishmentDraftWorkflow workflow) {
         requireNoIntent(request);
-        Binding binding = confirmations.get(request.confirmationId());
+        Binding binding = requiredBinding(request);
+        if (binding.result != null) {
+            return binding.result;
+        }
+        if (STATUS.equals(operation)) {
+            return new Status(request.confirmationId(), "PREPARED", null, null);
+        }
+        validateCurrentDraft(request, actor, workflow);
+        binding.result = confirmedStatus(request, actor, workflow);
+        return binding.result;
+    }
+
+    private Binding requiredBinding(Request request) {
+        UUID confirmationId = request.confirmationId();
+        if (confirmationId == null) {
+            throw new IllegalArgumentException("confirmation expired or belongs to another player or session");
+        }
+        Binding binding = confirmations.get(confirmationId);
         if (binding == null || !binding.matches(request, dependencies.clock().instant())) {
             throw new IllegalArgumentException("confirmation expired or belongs to another player or session");
         }
-        if (binding.result != null) return binding.result;
-        if ("status".equals(operation)) return new Status(request.confirmationId(), "PREPARED", null, null);
+        return binding;
+    }
+
+    private void validateCurrentDraft(Request request, Actor actor, PunishmentDraftWorkflow workflow) {
         var draft = workflow.find(request.confirmationId(), actor.id())
                 .orElseThrow(() -> new IllegalArgumentException("punishment draft expired"));
         if (!draft.targetId().equals(request.targetId())
                 || dependencies.policies().find(draft.reasonId()).filter(StaffWebPunishmentService::supported).isEmpty()) {
             throw new IllegalArgumentException("prepared punishment no longer matches current policy");
         }
-        PunishmentDraftConfirmation confirmed;
-        try {
-            confirmed = workflow.confirmRouted(request.confirmationId(), actor, dependencies.mode().get());
-        } catch (net.enthusia.staff.domain.application.PunishmentDraftCleanupException exception) {
-            confirmed = new PunishmentDraftConfirmation.Applied(exception.accepted());
-        } catch (net.enthusia.staff.domain.application.PunishmentRequestDraftCleanupException exception) {
-            confirmed = new PunishmentDraftConfirmation.Requested(exception.submitted());
-        }
+    }
+
+    private Status confirmedStatus(Request request, Actor actor, PunishmentDraftWorkflow workflow) {
+        PunishmentDraftConfirmation confirmed = confirmRouted(request, actor, workflow);
         if (confirmed instanceof PunishmentDraftConfirmation.Applied applied) {
-            binding.result = new Status(request.confirmationId(), "APPLIED", applied.accepted().caseId().value(), null);
-        } else if (confirmed instanceof PunishmentDraftConfirmation.Requested requested) {
-            binding.result = new Status(request.confirmationId(), "REQUESTED", null,
-                    requested.submitted().request().requestId().toString());
-        } else {
-            var rejected = (PunishmentDraftConfirmation.Rejected) confirmed;
-            throw new IllegalArgumentException(rejected.code() + ": " + rejected.message());
+            return new Status(request.confirmationId(), "APPLIED", applied.accepted().caseId().value(), null);
         }
-        return binding.result;
+        if (confirmed instanceof PunishmentDraftConfirmation.Requested requested) {
+            return new Status(request.confirmationId(), "REQUESTED", null,
+                    requested.submitted().request().requestId().toString());
+        }
+        PunishmentDraftConfirmation.Rejected rejected = (PunishmentDraftConfirmation.Rejected) confirmed;
+        throw new IllegalArgumentException(rejected.code() + ": " + rejected.message());
+    }
+
+    private PunishmentDraftConfirmation confirmRouted(
+            Request request, Actor actor, PunishmentDraftWorkflow workflow) {
+        try {
+            return workflow.confirmRouted(request.confirmationId(), actor, dependencies.mode().get());
+        } catch (net.enthusia.staff.domain.application.PunishmentDraftCleanupException exception) {
+            return new PunishmentDraftConfirmation.Applied(exception.accepted());
+        } catch (net.enthusia.staff.domain.application.PunishmentRequestDraftCleanupException exception) {
+            return new PunishmentDraftConfirmation.Requested(exception.submitted());
+        }
     }
 
     private static void requireNoIntent(Request request) {

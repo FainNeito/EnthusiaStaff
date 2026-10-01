@@ -18,6 +18,8 @@ import net.enthusia.staff.protocol.StaffAuthorityHttpSigning;
 
 /** Authenticated client for Paper's current LuckPerms-backed staff-rank resolver. */
 final class HttpStaffAuthorityClient implements StaffAuthorityClient {
+    private static final int HTTP_BAD_REQUEST = 400;
+    private static final int HTTP_FORBIDDEN = 403;
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(3);
     private static final int HTTP_OK = 200;
@@ -102,9 +104,9 @@ final class HttpStaffAuthorityClient implements StaffAuthorityClient {
             var call = new RequestCall(builder.build(), nonce);
             var response = send(call.request());
             verifySignedResponse(call, response);
-            if (response.statusCode() == 403) throw new SecurityException("current Minecraft staff authority denied action");
-            if (response.statusCode() == 400) throw new IllegalArgumentException("Minecraft punishment rejected");
-            if (response.statusCode() != 200 || response.body().length() > 128 * 1024) {
+            if (response.statusCode() == HTTP_FORBIDDEN) throw new SecurityException("current Minecraft staff authority denied action");
+            if (response.statusCode() == HTTP_BAD_REQUEST) throw new IllegalArgumentException("Minecraft punishment rejected");
+            if (response.statusCode() != HTTP_OK || response.body().length() > 128 * 1024) {
                 throw new UnavailableException("Minecraft punishment service unavailable");
             }
             return json.readTree(response.body());

@@ -133,12 +133,15 @@ public final class PaperPunishmentCommitEffects implements AutoCloseable {
 
     static final class DeliveryClaims {
         private final java.util.Map<net.enthusia.staff.common.CaseId, java.time.Instant> cases = new java.util.HashMap<>();
+        private final Object lock = new Object();
 
-        synchronized boolean claim(net.enthusia.staff.common.CaseId caseId, java.time.Instant now) {
-            cases.entrySet().removeIf(entry -> entry.getValue().isBefore(now.minusSeconds(300)));
-            if (cases.containsKey(caseId) || cases.size() >= 10_000) return false;
-            cases.put(caseId, now);
-            return true;
+        boolean claim(net.enthusia.staff.common.CaseId caseId, java.time.Instant now) {
+            synchronized (lock) {
+                cases.entrySet().removeIf(entry -> entry.getValue().isBefore(now.minusSeconds(300)));
+                if (cases.containsKey(caseId) || cases.size() >= 10_000) return false;
+                cases.put(caseId, now);
+                return true;
+            }
         }
     }
 

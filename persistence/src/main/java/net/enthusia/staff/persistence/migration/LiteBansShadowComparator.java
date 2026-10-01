@@ -172,6 +172,8 @@ final class LiteBansShadowComparator {
         private final Instant now;
         private final LiteBansTargetImporter targetImporter;
         private final MigrationChecksum checksum = new MigrationChecksum();
+        @SuppressWarnings("PMD.DocumentMutableMapFieldConcurrency")
+        // ShadowMetrics is created and consumed inside one comparison call; it is never shared across threads.
         private final EnumMap<LegacySanctionType, DecisionCounter> decisions =
                 new EnumMap<>(LegacySanctionType.class);
         private long checksumMismatches;

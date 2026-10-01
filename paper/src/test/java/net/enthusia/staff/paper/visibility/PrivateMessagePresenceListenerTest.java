@@ -11,6 +11,8 @@ import net.enthusia.staff.domain.auth.StaffRank;
 import org.junit.jupiter.api.Test;
 
 class PrivateMessagePresenceListenerTest {
+    private static final String HIDDEN_ADMIN = "HiddenAdmin";
+
     private final UUID viewer = UUID.randomUUID();
     private final UUID first = UUID.randomUUID();
     private final UUID second = UUID.randomUUID();
@@ -18,7 +20,7 @@ class PrivateMessagePresenceListenerTest {
     private final DefaultStaffVisibilityService visibility = new DefaultStaffVisibilityService(
             DefaultStaffVisibilityService.defaultMatrix());
     private final PrivateMessagePresenceListener listener = new PrivateMessagePresenceListener(
-            visibility::canSee, Map.of(first, "HiddenAdmin", second, "HiddenHelper", ordinary, "VisiblePlayer"));
+            visibility::canSee, Map.of(first, HIDDEN_ADMIN, second, "HiddenHelper", ordinary, "VisiblePlayer"));
 
     @Test
     void defaultViewerCannotCompleteMultipleHiddenNamesOrPartialNames() {
@@ -26,7 +28,7 @@ class PrivateMessagePresenceListenerTest {
         visibility.setVanished(second, StaffRank.HELPER, true);
         assertEquals(List.of("VisiblePlayer"), listener.suggestions(viewer, "/msg ").orElseThrow());
         assertEquals(List.of(), listener.suggestions(viewer, "/rosechat:msg Hid").orElseThrow());
-        assertFalse(listener.targetAllowed(viewer, "HiddenAdmin"));
+        assertFalse(listener.targetAllowed(viewer, HIDDEN_ADMIN));
         assertFalse(listener.targetAllowed(viewer, "RemotePlayer"));
         assertTrue(listener.targetAllowed(viewer, "visibleplayer"));
     }
@@ -38,10 +40,10 @@ class PrivateMessagePresenceListenerTest {
         visibility.setViewerRank(viewer, StaffRank.HELPER);
         assertEquals(List.of("HiddenHelper"), listener.suggestions(viewer, "/tell Hid").orElseThrow());
         visibility.setViewerRank(viewer, StaffRank.DEVELOPER);
-        assertEquals(List.of("HiddenAdmin", "HiddenHelper"), listener.suggestions(viewer, "/msg Hid").orElseThrow());
+        assertEquals(List.of(HIDDEN_ADMIN, "HiddenHelper"), listener.suggestions(viewer, "/msg Hid").orElseThrow());
         visibility.removeViewer(viewer);
         visibility.setVanished(first, StaffRank.ADMIN, false);
-        assertEquals(List.of("HiddenAdmin"), listener.suggestions(viewer, "/msg Hid").orElseThrow());
+        assertEquals(List.of(HIDDEN_ADMIN), listener.suggestions(viewer, "/msg Hid").orElseThrow());
     }
 
     @Test

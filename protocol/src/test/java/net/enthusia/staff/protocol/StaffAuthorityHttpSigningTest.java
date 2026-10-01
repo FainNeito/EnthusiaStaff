@@ -10,22 +10,24 @@ import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 
 class StaffAuthorityHttpSigningTest {
+    private static final String POST = "POST";
+
     @Test
     void punishmentProofBindsExactBodyAndOperation() {
         byte[] original = "{\"target\":\"player-one\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         byte[] changed = "{\"target\":\"player-two\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         String path = "/v1/staff-punishments/prepare";
         String originalTarget = StaffAuthorityHttpSigning.punishmentRequestTarget(path, original);
-        var proof = StaffAuthorityHttpSigning.signRequest(CREDENTIAL, "POST", originalTarget, NOW, NONCE);
+        var proof = StaffAuthorityHttpSigning.signRequest(CREDENTIAL, POST, originalTarget, NOW, NONCE);
         assertEquals(StaffAuthorityHttpSigning.Verification.ACCEPTED,
-                StaffAuthorityHttpSigning.verifyRequest(CREDENTIAL, "POST", originalTarget,
+                StaffAuthorityHttpSigning.verifyRequest(CREDENTIAL, POST, originalTarget,
                         proof.timestamp(), proof.nonce(), proof.signature(), CLOCK));
         assertEquals(StaffAuthorityHttpSigning.Verification.INVALID_SIGNATURE,
-                StaffAuthorityHttpSigning.verifyRequest(CREDENTIAL, "POST",
+                StaffAuthorityHttpSigning.verifyRequest(CREDENTIAL, POST,
                         StaffAuthorityHttpSigning.punishmentRequestTarget(path, changed),
                         proof.timestamp(), proof.nonce(), proof.signature(), CLOCK));
         assertEquals(StaffAuthorityHttpSigning.Verification.INVALID_SIGNATURE,
-                StaffAuthorityHttpSigning.verifyRequest(CREDENTIAL, "POST",
+                StaffAuthorityHttpSigning.verifyRequest(CREDENTIAL, POST,
                         StaffAuthorityHttpSigning.punishmentRequestTarget("/v1/staff-punishments/confirm", original),
                         proof.timestamp(), proof.nonce(), proof.signature(), CLOCK));
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,

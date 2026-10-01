@@ -136,6 +136,7 @@ final class JdaDiscordGateway implements DiscordGateway {
         }
     }
 
+    @SuppressWarnings("PMD.NullAssignment") // Clearing the closed API reference prevents later reuse.
     private void disableInteractions() {
         synchronized (lifecycleLock) {
             moderation.ifPresent(StaffModerationRuntime::pausePunishments);
@@ -172,6 +173,7 @@ final class JdaDiscordGateway implements DiscordGateway {
         }
     }
 
+    @SuppressWarnings("PMD.NullAssignment") // Clearing the closed API reference prevents later reuse.
     private void closeListeners() {
         moderation.ifPresent(StaffModerationRuntime::pausePunishments);
         if (previewListener != null) {

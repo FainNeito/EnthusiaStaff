@@ -28,7 +28,7 @@ class RoseChatCommandOwnershipCoordinatorTest {
             public Command put(String key, Command value) { return dispatcher.put(key, value); }
         };
         CommandMap commandMap = (CommandMap) java.lang.reflect.Proxy.newProxyInstance(
-                CommandMap.class.getClassLoader(), new Class<?>[]{CommandMap.class},
+                Thread.currentThread().getContextClassLoader(), new Class<?>[]{CommandMap.class},
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("getKnownCommands")) return forwarding;
                     if (method.getName().equals("getCommand")) return forwarding.get(arguments[0]);

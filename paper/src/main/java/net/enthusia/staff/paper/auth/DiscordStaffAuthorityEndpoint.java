@@ -37,6 +37,7 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(2);
     private static final String PATH = "/v1/staff-rank";
     private static final String GET_METHOD = "GET";
+    private static final String POST_METHOD = "POST";
 
     private final JavaPlugin plugin;
     private final LuckPerms luckPerms;
@@ -47,6 +48,7 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     private final com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper()
             .findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
+    @SuppressWarnings("PMD.CloseResource") // Executor ownership transfers to this endpoint and close() shuts it down.
     private DiscordStaffAuthorityEndpoint(
             JavaPlugin plugin,
             DiscordStaffAuthorityConfiguration.Value configuration,
@@ -175,7 +177,7 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     private void handlePunishment(HttpExchange exchange) throws IOException {
         DiscordStaffAuthorityAuthenticator.Result authorization = null;
         try {
-            if (!"POST".equals(exchange.getRequestMethod())) {
+            if (!POST_METHOD.equals(exchange.getRequestMethod())) {
                 respond(exchange, 405, "{}", null);
                 return;
             }

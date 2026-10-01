@@ -23,6 +23,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Keeps private-message targets local until remote visibility can be verified. */
 public final class PrivateMessagePresenceListener implements Listener {
+    private static final int COMMAND_WITH_TARGET_PARTS = 2;
     private static final Set<String> COMMANDS = Set.of("msg", "message", "m", "pm", "whisper", "w", "tell", "t");
     private final Map<UUID, String> localNames = new ConcurrentHashMap<>();
     private final BiPredicate<UUID, UUID> canSee;
@@ -67,7 +68,7 @@ public final class PrivateMessagePresenceListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCommand(PlayerCommandPreprocessEvent event) {
         String[] parts = messageParts(event.getMessage());
-        if (parts != null && !parts[1].isEmpty() && !targetAllowed(event.getPlayer().getUniqueId(), parts[1])) {
+        if (parts.length >= COMMAND_WITH_TARGET_PARTS && !parts[1].isEmpty() && !targetAllowed(event.getPlayer().getUniqueId(), parts[1])) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(Component.text(
                     "That player is not available for private messages on this server.", NamedTextColor.RED));
@@ -76,7 +77,7 @@ public final class PrivateMessagePresenceListener implements Listener {
 
     Optional<List<String>> suggestions(UUID viewer, String buffer) {
         String[] parts = messageParts(buffer);
-        if (parts == null || parts.length != 2) {
+        if (parts.length != COMMAND_WITH_TARGET_PARTS) {
             return Optional.empty();
         }
         String prefix = parts[1].toLowerCase(Locale.ROOT);
@@ -93,11 +94,11 @@ public final class PrivateMessagePresenceListener implements Listener {
 
     private static String[] messageParts(String buffer) {
         if (!buffer.startsWith("/")) {
-            return null;
+            return new String[0];
         }
         String[] parts = buffer.substring(1).split("\\s+", -1);
         String command = parts[0].toLowerCase(Locale.ROOT);
         command = command.substring(command.lastIndexOf(':') + 1);
-        return parts.length >= 2 && COMMANDS.contains(command) ? parts : null;
+        return parts.length >= COMMAND_WITH_TARGET_PARTS && COMMANDS.contains(command) ? parts : new String[0];
     }
 }

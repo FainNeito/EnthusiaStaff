@@ -26,13 +26,17 @@ class StaffTabPresenceTest {
                 {true, true, true, true, true}
         };
         for (int t = 0; t < ranks.length; t++) {
-            StaffTabPresence presence = new StaffTabPresence(Map.of(target, ranks[t]), Set.of());
+            StaffTabPresence presence = presenceFor(ranks[t]);
             assertFalse(presence.canSee(viewer, null, target, ranks[t]));
             for (int v = 0; v < ranks.length; v++) {
                 assertEquals(expected[v][t], presence.canSee(viewer, ranks[v], target, ranks[t]),
                         ranks[v] + " viewing " + ranks[t]);
             }
         }
+    }
+
+    private StaffTabPresence presenceFor(StaffRank rank) {
+        return new StaffTabPresence(Map.of(target, rank), Set.of());
     }
 
     @Test

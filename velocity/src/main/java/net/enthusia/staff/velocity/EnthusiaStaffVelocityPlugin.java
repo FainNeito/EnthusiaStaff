@@ -466,6 +466,7 @@ public final class EnthusiaStaffVelocityPlugin {
         logger.info("MariaDB verified; Velocity moderation authority is {}", state.mode());
     }
 
+    @SuppressWarnings("PMD.CloseResource") // Borrows the plugin-owned worker pool; shutdown owns its lifecycle.
     private boolean submitWorker(Runnable operation) {
         ExecutorService executor = workers;
         if (executor == null || executor.isShutdown() || shuttingDown.get()) {
@@ -1197,6 +1198,7 @@ public final class EnthusiaStaffVelocityPlugin {
         event.getPlayer().sendMessage(VelocityMessageStyle.style(Component.text(message)));
     }
 
+    @SuppressWarnings("PMD.CloseResource") // Borrows the plugin-owned worker pool; shutdown owns its lifecycle.
     private void enqueuePresence(UUID playerId, Runnable update) {
         ExecutorService executor = workers;
         if (executor == null || executor.isShutdown()) {

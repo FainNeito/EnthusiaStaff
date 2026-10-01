@@ -10,29 +10,31 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class PrivateRuntimeSecretsTest {
+    private static final String CHANNEL_SECRET = "ES_CHANNEL_SECRET";
+
     @Test
     void environmentTakesPrecedenceWithoutReadingFile(@TempDir Path directory) {
-        assertEquals("environment-value", PrivateRuntimeSecrets.required(directory, "ES_CHANNEL_SECRET", key -> "environment-value"));
+        assertEquals("environment-value", PrivateRuntimeSecrets.required(directory, CHANNEL_SECRET, key -> "environment-value"));
     }
 
     @Test
     void absentEnvironmentUsesOnlyTheNamedPrivateEntry(@TempDir Path directory) throws IOException {
         Files.writeString(directory.resolve("secrets.properties"), "ES_CHANNEL_SECRET=private-value\nES_OTHER_SECRET=other-value\n");
-        assertEquals("private-value", PrivateRuntimeSecrets.required(directory, "ES_CHANNEL_SECRET", key -> null));
+        assertEquals("private-value", PrivateRuntimeSecrets.required(directory, CHANNEL_SECRET, key -> null));
         assertThrows(IllegalStateException.class, () -> PrivateRuntimeSecrets.required(directory, "ES_MISSING_SECRET", key -> null));
     }
 
     @Test
     void missingFileAndBlankEntriesFailClosed(@TempDir Path directory) throws IOException {
-        assertThrows(IllegalStateException.class, () -> PrivateRuntimeSecrets.required(directory, "ES_CHANNEL_SECRET", key -> null));
+        assertThrows(IllegalStateException.class, () -> PrivateRuntimeSecrets.required(directory, CHANNEL_SECRET, key -> null));
         Files.writeString(directory.resolve("secrets.properties"), "ES_CHANNEL_SECRET=\n");
-        assertThrows(IllegalStateException.class, () -> PrivateRuntimeSecrets.required(directory, "ES_CHANNEL_SECRET", key -> null));
+        assertThrows(IllegalStateException.class, () -> PrivateRuntimeSecrets.required(directory, CHANNEL_SECRET, key -> null));
     }
 
     @Test
     void oversizedFileAndInvalidNameAreRejected(@TempDir Path directory) throws IOException {
         Files.writeString(directory.resolve("secrets.properties"), "x".repeat(16_385));
-        assertThrows(IllegalStateException.class, () -> PrivateRuntimeSecrets.required(directory, "ES_CHANNEL_SECRET", key -> null));
+        assertThrows(IllegalStateException.class, () -> PrivateRuntimeSecrets.required(directory, CHANNEL_SECRET, key -> null));
         assertThrows(IllegalArgumentException.class, () -> PrivateRuntimeSecrets.required(directory, "../secret", key -> null));
     }
 }

@@ -111,7 +111,7 @@ public final class PersistentChannelClient implements AutoCloseable {
     }
 
     private void keepalive() {
-        Socket current = socket.get();
+        Socket current = socket.get(); // NOPMD - borrows the lifecycle-owned socket; disconnect owns closure.
         if (!running.get() || current == null || current.isClosed()) {
             return;
         }
@@ -131,14 +131,13 @@ public final class PersistentChannelClient implements AutoCloseable {
         return current != null && current.isConnected() && !current.isClosed();
     }
 
-    @SuppressWarnings("PMD.CloseResource") // Borrows the stream owned and closed by connectAndRead.
     public CompletableFuture<Boolean> send(
             UUID messageId,
             String messageType,
             String payloadJson,
             Duration timeout
     ) {
-        DataOutputStream current = output.get();
+        DataOutputStream current = output.get(); // NOPMD - borrows the stream owned by connectAndRead.
         if (current == null) {
             return CompletableFuture.completedFuture(false);
         }
@@ -238,9 +237,8 @@ public final class PersistentChannelClient implements AutoCloseable {
         }
     }
 
-    @SuppressWarnings("PMD.CloseResource") // Borrows the stream owned and closed by connectAndRead.
     private void acknowledge(UUID messageId) throws IOException {
-        DataOutputStream current = output.get();
+        DataOutputStream current = output.get(); // NOPMD - borrows the stream owned by connectAndRead.
         if (current == null) {
             throw new IOException("channel disconnected before acknowledgement");
         }
@@ -258,10 +256,9 @@ public final class PersistentChannelClient implements AutoCloseable {
         return java.util.HexFormat.of().formatHex(bytes);
     }
 
-    @SuppressWarnings("PMD.CloseResource") // Closes the lifecycle-owned socket below; no local stream is opened here.
     private void disconnect() {
         output.set(null);
-        Socket current = socket.getAndSet(null);
+        Socket current = socket.getAndSet(null); // NOPMD - lifecycle handoff; this method closes the detached socket.
         if (current != null) {
             try {
                 current.close();

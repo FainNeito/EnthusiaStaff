@@ -24,12 +24,14 @@ import net.enthusia.staff.domain.sanction.SanctionLength;
 import org.junit.jupiter.api.Test;
 
 class DiscordWebConfirmationTest {
+    private static final String STAFF_ROLE = "staff";
+
     @Test
     void repeatConfirmationAndLostResponseProduceOneDurableIntentAndNoDirectEffects() {
         Fixture fixture = new Fixture();
-        UUID token = fixture.service.prepareIssue(123,"staff",999,warning()).token();
-        var first = fixture.service.confirmWebIssue(123,"staff",999,token);
-        var replay = fixture.service.confirmWebIssue(123,"staff",999,token);
+        UUID token = fixture.service.prepareIssue(123,STAFF_ROLE,999,warning()).token();
+        var first = fixture.service.confirmWebIssue(123,STAFF_ROLE,999,token);
+        var replay = fixture.service.confirmWebIssue(123,STAFF_ROLE,999,token);
         assertEquals(token,first.punishmentId());
         assertFalse(first.replayed());
         assertTrue(replay.replayed());
@@ -41,17 +43,17 @@ class DiscordWebConfirmationTest {
         assertEquals(Optional.of("Discord WARNING"), history.punishmentType());
         assertEquals("PENDING_APPLY · Notification: NOT_ATTEMPTED", history.status());
         assertTrue(history.sanctionFamily().isEmpty());
-        assertThrows(IllegalArgumentException.class,() -> fixture.service.confirmWebIssue(123,"staff",888,token));
+        assertThrows(IllegalArgumentException.class,() -> fixture.service.confirmWebIssue(123,STAFF_ROLE,888,token));
         assertEquals(1,fixture.writes.get());
     }
 
     @Test
     void authorityLossBetweenPreparationAndConfirmationPreventsDurableIntent() {
         Fixture fixture = new Fixture();
-        UUID token = fixture.service.prepareIssue(123,"staff",999,warning()).token();
+        UUID token = fixture.service.prepareIssue(123,STAFF_ROLE,999,warning()).token();
         fixture.rank.set(Optional.empty());
         assertThrows(LinkedStaffActorResolver.MissingStaffLinkException.class,
-                () -> fixture.service.confirmWebIssue(123,"staff",999,token));
+                () -> fixture.service.confirmWebIssue(123,STAFF_ROLE,999,token));
         assertEquals(0,fixture.writes.get());
     }
 
@@ -61,7 +63,7 @@ class DiscordWebConfirmationTest {
     }
 
     private static final class Fixture {
-        private final Map<UUID,StoredPunishment> stored = new HashMap<>();
+        private final Map<UUID,StoredPunishment> stored = new java.util.concurrent.ConcurrentHashMap<>();
         private final AtomicInteger writes = new AtomicInteger();
         private final AtomicReference<Optional<StaffRank>> rank = new AtomicReference<>(Optional.of(StaffRank.ADMIN));
         private final DiscordPunishmentService service;
@@ -106,7 +108,7 @@ class DiscordWebConfirmationTest {
     }
 
     private static <T> T proxy(Class<T> type,Stub stub) {
-        return type.cast(Proxy.newProxyInstance(type.getClassLoader(),new Class<?>[]{type},
+        return type.cast(Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(),new Class<?>[]{type},
                 (instance,method,args) -> stub.invoke(method.getName(),args)));
     }
 }

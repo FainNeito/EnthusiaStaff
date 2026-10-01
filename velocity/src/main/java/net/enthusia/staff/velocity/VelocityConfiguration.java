@@ -68,6 +68,8 @@ public record VelocityConfiguration(
 ) {
     private static final String ROUTE_CLASS_VARIABLE = discordVariable("ROUTE_ENVIRONMENT");
     private static final String STAGING_HOSTS_VARIABLE = discordVariable("STAGING_ALLOWED_HOSTS");
+    private static final String PRIVATE_PREFIX = "Private ";
+    private static final long MAX_PRIVATE_FILE_BYTES = 16_384L;
 
     public VelocityConfiguration {
         backendSecretEnvironments = Map.copyOf(backendSecretEnvironments);
@@ -235,16 +237,9 @@ public record VelocityConfiguration(
     public DatabaseConfig database(Path dataDirectory) {
         return databaseFromPrivateFileOrEnvironment(
                 dataDirectory,
-                jdbcUrlEnvironment,
-                usernameEnvironment,
-                passwordEnvironment,
-                "db.jdbc-url",
-                "db.username",
-                "db.password",
-                maximumPoolSize,
-                connectionTimeoutMillis,
-                "MariaDB"
-        );
+                new DatabaseSecretSource(jdbcUrlEnvironment, usernameEnvironment, passwordEnvironment,
+                        "db.jdbc-url", "db.username", "db.password", "MariaDB"),
+                maximumPoolSize, connectionTimeoutMillis);
     }
 
     public DatabaseConfig liteBansDatabaseFromEnvironment() {
@@ -267,46 +262,35 @@ public record VelocityConfiguration(
     public DatabaseConfig liteBansDatabase(Path dataDirectory) {
         return databaseFromPrivateFileOrEnvironment(
                 dataDirectory,
-                liteBansJdbcUrlEnvironment,
-                liteBansUsernameEnvironment,
-                liteBansPasswordEnvironment,
-                "litebans.jdbc-url",
-                "litebans.username",
-                "litebans.password",
-                liteBansMaximumPoolSize,
-                liteBansConnectionTimeoutMillis,
-                "LiteBans database"
-        );
+                new DatabaseSecretSource(liteBansJdbcUrlEnvironment, liteBansUsernameEnvironment,
+                        liteBansPasswordEnvironment, "litebans.jdbc-url", "litebans.username",
+                        "litebans.password", "LiteBans database"),
+                liteBansMaximumPoolSize, liteBansConnectionTimeoutMillis);
     }
 
     private static DatabaseConfig databaseFromPrivateFileOrEnvironment(
-            Path dataDirectory,
-            String urlEnvironment,
-            String usernameEnvironment,
-            String passwordEnvironment,
-            String urlKey,
-            String usernameKey,
-            String passwordKey,
-            int poolSize,
-            long timeoutMillis,
-            String label
-    ) {
-        String url = System.getenv(urlEnvironment);
-        String username = System.getenv(usernameEnvironment);
-        String password = System.getenv(passwordEnvironment);
+            Path dataDirectory, DatabaseSecretSource source, int poolSize, long timeoutMillis) {
+        String url = System.getenv(source.urlEnvironment());
+        String username = System.getenv(source.usernameEnvironment());
+        String password = System.getenv(source.passwordEnvironment());
         if (present(url) || present(username) || present(password)) {
             if (!present(url) || !present(username) || !present(password)) {
-                throw new IllegalStateException("Incomplete " + label + " environment configuration");
+                throw new IllegalStateException("Incomplete " + source.label() + " environment configuration");
             }
             return new DatabaseConfig(url, username, password, poolSize, timeoutMillis);
         }
-
         Properties secrets = privateProperties(dataDirectory, "database.properties");
-        url = secrets.getProperty(urlKey);
-        username = secrets.getProperty(usernameKey);
-        password = secrets.getProperty(passwordKey);
+        return databaseFromProperties(secrets, source, poolSize, timeoutMillis);
+    }
+
+    private static DatabaseConfig databaseFromProperties(
+            Properties secrets, DatabaseSecretSource source, int poolSize, long timeoutMillis) {
+        String url = secrets.getProperty(source.urlKey());
+        String username = secrets.getProperty(source.usernameKey());
+        String password = secrets.getProperty(source.passwordKey());
         if (!present(url) || !present(username) || !present(password)) {
-            throw new IllegalStateException("Private " + label + " database.properties entries are incomplete");
+            throw new IllegalStateException(PRIVATE_PREFIX + source.label()
+                    + " database.properties entries are incomplete");
         }
         return new DatabaseConfig(url.trim(), username.trim(), password, poolSize, timeoutMillis);
     }
@@ -322,7 +306,7 @@ public record VelocityConfiguration(
         }
         String privateValue = privateProperties(dataDirectory, "secrets.properties").getProperty(environmentName);
         if (!present(privateValue)) {
-            throw new IllegalStateException("Private network identity secret is missing");
+            throw new IllegalStateException(PRIVATE_PREFIX + "network identity secret is missing");
         }
         return privateValue.trim();
     }
@@ -330,20 +314,25 @@ public record VelocityConfiguration(
     private static Properties privateProperties(Path dataDirectory, String fileName) {
         Path file = dataDirectory.resolve(fileName);
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IllegalStateException("Private " + fileName + " file is missing");
+            throw new IllegalStateException(PRIVATE_PREFIX + fileName + " file is missing");
         }
         Properties secrets = new Properties();
         try {
-            if (Files.size(file) > 16_384) {
-                throw new IllegalStateException("Private " + fileName + " file is too large");
+            if (Files.size(file) > MAX_PRIVATE_FILE_BYTES) {
+                throw new IllegalStateException(PRIVATE_PREFIX + fileName + " file is too large");
             }
             try (InputStream input = Files.newInputStream(file)) {
                 secrets.load(input);
             }
         } catch (IOException exception) {
-            throw new IllegalStateException("Private " + fileName + " file cannot be read", exception);
+            throw new IllegalStateException(PRIVATE_PREFIX + fileName + " file cannot be read", exception);
         }
         return secrets;
+    }
+
+    private record DatabaseSecretSource(
+            String urlEnvironment, String usernameEnvironment, String passwordEnvironment,
+            String urlKey, String usernameKey, String passwordKey, String label) {
     }
 
     private static boolean present(String value) {
