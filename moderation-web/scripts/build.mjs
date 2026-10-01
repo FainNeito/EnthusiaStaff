@@ -29,6 +29,6 @@ if (process.argv.includes('--production') || process.env.MODERATION_WEB_ENVIRONM
     const production = 'https://moderation-read.enthusia.info';
     const contents = await readFile(directRead, 'utf8');
     if (!contents.includes(staging)) throw new Error('staging read origin missing from source asset');
-    await writeFile(directRead, contents.replaceAll(staging, production));
+    await writeFile(directRead, contents.split(staging).join(production));
   }
 }

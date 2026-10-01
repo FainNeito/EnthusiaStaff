@@ -10,49 +10,99 @@ window.loadSession = async function () {
 };
 
 async function requestModerationAction(operation, input) {
-  if (!state.session || !['capabilities','prepare','confirm','status'].includes(operation)) throw new Error('Session unavailable');
-  const response = await fetch('/api/actions/' + operation, {
-    method:'POST', cache:'no-store', headers:{'Content-Type':'application/json','X-Preview-Csrf':state.session.csrfToken},
-    body:JSON.stringify(input)
-  });
-  if (!response.ok) throw new Error('Action session rejected. Reopen from Discord.');
-  const proof = await response.json();
-  if (proof.origin !== DIRECT_READ_ORIGIN || proof.path !== '/v1/moderation/actions/' + operation
-      || proof.method !== 'POST' || !validDirectReadBody(proof.body) || !validDirectReadAuthentication(proof)) throw new Error('Action proof rejected');
-  const destinations = {
-    capabilities:'https://moderation-read-staging.enthusia.info/v1/moderation/actions/capabilities',
-    prepare:'https://moderation-read-staging.enthusia.info/v1/moderation/actions/prepare',
-    confirm:'https://moderation-read-staging.enthusia.info/v1/moderation/actions/confirm',
-    status:'https://moderation-read-staging.enthusia.info/v1/moderation/actions/status'
-  };
-  const result = await fetch(destinations[operation], directReadRequest(proof));
-  if (!result.ok) throw new Error(result.status === 403 ? 'Current staff authority denied this action.'
-    : result.status === 400 ? 'Action rejected. Check the target, duration and permissions, then prepare again.'
-    : 'Moderation service unavailable. Check status before submitting another action.');
+  requireModerationActionSession(operation);
+  const proofResponse = await requestActionProof(operation, actionRequestOptions(input));
+  if (!proofResponse.ok) throw new Error('Action session rejected. Reopen from Discord.');
+  const proof = await proofResponse.json();
+  requireValidActionProof(proof, operation);
+  const result = await submitActionProof(operation, directReadRequest(proof));
+  if (!result.ok) throw moderationActionError(result.status);
   return result.json();
 }
 
-function liveActionInput(w) {
-  if (!liveActionCapabilities?.discordEnabled) throw new Error('Discord enforcement is not enabled yet.');
-  if (w.scope !== 'Discord') throw new Error('Minecraft enforcement has not passed activation checks.');
-  if (state.deleting.size) throw new Error('Clear deletion selections. Message deletion is not enabled.');
-  if (!w.dm) throw new Error('Live actions require a target notification.');
-  const types = {Warning:'WARNING', Mute:'MUTE', Kick:'KICK', Ban:'BAN', Restrict:'CHANNEL_RESTRICTION'};
-  const type = types[w.actual.action];
-  if (!type) throw new Error('Unsupported action');
-  const duration = type === 'WARNING' || type === 'KICK' ? 'instant' : actionDuration(w.duration);
-  const evidence = [...state.evidence].map(id => 'Discord message reference: ' + id);
-  if (w.externalEvidence) evidence.push('External evidence reference: ' + w.externalEvidence);
-  const explanation = [w.reason, ...evidence].filter(Boolean).join('\n');
-  if (explanation.length > 2000) throw new Error('Evidence references and explanation exceed 2000 characters.');
-  const intent = {type, duration, reason:w.offense.label, explanation, restriction:null};
-  if (type === 'CHANNEL_RESTRICTION') {
-    const targets = restrictionTargetSelections(w);
-    if (targets.length !== 1) throw new Error('Select exactly one channel or category per restriction.');
-    intent.restriction = {kind:targets[0].type.toUpperCase(), snowflake:targets[0].id,
-      mode:w.restrictMode === 'read-only' ? 'READ_ONLY' : 'NO_ACCESS'};
+function requireModerationActionSession(operation) {
+  if (!state.session || !['capabilities','prepare','confirm','status'].includes(operation)) {
+    throw new Error('Session unavailable');
   }
+}
+
+function actionRequestOptions(input) {
+  return {
+    method:'POST', cache:'no-store', headers:{'Content-Type':'application/json','X-Preview-Csrf':state.session.csrfToken},
+    body:JSON.stringify(input)
+  };
+}
+
+function requestActionProof(operation, options) {
+  switch (operation) {
+    case 'capabilities': return fetch('/api/actions/capabilities', options);
+    case 'prepare': return fetch('/api/actions/prepare', options);
+    case 'confirm': return fetch('/api/actions/confirm', options);
+    case 'status': return fetch('/api/actions/status', options);
+    default: throw new Error('Session unavailable');
+  }
+}
+
+function requireValidActionProof(proof, operation) {
+  if (proof.origin !== DIRECT_READ_ORIGIN || proof.path !== '/v1/moderation/actions/' + operation
+      || proof.method !== 'POST' || !validDirectReadBody(proof.body) || !validDirectReadAuthentication(proof)) {
+    throw new Error('Action proof rejected');
+  }
+}
+
+function submitActionProof(operation, request) {
+  switch (operation) {
+    case 'capabilities': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/capabilities', request);
+    case 'prepare': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/prepare', request);
+    case 'confirm': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/confirm', request);
+    case 'status': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/status', request);
+    default: throw new Error('Session unavailable');
+  }
+}
+
+function moderationActionError(status) {
+  if (status === 403) return new Error('Current staff authority denied this action.');
+  if (status === 400) return new Error('Action rejected. Check the target, duration and permissions, then prepare again.');
+  return new Error('Moderation service unavailable. Check status before submitting another action.');
+}
+
+function liveActionInput(w) {
+  requireLiveActionContext(w);
+  const type = liveConsequenceType(w.actual.action);
+  const duration = type === 'WARNING' || type === 'KICK' ? 'instant' : actionDuration(w.duration);
+  const intent = {type, duration, reason:w.offense.label, explanation:liveExplanation(w), restriction:null};
+  intent.restriction = liveRestriction(w, type);
   return {targetKey:liveModeration.bootstrap?.targetKey, intent};
+}
+
+function requireLiveActionContext(workflow) {
+  if (!liveActionCapabilities?.discordEnabled) throw new Error('Discord enforcement is not enabled yet.');
+  if (workflow.scope !== 'Discord') throw new Error('Minecraft enforcement has not passed activation checks.');
+  if (state.deleting.size) throw new Error('Clear deletion selections. Message deletion is not enabled.');
+  if (!workflow.dm) throw new Error('Live actions require a target notification.');
+}
+
+function liveConsequenceType(action) {
+  const types = {Warning:'WARNING', Mute:'MUTE', Kick:'KICK', Ban:'BAN', Restrict:'CHANNEL_RESTRICTION'};
+  const type = types[action];
+  if (!type) throw new Error('Unsupported action');
+  return type;
+}
+
+function liveExplanation(workflow) {
+  const evidence = [...state.evidence].map(id => 'Discord message reference: ' + id);
+  if (workflow.externalEvidence) evidence.push('External evidence reference: ' + workflow.externalEvidence);
+  const explanation = [workflow.reason, ...evidence].filter(Boolean).join('\n');
+  if (explanation.length > 2000) throw new Error('Evidence references and explanation exceed 2000 characters.');
+  return explanation;
+}
+
+function liveRestriction(workflow, type) {
+  if (type !== 'CHANNEL_RESTRICTION') return null;
+  const targets = restrictionTargetSelections(workflow);
+  if (targets.length !== 1) throw new Error('Select exactly one channel or category per restriction.');
+  return {kind:targets[0].type.toUpperCase(), snowflake:targets[0].id,
+    mode:workflow.restrictMode === 'read-only' ? 'READ_ONLY' : 'NO_ACCESS'};
 }
 
 function actionDuration(label) {
@@ -75,41 +125,67 @@ window.renderReviewStep = function () {
     requestModerationAction('prepare', input).then(prepared => {
       if (state.workflow !== w || w.step !== 'review') return;
       w.livePrepared = {...prepared, targetKey:input.targetKey};
-      $('#workflowBody').append(element('div',{className:'alert warning'},
+      $('#workflowBody').appendChild(element('div',{className:'alert warning'},
         element('strong',{text:'Server-prepared live action'}),
         element('span',{text:`${prepared.intent.type} · ${prepared.targetUserId} · ${prepared.intent.length.kind}. Target notifications are included. Authority is checked again on confirmation.`})));
       if (confirm) { confirm.disabled = false; confirm.textContent = 'Confirm live action'; }
     }).catch(error => { if (state.workflow === w) showToast(error.message, true); });
   } catch (error) {
     if (confirm) confirm.textContent = 'Live action unavailable';
-    $('#workflowBody').append(element('div',{className:'alert warning',text:error.message}));
+    $('#workflowBody').appendChild(element('div',{className:'alert warning',text:error.message}));
   }
 };
 
 const simulationConfirm = window.confirmSimulation;
 window.confirmSimulation = async function () {
   if (state.session?.staging !== false) return simulationConfirm();
-  const w = state.workflow;
-  if (!w.livePrepared || w.submitting) return;
-  if (w.stale || w.recommendationEvidenceRevision !== state.evidenceRevision) {
-    showToast('Evidence changed. Recalculate and prepare the action again.',true); return;
-  }
-  w.submitting = true;
-  $('[data-confirm]').disabled = true;
-  const input = {targetKey:w.livePrepared.targetKey, confirmationId:w.livePrepared.confirmationId};
-  try {
-    w.liveStatus = await requestModerationAction('confirm', input);
-    w.step = 'complete'; renderWorkflow();
-    for (let attempt = 0; attempt < 12 && w.liveStatus.state === 'PENDING_APPLY'; attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      w.liveStatus = await requestModerationAction('status', input);
-      if (state.workflow === w) renderWorkflow();
-    }
-  } catch (error) {
-    try { w.liveStatus = await requestModerationAction('status', input); w.step = 'complete'; renderWorkflow(); }
-    catch { showToast(error.message + ' Do not submit a replacement until its status is checked.',true); }
-  } finally { w.submitting = false; }
+  const workflow = state.workflow;
+  if (!readyForLiveConfirmation(workflow)) return;
+  await submitLiveConfirmation(workflow);
 };
+
+function readyForLiveConfirmation(workflow) {
+  if (!workflow.livePrepared || workflow.submitting) return false;
+  if (workflow.stale || workflow.recommendationEvidenceRevision !== state.evidenceRevision) {
+    showToast('Evidence changed. Recalculate and prepare the action again.',true);
+    return false;
+  }
+  return true;
+}
+
+async function submitLiveConfirmation(workflow) {
+  workflow.submitting = true;
+  $('[data-confirm]').disabled = true;
+  const input = {targetKey:workflow.livePrepared.targetKey, confirmationId:workflow.livePrepared.confirmationId};
+  try {
+    workflow.liveStatus = await requestModerationAction('confirm', input);
+    workflow.step = 'complete';
+    renderWorkflow();
+    await pollLiveActionStatus(workflow, input);
+  } catch (error) {
+    await recoverLiveActionStatus(workflow, input, error);
+  } finally {
+    workflow.submitting = false;
+  }
+}
+
+async function pollLiveActionStatus(workflow, input) {
+  for (let attempt = 0; attempt < 12 && workflow.liveStatus.state === 'PENDING_APPLY'; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    workflow.liveStatus = await requestModerationAction('status', input);
+    if (state.workflow === workflow) renderWorkflow();
+  }
+}
+
+async function recoverLiveActionStatus(workflow, input, error) {
+  try {
+    workflow.liveStatus = await requestModerationAction('status', input);
+    workflow.step = 'complete';
+    renderWorkflow();
+  } catch {
+    showToast(error.message + ' Do not submit a replacement until its status is checked.',true);
+  }
+}
 
 const simulationComplete = window.renderCompleteStep;
 window.renderCompleteStep = function () {
