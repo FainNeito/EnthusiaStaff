@@ -18,6 +18,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class StaffModeDeathListener implements Listener {
     private static final long EXIT_RETRY_TICKS = 20L;
     private static final int JOIN_RECOVERY_ATTEMPTS = 120;
+    private static final int FINAL_JOIN_RECOVERY_ATTEMPT = 1;
 
     private final JavaPlugin plugin;
     private final StaffModeManager staffMode;
@@ -105,7 +106,7 @@ public final class StaffModeDeathListener implements Listener {
                         retryPendingExit(player);
                         return;
                     }
-                    if (attemptsRemaining <= 1) {
+                    if (attemptsRemaining <= FINAL_JOIN_RECOVERY_ATTEMPT) {
                         pendingDeathExits.remove(playerId);
                         return;
                     }
