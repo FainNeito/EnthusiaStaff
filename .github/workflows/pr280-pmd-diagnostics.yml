@@ -52,3 +52,20 @@ jobs:
           if (( status != 0 && status != 4 )); then
             exit "${status}"
           fi
+
+      - name: Package exact source and PMD runtime for local repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .pr280-diagnostics
+          cp /tmp/pmd-findings.txt .pr280-diagnostics/pmd-findings.txt
+          cp -R /tmp/pmd-bin-6.55.0 .pr280-diagnostics/pmd-bin-6.55.0
+          tar --exclude=.git -czf /tmp/pr280-source-and-pmd.tar.gz .
+
+      - name: Upload diagnostic workspace
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr280-source-and-pmd
+          path: /tmp/pr280-source-and-pmd.tar.gz
+          if-no-files-found: error
+          retention-days: 2
