@@ -89,9 +89,13 @@ jobs:
           failures = []
           for path, name in targets.items():
               analysis = lizard.analyze_file(path)
-              matches = [function for function in analysis.function_list if function.name == name]
+              matches = [
+                  function for function in analysis.function_list
+                  if function.name == name or function.name.endswith('::' + name)
+              ]
               if not matches:
-                  failures.append(f'{path}: missing {name}')
+                  available = ', '.join(function.name for function in analysis.function_list)
+                  failures.append(f'{path}: missing {name}; saw [{available}]')
                   continue
               worst = max(function.cyclomatic_complexity for function in matches)
               print(f'{path}:{name} CCN={worst}')
