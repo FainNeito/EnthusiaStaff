@@ -52,7 +52,8 @@ class StaffModeDeathWiringTest {
         assertTrue(listener.contains("pendingDeathExits.add(playerId)"));
         assertTrue(listener.contains("if (staffMode.authorityActive(playerId))"));
         assertTrue(listener.contains("scheduleExitRetry(player, EXIT_RETRY_TICKS)"));
-        assertTrue(listener.contains("player.getScheduler().execute("));
+        assertTrue(listener.contains("if (!player.getScheduler().execute("));
+        assertTrue(listener.contains("() -> pendingDeathExits.add(playerId)"));
         assertTrue(
                 listener.contains("@EventHandler(priority = EventPriority.MONITOR)\n"
                         + "    public void onJoin(PlayerJoinEvent event)"),
