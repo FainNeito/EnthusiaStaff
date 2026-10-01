@@ -48,11 +48,11 @@ class HelperObserverProtectionWiringTest {
                 "Retained-target discovery must run on the Helper's entity scheduler"
         );
         assertTrue(
-                listener.contains("mob.getScheduler().run(plugin, ignoredMob ->"),
-                "Mob target mutation must run on the mob's own entity scheduler"
+                listener.contains("targetMob.getScheduler().run(plugin, ignoredMob ->"),
+                "Every mob target mutation must run on the mob's own entity scheduler"
         );
         assertTrue(
-                listener.contains("mob.setTarget(null)"),
+                listener.contains("targetMob.setTarget(null)"),
                 "A mob that still targets an active Helper must be detached"
         );
     }
