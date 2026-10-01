@@ -26,7 +26,8 @@ const STATIC_PATHS = new Set([
   '/assets/live-record-usability.js',
   '/assets/live-browse-workspace.js',
   '/assets/live-filter-focus.js',
-  '/assets/live-actions.js'
+  '/assets/live-actions.js',
+  '/assets/live-minecraft-actions.js'
 ]);
 const ROUTE_HANDLERS = new Map([
   ['/health', handleHealth],

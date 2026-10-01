@@ -18,15 +18,30 @@ final class ModerationActionApiService {
     private final Map<UUID, Binding> drafts = new HashMap<>();
 
     record Request(String actorId, String guildId, String targetKey, String sessionBinding,
-            Optional<IntentInput> intent, Optional<UUID> confirmationId) {
+            Optional<IntentInput> intent, Optional<UUID> confirmationId,
+            Optional<String> minecraftTarget, Optional<MinecraftIntent> minecraftIntent) {
         Request {
             intent = intent == null ? Optional.empty() : intent;
             confirmationId = confirmationId == null ? Optional.empty() : confirmationId;
+            minecraftTarget = minecraftTarget == null ? Optional.empty() : minecraftTarget;
+            minecraftIntent = minecraftIntent == null ? Optional.empty() : minecraftIntent;
+            minecraftTarget.ifPresent(target -> {
+                if (!target.matches("(?:[A-Za-z0-9_]{1,16}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})")) {
+                    throw new IllegalArgumentException("invalid Minecraft player name or UUID");
+                }
+            });
             if (sessionBinding == null || !sessionBinding.matches("[a-f0-9]{64}")) {
                 throw new IllegalArgumentException("session binding is invalid");
             }
         }
+
+        Request(String actorId, String guildId, String targetKey, String sessionBinding,
+                Optional<IntentInput> intent, Optional<UUID> confirmationId) {
+            this(actorId, guildId, targetKey, sessionBinding, intent, confirmationId, Optional.empty(), Optional.empty());
+        }
     }
+
+    record MinecraftIntent(String reasonId, String explanation) { }
 
     record IntentInput(String type, String duration, String reason, String explanation,
             Optional<DiscordRestrictionTarget> restriction) {
@@ -70,8 +85,19 @@ final class ModerationActionApiService {
         ModerationReadContext context = authorizer.authorize(new ModerationReadApiModel.ReadRequest(
                 request.actorId(), request.guildId(), request.targetKey(), Optional.empty()));
         if (operation.equals("capabilities")) {
+            com.fasterxml.jackson.databind.JsonNode minecraft;
+            try {
+                minecraft = minecraftRequest("capabilities", request, context);
+            } catch (StaffAuthorityClient.UnavailableException | SecurityException exception) {
+                minecraft = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
+                        .put("enabled", false).set("reasons", new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode());
+            }
             return Map.of("discordEnabled", moderation.punishmentService().isPresent(),
-                    "minecraftEnabled", false, "messageDeletionEnabled", false);
+                    "minecraftEnabled", minecraft.path("enabled").asBoolean(false),
+                    "minecraftReasons", minecraft.path("reasons"), "messageDeletionEnabled", false);
+        }
+        if (request.minecraftTarget().isPresent() || request.minecraftIntent().isPresent()) {
+            return minecraftRequest(operation, request, context);
         }
         long target = context.readTarget().userId().orElseThrow(() -> new IllegalArgumentException("select a target"));
         DiscordPunishmentService service = moderation.punishmentService()
@@ -82,6 +108,50 @@ final class ModerationActionApiService {
             case "status" -> status(request, context, service, target);
             default -> throw new IllegalArgumentException("unknown moderation action operation");
         };
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode minecraftRequest(
+            String operation, Request request, ModerationReadContext context) {
+        if (request.intent().isPresent()) throw new IllegalArgumentException("cannot mix Discord and Minecraft intent");
+        var actor = moderation.actors().invoker(new net.enthusia.staff.domain.moderation.DiscordUserId(request.actorId()),
+                context.actorMember().getEffectiveName());
+        UUID target = null;
+        if (!"capabilities".equals(operation)) {
+            var resolved = moderation.reads().resolveMinecraft(request.minecraftTarget().orElseThrow());
+            if (!(resolved instanceof StaffModerationReadService.MinecraftResolution.Resolved found)) {
+                throw new IllegalArgumentException("Minecraft player is unknown or ambiguous; use its exact UUID");
+            }
+            target = found.target().minecraftId().orElseThrow();
+        } else if (request.minecraftTarget().isPresent() || request.minecraftIntent().isPresent() || request.confirmationId().isPresent()) {
+            throw new IllegalArgumentException("capabilities cannot carry intent");
+        }
+        if ("prepare".equals(operation)) {
+            if (request.confirmationId().isPresent() || request.minecraftIntent().isEmpty()) {
+                throw new IllegalArgumentException("configured Minecraft intent is required");
+            }
+        } else if (request.minecraftIntent().isPresent()) {
+            throw new IllegalArgumentException("confirmation cannot change Minecraft intent");
+        }
+        if (("confirm".equals(operation) || "status".equals(operation)) && request.confirmationId().isEmpty()) {
+            throw new IllegalArgumentException("Minecraft confirmation is required");
+        }
+        var input = new java.util.LinkedHashMap<String, Object>();
+        input.put("actorId", actor.id()); input.put("targetId", target);
+        input.put("sessionBinding", minecraftSessionBinding(request));
+        input.put("confirmationId", request.confirmationId().orElse(null));
+        input.put("reasonId", request.minecraftIntent().map(MinecraftIntent::reasonId).orElse(null));
+        input.put("explanation", request.minecraftIntent().map(MinecraftIntent::explanation).orElse(null));
+        return moderation.authority().punishment(operation, input);
+    }
+
+    private static String minecraftSessionBinding(Request request) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(
+                    (request.sessionBinding() + ":" + request.guildId() + ":" + request.targetKey())
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     private Prepared prepare(Request request, ModerationReadContext context, DiscordPunishmentService service, long target) {

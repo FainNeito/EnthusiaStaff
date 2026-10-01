@@ -158,7 +158,7 @@ final class ModerationReadApiServer implements AutoCloseable {
             Object response = bootstrap ? service.bootstrap(request) : service.messages(request);
             respond(exchange, 200, response);
         } catch (StaffReadAuthorization.DeniedException | LinkedStaffActorResolver.MissingStaffLinkException
-                | DiscordPunishmentAuthorization.DeniedException exception) {
+                | DiscordPunishmentAuthorization.DeniedException | SecurityException exception) {
             respond(exchange, 403, new ModerationReadApiModel.ErrorResponse("forbidden", "Access denied."));
         } catch (IllegalArgumentException exception) {
             respond(exchange, 400, new ModerationReadApiModel.ErrorResponse("invalid_request", "Request rejected."));

@@ -43,16 +43,22 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     private final HttpServer server;
     private final ThreadPoolExecutor executor;
     private final DiscordStaffAuthorityAuthenticator authenticator;
+    private final StaffWebPunishmentService webPunishments;
+    private final com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper()
+            .findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private DiscordStaffAuthorityEndpoint(
             JavaPlugin plugin,
             DiscordStaffAuthorityConfiguration.Value configuration,
-            LuckPerms luckPerms
+            LuckPerms luckPerms,
+            StaffWebPunishmentService.Dependencies webDependencies
     ) throws IOException {
         this.plugin = plugin;
         this.luckPerms = luckPerms;
         this.authenticator = new DiscordStaffAuthorityAuthenticator(
                 configuration.secret(), configuration.privateSplit());
+        this.webPunishments = webDependencies == null ? null : new StaffWebPunishmentService(
+                webDependencies, this::punishmentActor, this::resolve);
         HttpServer createdServer = HttpServer.create(
                 bindAddress(configuration.bindHost(), configuration.port()), BACKLOG);
         ThreadPoolExecutor createdExecutor = new ThreadPoolExecutor(
@@ -67,6 +73,9 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
         try {
             createdServer.setExecutor(createdExecutor);
             createdServer.createContext(PATH, this::handle);
+            if (webPunishments != null) {
+                createdServer.createContext("/v1/staff-punishments/", this::handlePunishment);
+            }
             createdServer.start();
         } catch (RuntimeException exception) {
             createdServer.stop(0);
@@ -78,6 +87,11 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     }
 
     public static Optional<DiscordStaffAuthorityEndpoint> startIfConfigured(JavaPlugin plugin) {
+        return startIfConfigured(plugin, null);
+    }
+
+    public static Optional<DiscordStaffAuthorityEndpoint> startIfConfigured(
+            JavaPlugin plugin, StaffWebPunishmentService.Dependencies webDependencies) {
         if (plugin == null) {
             throw new IllegalArgumentException("plugin must be present");
         }
@@ -86,7 +100,7 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
         if (configuration.isEmpty() || luckPerms.isEmpty()) {
             return Optional.empty();
         }
-        return bind(plugin, configuration.orElseThrow(), luckPerms.orElseThrow());
+        return bind(plugin, configuration.orElseThrow(), luckPerms.orElseThrow(), webDependencies);
     }
 
     private static Optional<DiscordStaffAuthorityConfiguration.Value> configuredAuthority(JavaPlugin plugin) {
@@ -114,10 +128,11 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     private static Optional<DiscordStaffAuthorityEndpoint> bind(
             JavaPlugin plugin,
             DiscordStaffAuthorityConfiguration.Value configuration,
-            LuckPerms luckPerms
+            LuckPerms luckPerms,
+            StaffWebPunishmentService.Dependencies webDependencies
     ) {
         try {
-            return Optional.of(new DiscordStaffAuthorityEndpoint(plugin, configuration, luckPerms));
+            return Optional.of(new DiscordStaffAuthorityEndpoint(plugin, configuration, luckPerms, webDependencies));
         } catch (IOException | RuntimeException exception) {
             log(plugin, "discord_staff_authority_bind_failed", exception);
             return Optional.empty();
@@ -157,6 +172,53 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
         }
     }
 
+    private void handlePunishment(HttpExchange exchange) throws IOException {
+        DiscordStaffAuthorityAuthenticator.Result authorization = null;
+        try {
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{}", null);
+                return;
+            }
+            byte[] body = exchange.getRequestBody().readNBytes(8193);
+            String path = exchange.getRequestURI().getRawPath();
+            String target = path + "?" + exchange.getRequestURI().getRawQuery();
+            if (!StaffAuthorityHttpSigning.punishmentRequestTarget(path, body).equals(target)) {
+                respond(exchange, 400, "{}", null);
+                return;
+            }
+            authorization = authenticate(exchange);
+            if (!authorization.accepted()) {
+                respond(exchange, 401, "{}", null);
+                return;
+            }
+            StaffWebPunishmentService.Request request = json.readValue(body, StaffWebPunishmentService.Request.class);
+            if (request == null) throw new IllegalArgumentException("request object is required");
+            Object result = webPunishments.execute(path.substring("/v1/staff-punishments/".length()), request);
+            respond(exchange, 200, json.writeValueAsString(result), authorization);
+        } catch (SecurityException exception) {
+            respond(exchange, 403, "{}", authorization);
+        } catch (IllegalArgumentException | com.fasterxml.jackson.core.JsonProcessingException exception) {
+            respond(exchange, 400, "{}", authorization);
+        } catch (RuntimeException exception) {
+            log(plugin, "staff_web_punishment_request_failed", exception);
+            if (exchange.getResponseCode() == -1) respond(exchange, 503, "{}", authorization);
+        } finally {
+            exchange.close();
+        }
+    }
+
+    private net.enthusia.staff.domain.auth.Actor punishmentActor(UUID playerId) {
+        User user = loadUser(playerId);
+        var permissions = user.getCachedData().getPermissionData();
+        if (!permissions.checkPermission("enthusiastaff.punish.configured").asBoolean()) {
+            throw new SecurityException("current Minecraft punishment permission is required");
+        }
+        StaffRank rank = PaperStaffRankResolver.resolve(permission -> permissions.checkPermission(permission).asBoolean())
+                .orElseThrow(() -> new SecurityException("current staff rank is required"));
+        return new net.enthusia.staff.domain.auth.Actor(playerId,
+                user.getUsername() == null ? playerId.toString() : user.getUsername(), rank);
+    }
+
     private DiscordStaffAuthorityAuthenticator.Result authenticate(HttpExchange exchange) {
         String rawQuery = exchange.getRequestURI().getRawQuery();
         String target = exchange.getRequestURI().getRawPath()
@@ -173,13 +235,15 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     }
 
     private Optional<StaffRank> resolve(UUID playerId) {
+        User user = loadUser(playerId);
+        return PaperStaffRankResolver.resolve(permission -> user.getCachedData()
+                .getPermissionData().checkPermission(permission).asBoolean());
+    }
+
+    private User loadUser(UUID playerId) {
         try {
-            User user = luckPerms.getUserManager().loadUser(playerId)
+            return luckPerms.getUserManager().loadUser(playerId)
                     .get(LOOKUP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-            return PaperStaffRankResolver.resolve(permission -> user.getCachedData()
-                    .getPermissionData()
-                    .checkPermission(permission)
-                    .asBoolean());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("staff authority lookup interrupted", exception);
@@ -206,7 +270,8 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
             DiscordStaffAuthorityAuthenticator.Result authorization
     ) throws IOException {
         byte[] encoded = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+        exchange.getResponseHeaders().set("Content-Type", "POST".equals(exchange.getRequestMethod())
+                ? "application/json; charset=utf-8" : "text/plain; charset=utf-8");
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         if (authorization != null) {
             String signature = authenticator.responseSignature(authorization, status, body);

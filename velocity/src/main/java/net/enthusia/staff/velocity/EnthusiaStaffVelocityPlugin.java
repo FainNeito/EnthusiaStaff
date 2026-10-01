@@ -13,6 +13,7 @@ import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -93,7 +94,8 @@ import org.slf4j.Logger;
         name = "EnthusiaStaff",
         version = "0.1.0-SNAPSHOT",
         description = "Enthusia Network staff and moderation runtime for Velocity",
-        authors = {"P2wn"}
+        authors = {"P2wn"},
+        dependencies = {@Dependency(id = "velocitab", optional = true)}
 )
 public final class EnthusiaStaffVelocityPlugin {
     private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ISO_OFFSET_DATE_TIME.withZone(ZoneOffset.UTC);
@@ -141,6 +143,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile ExecutorService workers;
     private volatile VelocityConfiguration configuration;
     private volatile MariaDbRuntime databaseRuntime;
+    private VelocitabStaffBridge staffTabBridge;
     private volatile SanctionLookup sanctionLookup;
     private volatile PlayerDirectory playerDirectory;
     private volatile FreezeStore freezeStore;
@@ -184,6 +187,7 @@ public final class EnthusiaStaffVelocityPlugin {
     @Subscribe
     public void onProxyInitialization(ProxyInitializeEvent ignored) {
         workers = createWorkers();
+        staffTabBridge = VelocitabStaffBridge.start(this, proxy, logger, () -> databaseRuntime, workers).orElse(null);
         registerCommands();
         health.update(OperationalMode.BOOTSTRAP, Map.of("bootstrap", "MariaDB initialization is in progress"));
         VelocityBootstrapCoordinator coordinator = new VelocityBootstrapCoordinator(
@@ -298,6 +302,9 @@ public final class EnthusiaStaffVelocityPlugin {
         shadowMigrationTask = null;
         closeWebsiteServer();
         closeChannelServer();
+        if (staffTabBridge != null) {
+            staffTabBridge.close();
+        }
         workers.shutdown();
         try {
             if (!workers.awaitTermination(5, TimeUnit.SECONDS)) {

@@ -8,6 +8,25 @@ const env = {RUNTIME_ENVIRONMENT:'production', READ_API_SIGNING_KEY_HEX:key};
 const session = {actorId:'123',guildId:'456',targetKey:'channel:789',csrfToken:'private-session-csrf'};
 const intent = {type:'WARNING',duration:'instant',reason:'Test warning',explanation:'Authorized test only',restriction:null};
 
+test('Minecraft actions bind configured reason and target without accepting client sanction values', async () => {
+  const input = {minecraftTarget:'KnownPlayer', minecraftIntent:{reasonId:'chat.spam', explanation:'Reviewed evidence'}};
+  const proof = await (await prepareModerationAction(env,session,'prepare',input)).json();
+  const body = JSON.parse(proof.body);
+  assert.equal(body.minecraftTarget,'KnownPlayer');
+  assert.deepEqual(body.minecraftIntent,input.minecraftIntent);
+  assert.equal(body.intent,null);
+  for (const field of ['duration','type','rank','approved']) {
+    await assert.rejects(prepareModerationAction(env,session,'prepare',{
+      ...input, minecraftIntent:{...input.minecraftIntent,[field]:'forged'}
+    }));
+  }
+  await assert.rejects(prepareModerationAction(env,session,'prepare',{...input,intent}));
+  await assert.rejects(prepareModerationAction(env,session,'confirm',{
+    ...input, confirmationId:'11111111-2222-4333-8444-555555555555'
+  }));
+  await assert.rejects(prepareModerationAction(env,session,'prepare',{...input,minecraftTarget:'../unknown'}));
+});
+
 test('action proof binds actor, guild, session, target and exact bytes', async () => {
   const response = await prepareModerationAction(env,session,'prepare',{targetKey:'discord:999',intent});
   const proof = await response.json();

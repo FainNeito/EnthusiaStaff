@@ -188,9 +188,9 @@ A non-staff viewer has no viewer entry and therefore cannot see a vanished targe
 
 | Viewer | Vanished ranks visible to that viewer |
 | --- | --- |
-| Helper | Helper |
+| Helper | Helper, Mod, Developer |
 | Mod | Helper, Mod, Developer |
-| Developer | Helper, Mod, Developer |
+| Developer | Helper, Mod, Developer, Admin |
 | Admin | Helper, Mod, Developer, Admin |
 | Founder | Helper, Mod, Developer, Admin, Founder |
 
@@ -242,7 +242,7 @@ live compatibility testing on supported Paper and ProtocolLib versions.
 
 The current vanish manager does not itself guarantee hiding from:
 
-- custom tab-list plugins or cached player-count displays;
+- custom tab-list plugins other than the optional Velocitab integration, or cached player-count displays;
 - `/seen`, `/list`, message, teleport, pay, or other command completions;
 - RoseChat recipient selection or private-message lookup;
 - voice-chat recipient discovery;
@@ -325,3 +325,27 @@ Reviewers should verify:
 
 Related staff instructions are in
 [[Staff Mode, Vanish, and Freeze|Staff-Mode-Vanish-and-Freeze]].
+
+## Velocitab integration
+
+Velocity optionally connects to Velocitab's public vanish and custom-name APIs.
+It reads durable vanish and active staff-session state on a worker once per
+second; packet visibility callbacks use only the verified immutable cache and
+current permissions. Staff-mode and vanish add `[STAFF]` and `[V]` markers without
+changing LuckPerms rank prefixes or permissions. Existing custom names are
+preserved and restored only while the integration still owns the value.
+
+The proxy uses the default rank matrix above. Keep the backend
+`visibility.matrix` configuration aligned with it. Helper/Mod/Developer see each
+other, Developer additionally sees Admin, Admin sees Admin and lower ranks, and
+Founder sees every staff rank. Ordinary players see no vanished staff. Existing
+Velocitab server-group boundaries still apply.
+
+If storage cannot verify presence for five seconds, proxy tab visibility fails
+closed until verification recovers. Other players' entries may temporarily
+disappear during that outage. Recovery refreshes both visibility and names.
+The Paper packet hook relists authorized vanished staff even when spectator
+entries were originally unlisted; unrelated spectator tab choices remain intact.
+
+Restart Paper and Velocity to apply this integration and visibility configuration.
+Use the network restart queue and its player warnings for production rollout.

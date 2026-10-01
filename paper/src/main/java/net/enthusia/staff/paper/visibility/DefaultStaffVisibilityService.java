@@ -40,16 +40,7 @@ public final class DefaultStaffVisibilityService implements StaffVisibilityServi
     }
 
     public static Map<StaffRank, Set<StaffRank>> defaultMatrix() {
-        return Map.of(
-                StaffRank.HELPER, Set.of(StaffRank.HELPER),
-                StaffRank.MOD, Set.of(StaffRank.HELPER, StaffRank.MOD, StaffRank.DEVELOPER),
-                StaffRank.DEVELOPER, Set.of(StaffRank.HELPER, StaffRank.MOD, StaffRank.DEVELOPER),
-                StaffRank.ADMIN, Set.of(StaffRank.HELPER, StaffRank.MOD, StaffRank.DEVELOPER, StaffRank.ADMIN),
-                StaffRank.FOUNDER, Set.of(
-                        StaffRank.HELPER, StaffRank.MOD, StaffRank.DEVELOPER,
-                        StaffRank.ADMIN, StaffRank.FOUNDER
-                )
-        );
+        return net.enthusia.staff.domain.auth.StaffVanishVisibility.matrix();
     }
 
     @Override

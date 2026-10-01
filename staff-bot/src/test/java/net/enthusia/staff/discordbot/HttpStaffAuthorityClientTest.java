@@ -20,6 +20,42 @@ class HttpStaffAuthorityClientTest {
     private static final String CREDENTIAL = Character.toString('s').repeat(40);
 
     @Test
+    void privatePunishmentProofBindsExactBodyAndVerifiesResponse() throws IOException {
+        AtomicReference<StaffAuthorityHttpSigning.Verification> verification = new AtomicReference<>();
+        AtomicReference<Boolean> targetMatches = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 1);
+        server.createContext("/v1/staff-punishments/capabilities", exchange -> {
+            byte[] input = exchange.getRequestBody().readAllBytes();
+            String target = exchange.getRequestURI().toString();
+            targetMatches.set(target.equals(StaffAuthorityHttpSigning.punishmentRequestTarget(
+                    exchange.getRequestURI().getPath(), input)));
+            String nonce = exchange.getRequestHeaders().getFirst(StaffAuthorityHttpSigning.NONCE_HEADER);
+            verification.set(StaffAuthorityHttpSigning.verifyRequest(CREDENTIAL, "POST", target,
+                    exchange.getRequestHeaders().getFirst(StaffAuthorityHttpSigning.TIMESTAMP_HEADER), nonce,
+                    exchange.getRequestHeaders().getFirst(StaffAuthorityHttpSigning.SIGNATURE_HEADER), Clock.systemUTC()));
+            String body = "{\"enabled\":true,\"reasons\":[]}";
+            exchange.getResponseHeaders().set(StaffAuthorityHttpSigning.RESPONSE_SIGNATURE_HEADER,
+                    StaffAuthorityHttpSigning.signResponse(CREDENTIAL, nonce, 200, body));
+            byte[] output = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, output.length);
+            exchange.getResponseBody().write(output);
+            exchange.close();
+        });
+        server.start();
+        try {
+            HttpStaffAuthorityClient client = new HttpStaffAuthorityClient(URI.create(
+                    "http://127.0.0.1:%d/v1/staff-rank".formatted(server.getAddress().getPort())), CREDENTIAL,
+                    StaffModerationConfiguration.AuthorityTransport.BLOOM_PRIVATE_SPLIT);
+            assertEquals(true, client.punishment("capabilities", java.util.Map.of(
+                    "actorId", UUID.randomUUID().toString(), "sessionBinding", "0".repeat(64))).get("enabled").asBoolean());
+            assertEquals(true, targetMatches.get());
+            assertEquals(StaffAuthorityHttpSigning.Verification.ACCEPTED, verification.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void loopbackTransportPreservesBearerAuthorityResourcePath() throws IOException {
         UUID playerId = UUID.fromString("0f48cf03-f319-41e8-981f-4d0e765b5b49");
         AtomicReference<URI> requestUri = new AtomicReference<>();

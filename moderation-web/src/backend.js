@@ -45,14 +45,27 @@ export async function prepareModerationAction(env, session, operation, input) {
   if (env.RUNTIME_ENVIRONMENT !== 'production') throw new Error('live actions require production');
   if (!['capabilities', 'prepare', 'confirm', 'status'].includes(operation)) throw new Error('invalid action operation');
   requireFilterObject(input);
-  requireFilterKeys(input, new Set(['targetKey', 'intent', 'confirmationId']));
+  requireFilterKeys(input, new Set(['targetKey', 'intent', 'confirmationId', 'minecraftTarget', 'minecraftIntent']));
+  const minecraft = input.minecraftTarget !== undefined || input.minecraftIntent !== undefined;
+  if (minecraft) {
+    if (input.intent !== undefined || operation === 'capabilities') throw new Error('cannot mix action scopes');
+    if (typeof input.minecraftTarget !== 'string' || !/^(?:[A-Za-z0-9_]{1,16}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$/.test(input.minecraftTarget)) throw new Error('invalid Minecraft player');
+  }
   const targetKey = input.targetKey === undefined ? session.targetKey : input.targetKey;
   if (typeof targetKey !== 'string' || !/^(channel:[1-9][0-9]{0,19}|discord:[1-9][0-9]{0,19}|discord-channel:[1-9][0-9]{0,19}:[1-9][0-9]{0,19}|message:[1-9][0-9]{0,19}:[1-9][0-9]{0,19}:[1-9][0-9]{0,19})$/.test(targetKey)) throw new Error('invalid action target');
   if (operation === 'prepare') {
     if (input.confirmationId !== undefined) throw new Error('invalid draft');
-    requireFilterObject(input.intent);
-    requireFilterKeys(input.intent, new Set(['type', 'duration', 'reason', 'explanation', 'restriction']));
-  } else if (input.intent !== undefined) throw new Error('cannot change prepared intent');
+    if (minecraft) {
+      requireFilterObject(input.minecraftIntent);
+      requireFilterKeys(input.minecraftIntent, new Set(['reasonId', 'explanation']));
+      if (typeof input.minecraftIntent.reasonId !== 'string' || input.minecraftIntent.reasonId.length > 96
+          || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(input.minecraftIntent.reasonId)
+          || typeof input.minecraftIntent.explanation !== 'string' || input.minecraftIntent.explanation.length > 4000) throw new Error('invalid configured Minecraft intent');
+    } else {
+      requireFilterObject(input.intent);
+      requireFilterKeys(input.intent, new Set(['type', 'duration', 'reason', 'explanation', 'restriction']));
+    }
+  } else if (input.intent !== undefined || input.minecraftIntent !== undefined) throw new Error('cannot change prepared intent');
   if (operation === 'confirm' || operation === 'status') {
     if (typeof input.confirmationId !== 'string' || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(input.confirmationId)) throw new Error('invalid confirmation');
   } else if (input.confirmationId !== undefined) throw new Error('invalid confirmation');
@@ -60,7 +73,8 @@ export async function prepareModerationAction(env, session, operation, input) {
   if (!keyHex) return unavailable();
   const sessionBinding = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', textEncoder.encode(session.csrfToken))));
   const body = JSON.stringify({actorId:session.actorId, guildId:session.guildId, targetKey,
-    sessionBinding, intent:input.intent ?? null, confirmationId:input.confirmationId ?? null});
+    sessionBinding, intent:input.intent ?? null, confirmationId:input.confirmationId ?? null,
+    minecraftTarget:input.minecraftTarget ?? null, minecraftIntent:input.minecraftIntent ?? null});
   if (textEncoder.encode(body).length > 65_536) throw new Error('action body too large');
   const path = '/v1/moderation/actions/' + operation;
   const timestamp = String(Math.floor(Date.now() / 1000));

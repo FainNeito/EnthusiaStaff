@@ -690,7 +690,7 @@ public final class VanishManager implements Listener {
                 onlineStaffRanks.get(targetId),
                 target.gameMode(),
                 canSee,
-                hiddenSpectators.contains(targetId),
+                hiddenSpectators.contains(targetId) && !visibility.isVanished(targetId),
                 spectatorTabPackets.available()
         );
     }
@@ -769,7 +769,8 @@ public final class VanishManager implements Listener {
             PlayerInfoTabMasker masker = new PlayerInfoTabMasker(
                     visibility::canSee,
                     onlineStaffRanks::get,
-                    hiddenSpectators::contains
+                    id -> hiddenSpectators.contains(id) && !visibility.isVanished(id),
+                    visibility::isVanished
             );
             return ProtocolLibSpectatorTabPacketAdapter.install(plugin, masker, this::packetMaskFailed);
         } catch (RuntimeException | LinkageError failure) {
