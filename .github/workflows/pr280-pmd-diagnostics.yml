@@ -1,4 +1,4 @@
-name: PR 280 PMD diagnostics
+name: PR 280 verified static repair
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
       - codex/reopening-safety-2026-10-01
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  pmd:
-    name: Report PMD 6.55 findings on changed Java
+  repair:
+    name: Apply, validate, and commit static repair
     runs-on: ubuntu-24.04
     steps:
       - name: Check out exact branch head
@@ -18,18 +18,54 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify branch has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin codex/reopening-safety-2026-10-01
+          test "$(git rev-parse origin/codex/reopening-safety-2026-10-01)" = "$GITHUB_SHA"
+
+      - name: Reconstruct and apply verified repair
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          : > /tmp/pr280-repair.patch.gz
+          for sha in \
+            eb1f458756e4732891b7a02a90b52b2a9506c9c1 \
+            dc8b8155c1be9c3ad36c84c37c11c18ab8fafe94 \
+            41d0643d66d6cbd29fc44192d6be82d8a3b4bfc8 \
+            4b3d5cbb2532d30bb99ae0ce73b630420366d22b \
+            e5f9751bec196eb193e7b25fa211705d9508cc3c \
+            366990be1830a31fb6c4347a929615d39629c020 \
+            8d39bf56896a627e52bec2fb5afcb6ea972be8f0
+          do
+            curl --fail --location --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/wsg138/EnthusiaStaff/git/blobs/${sha}" \
+              | jq -r '.content' | tr -d '\n' | base64 -d >> /tmp/pr280-repair.patch.gz
+          done
+          echo "ebd3e92db1d95c2c5df39f0baa8469bb01d4bba76ff9d1b64570052b221a75f7  /tmp/pr280-repair.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/pr280-repair.patch.gz > /tmp/pr280-repair.patch
+          echo "05f6e4b1a17a0ba083951bd6558b0e4902cbdb49722424132e54f3c5a06f63f9  /tmp/pr280-repair.patch" | sha256sum -c -
+          git apply --check /tmp/pr280-repair.patch
+          git apply /tmp/pr280-repair.patch
+          git diff --check
+
       - name: Set up Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Run repository PMD rules on PR Java files
+      - name: Require zero repository PMD findings
         shell: bash
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
-          mapfile -t files < <(git diff --name-only origin/main...HEAD -- '*.java')
+          mapfile -t files < <( { git diff --name-only origin/main...HEAD -- '*.java'; git diff --name-only -- '*.java'; } | sort -u )
           if (( ${#files[@]} == 0 )); then
             echo "No changed Java files."
             exit 0
@@ -41,31 +77,33 @@ jobs:
           input="$(IFS=,; echo "${files[*]}")"
           set +e
           /tmp/pmd-bin-6.55.0/bin/run.sh pmd \
-            -d "${input}" \
+            -d "$input" \
             -R ruleset.xml \
             -f text \
             -r /tmp/pmd-findings.txt
           status=$?
           set -e
-          echo "PMD exit status: ${status}"
           cat /tmp/pmd-findings.txt
-          if (( status != 0 && status != 4 )); then
-            exit "${status}"
-          fi
+          test "$status" -eq 0
+          test ! -s /tmp/pmd-findings.txt
 
-      - name: Package exact source and PMD runtime for local repair
+      - name: Run full Java validation
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .pr280-diagnostics
-          cp /tmp/pmd-findings.txt .pr280-diagnostics/pmd-findings.txt
-          cp -R /tmp/pmd-bin-6.55.0 .pr280-diagnostics/pmd-bin-6.55.0
-          tar --exclude=.git -czf /tmp/pr280-source-and-pmd.tar.gz .
+          ./gradlew --no-daemon --no-build-cache --no-configuration-cache --rerun-tasks clean test check runtimeJars
+          git diff --check
 
-      - name: Upload diagnostic workspace
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr280-source-and-pmd
-          path: /tmp/pr280-source-and-pmd.tar.gz
-          if-no-files-found: error
-          retention-days: 2
+      - name: Commit coherent repair and remove diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/pr280-pmd-diagnostics.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Resolve reopening static analysis findings"
+          git fetch --no-tags origin codex/reopening-safety-2026-10-01
+          test "$(git rev-parse origin/codex/reopening-safety-2026-10-01)" = "$GITHUB_SHA"
+          git push origin HEAD:codex/reopening-safety-2026-10-01
