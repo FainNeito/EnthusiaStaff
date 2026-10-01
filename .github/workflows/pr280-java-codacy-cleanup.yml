@@ -25,11 +25,44 @@ jobs:
           git fetch --no-tags origin codex/reopening-safety-2026-10-01
           test "$(git rev-parse origin/codex/reopening-safety-2026-10-01)" = "$GITHUB_SHA"
 
+      - name: Reconcile cleanup script with live tunnel source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/pr280-java-cleanup.py')
+          text = path.read_text()
+          marker = 'replace_once(\n    "velocity/src/main/java/net/enthusia/staff/velocity/WebsiteTunnelConnector.java",'
+          start = text.index(marker)
+          end = text.index('secret_file = Path(', start)
+          path.write_text(text[:start] + text[end:])
+          PY
+
       - name: Apply bounded Java cleanup
         shell: bash
         run: |
           set -euo pipefail
           python3 .github/pr280-java-cleanup.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def guarded(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected one match for {old!r}, found {text.count(old)}')
+              file.write_text(text.replace(old, new))
+
+          source = 'velocity/src/main/java/net/enthusia/staff/velocity/WebsiteTunnelConnector.java'
+          guarded(source, 'new ProcessBuilder(command(directory))', 'new ProcessBuilder(command())')
+          guarded(source, 'static List<String> command(Path directory)', 'static List<String> command()')
+          guarded(source, 'directory.resolve("cloudflared").toAbsolutePath().toString()', '"./cloudflared"')
+
+          test = 'velocity/src/test/java/net/enthusia/staff/velocity/WebsiteTunnelConnectorTest.java'
+          guarded(test, 'WebsiteTunnelConnector.command(directory)', 'WebsiteTunnelConnector.command()')
+          guarded(test, 'directory.resolve("cloudflared").toAbsolutePath().toString()', '"./cloudflared"')
+          PY
           git diff --check
 
       - name: Set up Java 21
@@ -45,28 +78,27 @@ jobs:
           python3 -m pip install --disable-pip-version-check --quiet lizard==1.17.31
           python3 - <<'PY'
           import lizard
-
           targets = {
-              "velocity/src/main/java/net/enthusia/staff/velocity/StaffSessionTransferPolicy.java": "recoveryReturnAllowed",
-              "paper/src/test/java/net/enthusia/staff/paper/staff/StaffRestorationComparisonTest.java": "everyStoredFieldStillRejectsAnActualStateDifference",
-              "staff-bot/src/main/java/net/enthusia/staff/discordbot/ModerationActionApiService.java": "toIntent",
-              "staff-bot/src/main/java/net/enthusia/staff/discordbot/StaffBotConfiguration.java": "validHttpsOrigin",
-              "paper/src/main/java/net/enthusia/staff/paper/auth/DiscordStaffAuthorityEndpoint.java": "handlePunishment",
-              "paper/src/main/java/net/enthusia/staff/paper/PaperNetworkMessageHandler.java": "punishmentNotification",
+              'velocity/src/main/java/net/enthusia/staff/velocity/StaffSessionTransferPolicy.java': 'recoveryReturnAllowed',
+              'paper/src/test/java/net/enthusia/staff/paper/staff/StaffRestorationComparisonTest.java': 'everyStoredFieldStillRejectsAnActualStateDifference',
+              'staff-bot/src/main/java/net/enthusia/staff/discordbot/ModerationActionApiService.java': 'toIntent',
+              'staff-bot/src/main/java/net/enthusia/staff/discordbot/StaffBotConfiguration.java': 'validHttpsOrigin',
+              'paper/src/main/java/net/enthusia/staff/paper/auth/DiscordStaffAuthorityEndpoint.java': 'handlePunishment',
+              'paper/src/main/java/net/enthusia/staff/paper/PaperNetworkMessageHandler.java': 'punishmentNotification',
           }
           failures = []
           for path, name in targets.items():
               analysis = lizard.analyze_file(path)
               matches = [function for function in analysis.function_list if function.name == name]
               if not matches:
-                  failures.append(f"{path}: missing {name}")
+                  failures.append(f'{path}: missing {name}')
                   continue
               worst = max(function.cyclomatic_complexity for function in matches)
-              print(f"{path}:{name} CCN={worst}")
+              print(f'{path}:{name} CCN={worst}')
               if worst > 8:
-                  failures.append(f"{path}:{name} CCN {worst} > 8")
+                  failures.append(f'{path}:{name} CCN {worst} > 8')
           if failures:
-              raise SystemExit("\n".join(failures))
+              raise SystemExit('\n'.join(failures))
           PY
 
       - name: Require repository PMD clean on changed Java
