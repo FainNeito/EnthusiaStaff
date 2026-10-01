@@ -890,7 +890,13 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                     if (enforcement != null) {
                         enforcement.invalidate(playerId);
                     }
-                }
+                },
+                playerId -> {
+                    var reconciler = getServer().getServicesManager().load(
+                            net.enthusia.staff.paper.freeze.FreezeNetworkReconciler.class);
+                    return reconciler != null && reconciler.reconcile(playerId);
+                },
+                integrations::deliverNetworkPunishment
         );
         PaperPersistentChannelFactory.Settings channel = PaperPersistentChannelFactory.snapshot(
                 configurationSnapshot.restartRequired(),

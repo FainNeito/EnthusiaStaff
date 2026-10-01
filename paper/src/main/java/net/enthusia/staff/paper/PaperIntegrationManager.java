@@ -149,6 +149,13 @@ final class PaperIntegrationManager implements Listener {
                 .ifPresent(endpoint -> discordStaffAuthority = endpoint);
     }
 
+    void deliverNetworkPunishment(net.enthusia.staff.domain.network.PunishmentCommitNotification notification) {
+        if (punishmentEffects == null) {
+            throw new IllegalStateException("online punishment effects are unavailable");
+        }
+        punishmentEffects.onNetworkPunishmentCommitted(notification);
+    }
+
     void initializeAutomod() {
         if (!plugin().getConfig().getBoolean("automod.enabled", false)) {
             issue(AUTOMOD, "Strict exact-variant public-chat enforcement is disabled");

@@ -25,6 +25,7 @@ final class PaperNetworkMessageHandler {
     private final Clock clock;
     private final Consumer<UUID> invalidateSanctionCache;
     private final Function<UUID, Boolean> reconcileFreeze;
+    private final Consumer<net.enthusia.staff.domain.network.PunishmentCommitNotification> deliverPunishment;
 
     PaperNetworkMessageHandler(ObjectMapper json, Clock clock, Consumer<UUID> invalidateSanctionCache) {
         this(json, clock, invalidateSanctionCache, PaperNetworkMessageHandler::reconcileFreeze);
@@ -36,6 +37,14 @@ final class PaperNetworkMessageHandler {
             Consumer<UUID> invalidateSanctionCache,
             Function<UUID, Boolean> reconcileFreeze
     ) {
+        this(json, clock, invalidateSanctionCache, reconcileFreeze, ignored -> { });
+    }
+
+    PaperNetworkMessageHandler(
+            ObjectMapper json, Clock clock, Consumer<UUID> invalidateSanctionCache,
+            Function<UUID, Boolean> reconcileFreeze,
+            Consumer<net.enthusia.staff.domain.network.PunishmentCommitNotification> deliverPunishment
+    ) {
         this.json = java.util.Objects.requireNonNull(json, "json");
         this.clock = java.util.Objects.requireNonNull(clock, "clock");
         this.invalidateSanctionCache = java.util.Objects.requireNonNull(
@@ -43,9 +52,11 @@ final class PaperNetworkMessageHandler {
                 "invalidateSanctionCache"
         );
         this.reconcileFreeze = java.util.Objects.requireNonNull(reconcileFreeze, "reconcileFreeze");
+        this.deliverPunishment = java.util.Objects.requireNonNull(deliverPunishment, "deliverPunishment");
     }
 
     boolean handle(NetworkOutboxStore inbox, String backendId, ProtocolEnvelope envelope) {
+        var notification = punishmentNotification(envelope);
         UUID sanctionTarget = sanctionTarget(envelope);
         if (sanctionTarget != null) {
             invalidateSanctionCache.accept(sanctionTarget);
@@ -54,14 +65,38 @@ final class PaperNetworkMessageHandler {
         if (freezeTarget != null && !reconcileFreeze.apply(freezeTarget)) {
             return false;
         }
-        inbox.recordInboxOnce(
+        boolean firstDelivery = inbox.recordInboxOnce(
                 backendId,
                 envelope.messageId(),
                 envelope.messageType(),
                 "{\"outcome\":\"applied\"}",
                 clock.instant()
         );
+        if (firstDelivery && notification != null) {
+            deliverPunishment.accept(notification);
+        }
         return true;
+    }
+
+    private net.enthusia.staff.domain.network.PunishmentCommitNotification punishmentNotification(ProtocolEnvelope envelope) {
+        if (!"PUNISHMENT_CREATED".equals(envelope.messageType())) return null;
+        try {
+            JsonNode payload = json.readTree(envelope.payloadJson());
+            if (payload == null) throw new IllegalArgumentException("empty punishment notification");
+            // Old durable messages continue to invalidate caches without replaying historical online effects.
+            if (!payload.has("sanctionTypes") && !payload.has("publicReason") && !payload.has("issuedAt")) return null;
+            if (!payload.path("sanctionTypes").isArray()) throw new IllegalArgumentException("invalid sanction types");
+            java.util.List<net.enthusia.staff.domain.sanction.SanctionType> types = new java.util.ArrayList<>();
+            for (JsonNode type : payload.get("sanctionTypes")) {
+                types.add(net.enthusia.staff.domain.sanction.SanctionType.valueOf(type.asText()));
+            }
+            return new net.enthusia.staff.domain.network.PunishmentCommitNotification(
+                    new net.enthusia.staff.common.CaseId(payload.path("caseId").asText()),
+                    UUID.fromString(payload.path("targetId").asText()), payload.path("publicReason").asText(),
+                    java.time.Instant.parse(payload.path("issuedAt").asText()), types);
+        } catch (IOException | IllegalArgumentException | java.time.DateTimeException exception) {
+            throw new IllegalArgumentException("invalid committed punishment notification", exception);
+        }
     }
 
     private UUID sanctionTarget(ProtocolEnvelope envelope) {
