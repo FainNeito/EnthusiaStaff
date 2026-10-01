@@ -62,27 +62,48 @@ class StaffModeDeathWiringTest {
     }
 
     @Test
-    void cheatTesterTreatsOnlyCompletedDeathsAsRecoveryTriggers() throws IOException {
-        String lifecycle = Files.readString(paperModule().resolve(
+    void internalCompletedDeathConsumersIgnoreCancelledStaffDeaths() throws IOException {
+        Path root = repositoryRoot();
+        String tester = Files.readString(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/tester/CheatTesterLifecycleListener.java"
+        ));
+        String stalk = Files.readString(root.resolve(
+                "components/enthusia-commend/src/main/java/org/enthusia/rep/stalk/StalkManager.java"
+        ));
+        String balance = Files.readString(root.resolve(
+                "components/enthusia-currency/src/main/java/com/enthusia/enthusiacurrency/item/ItemBalanceTracker.java"
         ));
 
         assertTrue(
-                lifecycle.contains("@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)\n"
+                tester.contains("@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)\n"
                         + "    public void onDeath(PlayerDeathEvent event)"),
                 "Cancelled Staff Mode death events must not retire cheat-tester sessions"
+        );
+        assertTrue(
+                stalk.contains("@EventHandler(ignoreCancelled = true)\n"
+                        + "    public void onDeath(PlayerDeathEvent event)"),
+                "Cancelled Staff Mode death events must not clear reputation stalk zones"
+        );
+        assertTrue(
+                balance.contains("@EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)\n"
+                        + "    public void onDeath(PlayerDeathEvent event)"),
+                "Cancelled Staff Mode death events must not schedule item-balance death scans"
         );
     }
 
     private static Path paperModule() {
+        return repositoryRoot().resolve("paper");
+    }
+
+    private static Path repositoryRoot() {
         Path current = Path.of("").toAbsolutePath().normalize();
-        if (Files.exists(current.resolve("src/main/java/net/enthusia/staff/paper/PaperRuntimeComponents.java"))) {
+        if (Files.exists(current.resolve("paper/src/main/java/net/enthusia/staff/paper/PaperRuntimeComponents.java"))) {
             return current;
         }
-        Path paper = current.resolve("paper");
-        if (Files.exists(paper.resolve("src/main/java/net/enthusia/staff/paper/PaperRuntimeComponents.java"))) {
-            return paper;
+        if (Files.exists(current.resolve("src/main/java/net/enthusia/staff/paper/PaperRuntimeComponents.java"))
+                && current.getParent() != null) {
+            return current.getParent();
         }
-        throw new IllegalStateException("Could not locate the Paper module from " + current);
+        throw new IllegalStateException("Could not locate the repository root from " + current);
     }
 }
