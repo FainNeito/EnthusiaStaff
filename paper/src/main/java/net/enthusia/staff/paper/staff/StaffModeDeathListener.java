@@ -32,6 +32,13 @@ public final class StaffModeDeathListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void enforceContainedDeath(PlayerDeathEvent event) {
+        if (staffMode.active(event.getPlayer().getUniqueId())) {
+            contain(event);
+        }
+    }
+
     static void contain(PlayerDeathEvent event) {
         event.setCancelled(true);
         event.setKeepInventory(true);
