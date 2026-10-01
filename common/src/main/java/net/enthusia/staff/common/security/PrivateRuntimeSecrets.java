@@ -13,7 +13,7 @@ import java.util.function.Function;
 /** Resolves startup secrets on hosts without configurable process environments. */
 public final class PrivateRuntimeSecrets {
     private static final int MAXIMUM_FILE_BYTES = 16_384;
-    private static final String SECRET_FILE = "secrets.properties";
+    private static final String RUNTIME_FILE_NAME = "secrets.properties";
 
     private PrivateRuntimeSecrets() { }
 
@@ -25,7 +25,7 @@ public final class PrivateRuntimeSecrets {
         if (present(environmentValue)) {
             return environmentValue;
         }
-        return requiredProperty(load(directory.resolve(SECRET_FILE)), name);
+        return requiredProperty(load(directory.resolve(RUNTIME_FILE_NAME)), name);
     }
 
     private static void validateName(String name) {

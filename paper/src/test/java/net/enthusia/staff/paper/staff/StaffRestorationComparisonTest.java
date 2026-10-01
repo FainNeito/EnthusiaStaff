@@ -17,7 +17,6 @@ class StaffRestorationComparisonTest {
         var equivalent = baseline();
         assertEquals(expected, equivalent);
         equivalent.location().setYaw(equivalent.location().getYaw() + 360);
-        // Construction canonicalizes teleport rotation; all other fields remain exact.
         var normalized = new StaffStateCodec.Decoded(equivalent.serverId(), equivalent.inventory(),
                 equivalent.level(), equivalent.experienceProgress(), equivalent.totalExperience(), equivalent.health(),
                 equivalent.absorption(), equivalent.food(), equivalent.saturation(), equivalent.exhaustion(),
@@ -35,24 +34,55 @@ class StaffRestorationComparisonTest {
         var constructor = StaffStateCodec.Decoded.class.getDeclaredConstructor(
                 Arrays.stream(fields).map(java.lang.reflect.RecordComponent::getType).toArray(Class<?>[]::new));
         Object[] original = new Object[fields.length];
-        for (int i = 0; i < fields.length; i++) original[i] = fields[i].getAccessor().invoke(expected);
         for (int i = 0; i < fields.length; i++) {
-            if (fields[i].getName().equals("effects")) continue; // Effects use full PotionEffect value equality.
-            Object[] changed = original.clone();
-            Object value = changed[i];
-            if (value instanceof String) changed[i] = "OTHER";
-            else if (value instanceof Integer number) changed[i] = number + 1;
-            else if (value instanceof Float number) changed[i] = number + 0.01f;
-            else if (value instanceof Double number) changed[i] = number + 0.01;
-            else if (value instanceof Boolean flag) changed[i] = !flag;
-            else if (value instanceof Location location) changed[i] = location.clone().add(0.01, 0, 0);
-            else if (value instanceof GameMode) changed[i] = GameMode.SURVIVAL;
-            else if (value instanceof List<?>) changed[i] = new ArrayList<>();
-            else throw new AssertionError("Uncovered field " + fields[i].getName());
-            var actual = constructor.newInstance(changed);
-            assertFalse(expected.equals(actual), fields[i].getName());
-            assertEquals(List.of(fields[i].getName()), StaffStateCodec.differingFields(expected, actual));
+            original[i] = fields[i].getAccessor().invoke(expected);
         }
+        for (int i = 0; i < fields.length; i++) {
+            String name = fields[i].getName();
+            if ("effects".equals(name)) {
+                continue;
+            }
+            Object[] changed = original.clone();
+            changed[i] = changedValue(changed[i], name);
+            var actual = constructor.newInstance(changed);
+            assertFalse(expected.equals(actual), name);
+            assertEquals(List.of(name), StaffStateCodec.differingFields(expected, actual));
+        }
+    }
+
+    private static Object changedValue(Object value, String fieldName) {
+        if (value instanceof String) {
+            return "OTHER";
+        }
+        if (value instanceof Number number) {
+            return changedNumber(number);
+        }
+        if (value instanceof Boolean flag) {
+            return !flag;
+        }
+        if (value instanceof Location location) {
+            return location.clone().add(0.01, 0, 0);
+        }
+        if (value instanceof GameMode) {
+            return GameMode.SURVIVAL;
+        }
+        if (value instanceof List<?>) {
+            return new ArrayList<>();
+        }
+        throw new AssertionError("Uncovered field " + fieldName);
+    }
+
+    private static Number changedNumber(Number number) {
+        if (number instanceof Integer value) {
+            return value + 1;
+        }
+        if (number instanceof Float value) {
+            return value + 0.01f;
+        }
+        if (number instanceof Double value) {
+            return value + 0.01;
+        }
+        throw new AssertionError("Uncovered numeric type " + number.getClass().getName());
     }
 
     private static StaffStateCodec.Decoded baseline() {

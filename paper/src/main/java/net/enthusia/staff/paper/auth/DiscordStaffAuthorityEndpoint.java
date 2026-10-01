@@ -175,38 +175,74 @@ public final class DiscordStaffAuthorityEndpoint implements AutoCloseable {
     }
 
     private void handlePunishment(HttpExchange exchange) throws IOException {
+        try {
+            handlePunishmentSafely(exchange);
+        } finally {
+            exchange.close();
+        }
+    }
+
+    private void handlePunishmentSafely(HttpExchange exchange) throws IOException {
         DiscordStaffAuthorityAuthenticator.Result authorization = null;
         try {
-            if (!POST_METHOD.equals(exchange.getRequestMethod())) {
-                respond(exchange, 405, "{}", null);
+            PunishmentRequest request = authorizePunishmentRequest(exchange);
+            if (request == null) {
                 return;
             }
-            byte[] body = exchange.getRequestBody().readNBytes(8193);
-            String path = exchange.getRequestURI().getRawPath();
-            String target = path + "?" + exchange.getRequestURI().getRawQuery();
-            if (!StaffAuthorityHttpSigning.punishmentRequestTarget(path, body).equals(target)) {
-                respond(exchange, 400, "{}", null);
-                return;
-            }
-            authorization = authenticate(exchange);
-            if (!authorization.accepted()) {
-                respond(exchange, 401, "{}", null);
-                return;
-            }
-            StaffWebPunishmentService.Request request = json.readValue(body, StaffWebPunishmentService.Request.class);
-            if (request == null) throw new IllegalArgumentException("request object is required");
-            Object result = webPunishments.execute(path.substring("/v1/staff-punishments/".length()), request);
-            respond(exchange, 200, json.writeValueAsString(result), authorization);
+            authorization = request.authorization();
+            executePunishment(exchange, request);
         } catch (SecurityException exception) {
             respond(exchange, 403, "{}", authorization);
         } catch (IllegalArgumentException | com.fasterxml.jackson.core.JsonProcessingException exception) {
             respond(exchange, 400, "{}", authorization);
         } catch (RuntimeException exception) {
             log(plugin, "staff_web_punishment_request_failed", exception);
-            if (exchange.getResponseCode() == -1) respond(exchange, 503, "{}", authorization);
-        } finally {
-            exchange.close();
+            if (exchange.getResponseCode() == -1) {
+                respond(exchange, 503, "{}", authorization);
+            }
         }
+    }
+
+    private PunishmentRequest authorizePunishmentRequest(HttpExchange exchange) throws IOException {
+        if (!POST_METHOD.equals(exchange.getRequestMethod())) {
+            respond(exchange, 405, "{}", null);
+            return null;
+        }
+        byte[] body = exchange.getRequestBody().readNBytes(8193);
+        String path = exchange.getRequestURI().getRawPath();
+        if (!validPunishmentTarget(exchange, path, body)) {
+            respond(exchange, 400, "{}", null);
+            return null;
+        }
+        DiscordStaffAuthorityAuthenticator.Result authorization = authenticate(exchange);
+        if (!authorization.accepted()) {
+            respond(exchange, 401, "{}", null);
+            return null;
+        }
+        return new PunishmentRequest(path, body, authorization);
+    }
+
+    private static boolean validPunishmentTarget(HttpExchange exchange, String path, byte[] body) {
+        String target = path + "?" + exchange.getRequestURI().getRawQuery();
+        return StaffAuthorityHttpSigning.punishmentRequestTarget(path, body).equals(target);
+    }
+
+    private void executePunishment(HttpExchange exchange, PunishmentRequest request) throws IOException {
+        StaffWebPunishmentService.Request input = json.readValue(
+                request.body(), StaffWebPunishmentService.Request.class);
+        if (input == null) {
+            throw new IllegalArgumentException("request object is required");
+        }
+        String operation = request.path().substring("/v1/staff-punishments/".length());
+        Object result = webPunishments.execute(operation, input);
+        respond(exchange, 200, json.writeValueAsString(result), request.authorization());
+    }
+
+    private record PunishmentRequest(
+            String path,
+            byte[] body,
+            DiscordStaffAuthorityAuthenticator.Result authorization
+    ) {
     }
 
     private net.enthusia.staff.domain.auth.Actor punishmentActor(UUID playerId) {

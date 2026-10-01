@@ -55,16 +55,40 @@ final class ModerationActionApiService {
         }
 
         DiscordPunishmentIntent toIntent() {
-            if (type == null) throw new IllegalArgumentException("consequence type is required");
-            DiscordConsequenceType consequence = DiscordConsequenceType.valueOf(type);
-            boolean instant = consequence == DiscordConsequenceType.WARNING || consequence == DiscordConsequenceType.KICK;
-            DiscordDurationParser.Parsed parsed = instant ? null : new DiscordDurationParser().parse(duration, true);
-            if (instant && duration != null && !duration.equals("instant")) {
+            DiscordConsequenceType consequence = consequenceType();
+            ParsedLength parsed = parsedLength(consequence);
+            return new DiscordPunishmentIntent(
+                    consequence, parsed.length(), parsed.custom(), false,
+                    restriction, reason, explanation, 0, true);
+        }
+
+        private DiscordConsequenceType consequenceType() {
+            if (type == null) {
+                throw new IllegalArgumentException("consequence type is required");
+            }
+            return DiscordConsequenceType.valueOf(type);
+        }
+
+        private ParsedLength parsedLength(DiscordConsequenceType consequence) {
+            if (instant(consequence)) {
+                requireInstantDuration();
+                return new ParsedLength(SanctionLength.instant(), false);
+            }
+            DiscordDurationParser.Parsed parsed = new DiscordDurationParser().parse(duration, true);
+            return new ParsedLength(parsed.length(), parsed.custom());
+        }
+
+        private void requireInstantDuration() {
+            if (duration != null && !"instant".equals(duration)) {
                 throw new IllegalArgumentException("instant consequence cannot carry a duration");
             }
-            return new DiscordPunishmentIntent(consequence,
-                    instant ? SanctionLength.instant() : parsed.length(),
-                    !instant && parsed.custom(), false, restriction, reason, explanation, 0, true);
+        }
+
+        private static boolean instant(DiscordConsequenceType consequence) {
+            return consequence == DiscordConsequenceType.WARNING || consequence == DiscordConsequenceType.KICK;
+        }
+
+        private record ParsedLength(SanctionLength length, boolean custom) {
         }
     }
 

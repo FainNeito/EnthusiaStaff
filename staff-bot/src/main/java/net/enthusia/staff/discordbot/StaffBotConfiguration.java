@@ -221,10 +221,21 @@ public final class StaffBotConfiguration {
     }
 
     private static boolean validHttpsOrigin(URI uri) {
-        return "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null
-                && uri.getUserInfo() == null && uri.getPort() == -1
-                && uri.getRawQuery() == null && uri.getRawFragment() == null
-                && (uri.getRawPath() == null || uri.getRawPath().isEmpty() || "/".equals(uri.getRawPath()));
+        return validHttpsHost(uri) && noAuthorityExtras(uri) && rootOnlyPath(uri);
+    }
+
+    private static boolean validHttpsHost(URI uri) {
+        return "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null;
+    }
+
+    private static boolean noAuthorityExtras(URI uri) {
+        return uri.getUserInfo() == null && uri.getPort() == -1
+                && uri.getRawQuery() == null && uri.getRawFragment() == null;
+    }
+
+    private static boolean rootOnlyPath(URI uri) {
+        String path = uri.getRawPath();
+        return path == null || path.isEmpty() || "/".equals(path);
     }
 
     public StaffBotEnvironment environment() {

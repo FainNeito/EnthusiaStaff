@@ -79,25 +79,58 @@ final class PaperNetworkMessageHandler {
         return true;
     }
 
-    private net.enthusia.staff.domain.network.PunishmentCommitNotification punishmentNotification(ProtocolEnvelope envelope) {
-        if (!PUNISHMENT_CREATED.equals(envelope.messageType())) return null;
+    private net.enthusia.staff.domain.network.PunishmentCommitNotification punishmentNotification(
+            ProtocolEnvelope envelope
+    ) {
+        if (!PUNISHMENT_CREATED.equals(envelope.messageType())) {
+            return null;
+        }
         try {
-            JsonNode payload = json.readTree(envelope.payloadJson());
-            if (payload == null) throw new IllegalArgumentException("empty punishment notification");
-            // Old durable messages continue to invalidate caches without replaying historical online effects.
-            if (!payload.has("sanctionTypes") && !payload.has("publicReason") && !payload.has("issuedAt")) return null;
-            if (!payload.path("sanctionTypes").isArray()) throw new IllegalArgumentException("invalid sanction types");
-            java.util.List<net.enthusia.staff.domain.sanction.SanctionType> types = new java.util.ArrayList<>();
-            for (JsonNode type : payload.get("sanctionTypes")) {
-                types.add(net.enthusia.staff.domain.sanction.SanctionType.valueOf(type.asText()));
+            JsonNode payload = punishmentPayload(envelope);
+            if (historicalPunishmentPayload(payload)) {
+                return null;
             }
-            return new net.enthusia.staff.domain.network.PunishmentCommitNotification(
-                    new net.enthusia.staff.common.CaseId(payload.path("caseId").asText()),
-                    UUID.fromString(payload.path("targetId").asText()), payload.path("publicReason").asText(),
-                    java.time.Instant.parse(payload.path("issuedAt").asText()), types);
+            return punishmentNotification(payload, sanctionTypes(payload));
         } catch (IOException | IllegalArgumentException | java.time.DateTimeException exception) {
             throw new IllegalArgumentException("invalid committed punishment notification", exception);
         }
+    }
+
+    private JsonNode punishmentPayload(ProtocolEnvelope envelope) throws IOException {
+        JsonNode payload = json.readTree(envelope.payloadJson());
+        if (payload == null) {
+            throw new IllegalArgumentException("empty punishment notification");
+        }
+        return payload;
+    }
+
+    private static boolean historicalPunishmentPayload(JsonNode payload) {
+        // Old durable messages continue to invalidate caches without replaying historical online effects.
+        return !payload.has("sanctionTypes") && !payload.has("publicReason") && !payload.has("issuedAt");
+    }
+
+    private static java.util.List<net.enthusia.staff.domain.sanction.SanctionType> sanctionTypes(JsonNode payload) {
+        if (!payload.path("sanctionTypes").isArray()) {
+            throw new IllegalArgumentException("invalid sanction types");
+        }
+        java.util.List<net.enthusia.staff.domain.sanction.SanctionType> types = new java.util.ArrayList<>();
+        for (JsonNode type : payload.get("sanctionTypes")) {
+            types.add(net.enthusia.staff.domain.sanction.SanctionType.valueOf(type.asText()));
+        }
+        return types;
+    }
+
+    private static net.enthusia.staff.domain.network.PunishmentCommitNotification punishmentNotification(
+            JsonNode payload,
+            java.util.List<net.enthusia.staff.domain.sanction.SanctionType> types
+    ) {
+        return new net.enthusia.staff.domain.network.PunishmentCommitNotification(
+                new net.enthusia.staff.common.CaseId(payload.path("caseId").asText()),
+                UUID.fromString(payload.path("targetId").asText()),
+                payload.path("publicReason").asText(),
+                java.time.Instant.parse(payload.path("issuedAt").asText()),
+                types
+        );
     }
 
     private UUID sanctionTarget(ProtocolEnvelope envelope) {

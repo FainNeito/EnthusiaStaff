@@ -21,8 +21,8 @@ class WebsiteTunnelConnectorTest {
 
     @Test
     void commandUsesAnExactBinaryAndTokenFilenameWithoutCredentialValues(@TempDir Path directory) {
-        var command = WebsiteTunnelConnector.command(directory);
-        assertEquals(directory.resolve("cloudflared").toAbsolutePath().toString(), command.getFirst());
+        var command = WebsiteTunnelConnector.command();
+        assertEquals("./cloudflared", command.getFirst());
         assertEquals("--token-file", command.get(command.size() - 2));
         assertEquals("connector-token", command.getLast());
     }

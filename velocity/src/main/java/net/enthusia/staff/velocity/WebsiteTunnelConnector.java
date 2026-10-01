@@ -35,14 +35,14 @@ final class WebsiteTunnelConnector implements AutoCloseable {
                 || !Files.readString(token).trim().matches("[A-Za-z0-9._=-]{100,8192}")) {
             throw new IOException("Website connector installation is invalid");
         }
-        Process process = new ProcessBuilder(command(directory)).directory(directory.toFile())
+        Process process = new ProcessBuilder(command()).directory(directory.toFile())
                 .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                 .redirectError(ProcessBuilder.Redirect.DISCARD).start();
         return Optional.of(new WebsiteTunnelConnector(process, unexpectedExit));
     }
 
-    static List<String> command(Path directory) {
-        return List.of(directory.resolve("cloudflared").toAbsolutePath().toString(),
+    static List<String> command() {
+        return List.of("./cloudflared",
                 "tunnel", "--protocol", "http2", "--no-autoupdate", "run", "--token-file", "connector-token");
     }
 

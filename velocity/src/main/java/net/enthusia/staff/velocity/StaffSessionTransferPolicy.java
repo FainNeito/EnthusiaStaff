@@ -2,17 +2,32 @@ package net.enthusia.staff.velocity;
 
 import net.enthusia.staff.domain.staff.StaffSessionState;
 
-/** Allows a stranded session to reach the only backend that can restore its snapshot. */
 final class StaffSessionTransferPolicy {
-    private StaffSessionTransferPolicy() {}
+    private StaffSessionTransferPolicy() {
+    }
 
     static boolean recoveryReturnAllowed(
-            String owner, StaffSessionState state, String current, String requested
+            String ownerServerId,
+            StaffSessionState state,
+            String currentServerId,
+            String requestedServerId
     ) {
-        if (owner == null || owner.isBlank() || current == null || requested == null) {
+        if (!validEndpoints(ownerServerId, currentServerId, requestedServerId)) {
             return false;
         }
-        return (state == StaffSessionState.ACTIVE || state == StaffSessionState.RECOVERY_REQUIRED || state == StaffSessionState.EXITING)
-                && !owner.equalsIgnoreCase(current) && owner.equalsIgnoreCase(requested);
+        return restorableState(state)
+                && !ownerServerId.equalsIgnoreCase(currentServerId)
+                && ownerServerId.equalsIgnoreCase(requestedServerId);
+    }
+
+    private static boolean validEndpoints(String ownerServerId, String currentServerId, String requestedServerId) {
+        return ownerServerId != null && !ownerServerId.isBlank()
+                && currentServerId != null && requestedServerId != null;
+    }
+
+    private static boolean restorableState(StaffSessionState state) {
+        return state == StaffSessionState.ACTIVE
+                || state == StaffSessionState.RECOVERY_REQUIRED
+                || state == StaffSessionState.EXITING;
     }
 }
