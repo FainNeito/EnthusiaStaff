@@ -109,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon clean test check runtimeJars
+          ./gradlew --no-daemon --no-configuration-cache clean test check runtimeJars
 
       - name: Commit validated cleanup
         shell: bash
