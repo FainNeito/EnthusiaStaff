@@ -3,6 +3,7 @@ package net.enthusia.staff.paper.staff;
 import com.destroystokyo.paper.event.entity.ProjectileCollideEvent;
 import com.destroystokyo.paper.event.player.PlayerPickupExperienceEvent;
 import java.util.Objects;
+import java.util.UUID;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.paper.auth.PaperStaffRankResolver;
 import org.bukkit.entity.Firework;
@@ -22,6 +23,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemMendEvent;
 import org.bukkit.event.player.PlayerPickupArrowEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.java.JavaPlugin;
 
 /**
  * Keeps the Helper staff-mode profile observational instead of allowing normal survival participation.
@@ -29,10 +31,16 @@ import org.bukkit.inventory.ItemStack;
  * pickup/drop and staff-tool session protections; this listener fills the Helper-specific gaps.
  */
 public final class HelperObserverProtectionListener implements Listener {
+    private static final long TARGET_RECONCILE_TICKS = 20L;
+    private static final double TARGET_RECONCILE_RADIUS = 64.0;
+
+    private final JavaPlugin plugin;
     private final StaffModeManager staffMode;
 
     public HelperObserverProtectionListener(StaffModeManager staffMode) {
+        this.plugin = JavaPlugin.getProvidingPlugin(HelperObserverProtectionListener.class);
         this.staffMode = Objects.requireNonNull(staffMode, "staffMode");
+        startRetainedTargetReconciliation();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -144,6 +152,39 @@ public final class HelperObserverProtectionListener implements Listener {
     public void onFoodLevelChange(FoodLevelChangeEvent event) {
         if (event.getEntity() instanceof Player player && activeHelper(player)) {
             event.setCancelled(true);
+        }
+    }
+
+    private void startRetainedTargetReconciliation() {
+        plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(plugin, ignored -> {
+            for (Player player : plugin.getServer().getOnlinePlayers()) {
+                if (!staffMode.active(player.getUniqueId())) {
+                    continue;
+                }
+                player.getScheduler().run(plugin, ignoredPlayer -> reconcileRetainedTargets(player), null);
+            }
+        }, 1L, TARGET_RECONCILE_TICKS);
+    }
+
+    private void reconcileRetainedTargets(Player player) {
+        if (!activeHelper(player)) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        for (org.bukkit.entity.Entity nearby : player.getNearbyEntities(
+                TARGET_RECONCILE_RADIUS,
+                TARGET_RECONCILE_RADIUS,
+                TARGET_RECONCILE_RADIUS
+        )) {
+            if (!(nearby instanceof Mob mob)) {
+                continue;
+            }
+            mob.getScheduler().run(plugin, ignoredMob -> {
+                var target = mob.getTarget();
+                if (target != null && playerId.equals(target.getUniqueId())) {
+                    mob.setTarget(null);
+                }
+            }, null);
         }
     }
 
