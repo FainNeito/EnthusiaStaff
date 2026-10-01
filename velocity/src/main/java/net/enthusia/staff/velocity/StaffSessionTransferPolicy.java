@@ -12,7 +12,7 @@ final class StaffSessionTransferPolicy {
         if (owner == null || owner.isBlank() || current == null || requested == null) {
             return false;
         }
-        return (state == StaffSessionState.RECOVERY_REQUIRED || state == StaffSessionState.EXITING)
+        return (state == StaffSessionState.ACTIVE || state == StaffSessionState.RECOVERY_REQUIRED || state == StaffSessionState.EXITING)
                 && !owner.equalsIgnoreCase(current) && owner.equalsIgnoreCase(requested);
     }
 }

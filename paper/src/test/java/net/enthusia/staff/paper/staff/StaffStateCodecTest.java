@@ -8,6 +8,11 @@ import org.junit.jupiter.api.Test;
 
 final class StaffStateCodecTest {
     @Test
+    void corruptedSnapshotIsRejectedBeforeReadingPlayerState() {
+        assertThrows(IllegalStateException.class,
+                () -> new StaffStateCodec().verifiedRestorationChecksum(null, "SMP", new byte[]{1}, "incorrect"));
+    }
+    @Test
     void infiniteStrengthSnapshotCanBeRestoredWithoutChangingItsAmplifier() {
         assertDoesNotThrow(() -> StaffStateCodec.validatePotionEffectValues(PotionEffect.INFINITE_DURATION, 255));
     }

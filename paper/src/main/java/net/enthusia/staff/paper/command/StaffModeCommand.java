@@ -10,6 +10,7 @@ import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.entity.Player;
 
 public final class StaffModeCommand implements CommandExecutor {
@@ -30,6 +31,24 @@ public final class StaffModeCommand implements CommandExecutor {
                 PERMISSION,
                 "You do not have permission to use staff mode."
         )) {
+            return true;
+        }
+        if (arguments.length == 2 && "recover".equalsIgnoreCase(arguments[0])) {
+            if (!(sender instanceof ConsoleCommandSender)) {
+                sender.sendMessage(StaffMessageStyle.error("Targeted snapshot recovery is available only from the server console."));
+                return true;
+            }
+            Player target = sender.getServer().getPlayerExact(arguments[1]);
+            if (target == null) {
+                sender.sendMessage(StaffMessageStyle.error("That player must be online on the snapshot's owning backend."));
+                return true;
+            }
+            manager.recover(target);
+            sender.sendMessage(StaffMessageStyle.info("Durable snapshot recovery requested for " + target.getName() + '.'));
+            return true;
+        }
+        if (arguments.length > 0 && !recoveryRequested(arguments)) {
+            sender.sendMessage(StaffMessageStyle.usage("Usage: /staff [recover]"));
             return true;
         }
         if (!(sender instanceof Player player)) {

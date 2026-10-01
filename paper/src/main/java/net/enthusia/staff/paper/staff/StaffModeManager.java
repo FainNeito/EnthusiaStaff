@@ -626,8 +626,9 @@ public final class StaffModeManager implements Listener {
                     player.sendMessage(StaffMessageStyle.style(Component.text("Restoration could not complete; recovery remains pending.")));
                     return;
                 }
-                StaffStateCodec.Captured restored = codec.capture(player, session.serverId());
-                if (!submit(() -> completeRestoration(playerId, session, loaded, restored))) {
+                String restoredChecksum = codec.verifiedRestorationChecksum(
+                        player, session.serverId(), session.snapshot(), session.checksum());
+                if (!submit(() -> completeRestoration(playerId, session, loaded, restoredChecksum))) {
                     retainRecoveryAfterRuntimeExit(playerId);
                     player.sendMessage(StaffMessageStyle.style(Component.text(
                             "State was restored, but durable verification is still pending; contact an administrator."
@@ -644,6 +645,9 @@ public final class StaffModeManager implements Listener {
     }
 
     private boolean restoreSavedState(Player player, StaffSessionSnapshot session) {
+        if (!codec.checksum(session.snapshot()).equals(session.checksum())) {
+            throw new IllegalStateException("saved staff snapshot integrity check failed");
+        }
         UUID playerId = player.getUniqueId();
         profileApplications.add(playerId);
         try {
@@ -661,11 +665,11 @@ public final class StaffModeManager implements Listener {
             UUID playerId,
             StaffSessionSnapshot session,
             StaffSessionStore loaded,
-            StaffStateCodec.Captured restored
+            String restoredChecksum
     ) {
         boolean closed;
         try {
-            closed = loaded.completeExit(session.sessionId(), restored.checksum(), clock.instant());
+            closed = loaded.completeExit(session.sessionId(), restoredChecksum, clock.instant());
         } catch (RuntimeException exception) {
             retainRecoveryAfterRuntimeExit(playerId);
             plugin.getLogger().log(Level.SEVERE, "Staff session closure verification failed", exception);

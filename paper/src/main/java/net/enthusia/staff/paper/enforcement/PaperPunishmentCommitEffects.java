@@ -1,6 +1,5 @@
 package net.enthusia.staff.paper.enforcement;
 
-import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.util.List;
 import java.util.Objects;
@@ -125,9 +124,7 @@ public final class PaperPunishmentCommitEffects implements AutoCloseable {
             case KICK -> player.kick(Component.text(
                     "You were kicked. " + reason + " (case " + caseId + ')'
             ));
-            case WARNING -> player.sendMessage(StaffMessageStyle.style(Component.text(
-                    "Staff warning: " + reason + " (case " + caseId + ')'
-            )));
+            case WARNING -> StaffWarningPresentation.show(player, reason, caseId);
             case NONE -> {
             }
             default -> throw new IllegalStateException("Unhandled punishment commit effect");

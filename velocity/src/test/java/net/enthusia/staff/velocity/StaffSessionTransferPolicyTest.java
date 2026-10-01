@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class StaffSessionTransferPolicyTest {
     @Test
     void strandedRecoveryMayReturnOnlyToItsOriginalBackend() {
-        for (var state : new StaffSessionState[]{StaffSessionState.RECOVERY_REQUIRED, StaffSessionState.EXITING}) {
+        for (var state : new StaffSessionState[]{StaffSessionState.ACTIVE, StaffSessionState.RECOVERY_REQUIRED, StaffSessionState.EXITING}) {
             assertTrue(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "HUB", "smp"));
             assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "HUB", "TEST"));
             assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "SMP", "HUB"));
@@ -18,8 +18,8 @@ class StaffSessionTransferPolicyTest {
     }
 
     @Test
-    void activeOrIncompleteSessionsAndMissingOwnershipRemainBlocked() {
-        for (var state : new StaffSessionState[]{StaffSessionState.ACTIVE, StaffSessionState.ENTERING, StaffSessionState.CLOSED}) {
+    void incompleteSessionsAndMissingOwnershipRemainBlocked() {
+        for (var state : new StaffSessionState[]{StaffSessionState.ENTERING, StaffSessionState.CLOSED}) {
             assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed("SMP", state, "HUB", "SMP"));
         }
         assertFalse(StaffSessionTransferPolicy.recoveryReturnAllowed(null, StaffSessionState.RECOVERY_REQUIRED, "HUB", "SMP"));

@@ -91,7 +91,7 @@ public final class StaffStateCodec {
         if (!player.teleport(decoded.location())) {
             return false;
         }
-        player.getInventory().setContents(decoded.inventory());
+        player.getInventory().setContents(decoded.inventory().toArray(ItemStack[]::new));
         player.setLevel(decoded.level());
         player.setExp(decoded.experienceProgress());
         player.setTotalExperience(decoded.totalExperience());
@@ -115,6 +115,34 @@ public final class StaffStateCodec {
         player.setHealth(Math.min(decoded.health(), maximumHealth(player)));
         player.updateInventory();
         return true;
+    }
+
+    /** Verifies actual runtime values, rather than requiring identical serializer byte ordering. */
+    public String verifiedRestorationChecksum(Player player, String serverId, byte[] snapshot, String expectedChecksum) {
+        if (!checksum(snapshot).equals(expectedChecksum)) {
+            throw new IllegalStateException("saved staff snapshot integrity check failed");
+        }
+        Decoded expected = decode(player, snapshot);
+        Captured captured = capture(player, serverId);
+        Decoded actual = decode(player, captured.snapshot());
+        if (!expected.equals(actual)) {
+            throw new IllegalStateException("restored staff state differs in " + differingFields(expected, actual));
+        }
+        return expectedChecksum;
+    }
+
+    static List<String> differingFields(Decoded expected, Decoded actual) {
+        List<String> differences = new ArrayList<>();
+        for (var field : Decoded.class.getRecordComponents()) {
+            try {
+                if (!java.util.Objects.equals(field.getAccessor().invoke(expected), field.getAccessor().invoke(actual))) {
+                    differences.add(field.getName());
+                }
+            } catch (ReflectiveOperationException exception) {
+                throw new IllegalStateException("staff restoration comparison is unavailable", exception);
+            }
+        }
+        return List.copyOf(differences);
     }
 
     public String checksum(byte[] snapshot) {
@@ -193,8 +221,8 @@ public final class StaffStateCodec {
                 throw new IllegalArgumentException("staff snapshot values failed validation");
             }
             return new Decoded(
-                    serverId, inventory, level, experienceProgress, totalExperience, health, absorption,
-                    food, saturation, exhaustion, List.copyOf(effects), new Location(world, x, y, z, yaw, pitch),
+                    serverId, java.util.Arrays.asList(inventory), level, experienceProgress, totalExperience, health, absorption,
+                    food, saturation, exhaustion, java.util.Set.copyOf(effects), new Location(world, x, y, z, yaw, pitch),
                     gameMode, allowFlight, flying, flySpeed, walkSpeed, invulnerable, collidable,
                     canPickupItems, fireTicks, remainingAir, fallDistance
             );
@@ -248,9 +276,9 @@ public final class StaffStateCodec {
         }
     }
 
-    private record Decoded(
+    record Decoded(
             String serverId,
-            ItemStack[] inventory,
+            List<ItemStack> inventory,
             int level,
             float experienceProgress,
             int totalExperience,
@@ -259,7 +287,7 @@ public final class StaffStateCodec {
             int food,
             float saturation,
             float exhaustion,
-            List<PotionEffect> effects,
+            java.util.Set<PotionEffect> effects,
             Location location,
             GameMode gameMode,
             boolean allowFlight,
@@ -273,5 +301,15 @@ public final class StaffStateCodec {
             int remainingAir,
             float fallDistance
     ) {
+        Decoded {
+            inventory = java.util.Collections.unmodifiableList(new ArrayList<>(inventory));
+            effects = java.util.Set.copyOf(effects);
+            location = location.clone();
+            // Full rotations represent the same orientation after Bukkit teleport normalization.
+            float yaw = location.getYaw() % 360;
+            if (yaw >= 180) yaw -= 360;
+            if (yaw < -180) yaw += 360;
+            location.setYaw(yaw == 0 ? 0 : yaw);
+        }
     }
 }
