@@ -179,12 +179,7 @@ public final class HelperObserverProtectionListener implements Listener {
             if (!(nearby instanceof Mob mob)) {
                 continue;
             }
-            mob.getScheduler().run(plugin, ignoredMob -> {
-                var target = mob.getTarget();
-                if (target != null && playerId.equals(target.getUniqueId())) {
-                    mob.setTarget(null);
-                }
-            }, null);
+            clearMobTarget(mob, playerId);
         }
     }
 
@@ -196,15 +191,26 @@ public final class HelperObserverProtectionListener implements Listener {
         return PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
     }
 
-    private static void clearMobTarget(Object damager, Player target) {
+    private void clearMobTarget(Object damager, Player target) {
+        clearMobTarget(damager, target.getUniqueId());
+    }
+
+    private void clearMobTarget(Object damager, UUID targetId) {
         Mob mob = null;
         if (damager instanceof Mob direct) {
             mob = direct;
         } else if (damager instanceof Projectile projectile && projectile.getShooter() instanceof Mob shooter) {
             mob = shooter;
         }
-        if (mob != null && target.equals(mob.getTarget())) {
-            mob.setTarget(null);
+        if (mob == null) {
+            return;
         }
+        Mob targetMob = mob;
+        targetMob.getScheduler().run(plugin, ignoredMob -> {
+            var currentTarget = targetMob.getTarget();
+            if (currentTarget != null && targetId.equals(currentTarget.getUniqueId())) {
+                targetMob.setTarget(null);
+            }
+        }, null);
     }
 }
