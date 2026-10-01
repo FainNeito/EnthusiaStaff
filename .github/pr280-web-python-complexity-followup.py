@@ -75,3 +75,11 @@ function nullableActionValue(value) {
 }
 ''',
 )
+
+live_actions = Path("staff-bot/src/main/resources/moderation-preview/live-actions.js")
+text = live_actions.read_text()
+broken_join = "const explanation = [workflow.reason, ...evidence].filter(Boolean).join('" + "\n" + "');"
+fixed_join = "const explanation = [workflow.reason, ...evidence].filter(Boolean).join('\\n');"
+if text.count(broken_join) != 1:
+    raise SystemExit(f"expected exactly one broken live-action newline join, found {text.count(broken_join)}")
+live_actions.write_text(text.replace(broken_join, fixed_join))
