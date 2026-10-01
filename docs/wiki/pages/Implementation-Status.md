@@ -60,9 +60,9 @@ V20__discord_account_linking.sql
 
 V19 owns Discord moderation persistence; V20 owns account linking. Later migration numbers visible only on open branches are not current schema and must not be documented as merged.
 
-### StaffBot is a real third runtime
+### StaffBot is a standalone runtime
 
-Current merged code no longer consists only of Paper and Velocity. `staff-bot` builds a standalone Java/JDA executable with its own lifecycle, health, private service boundaries and release/update procedure. See [[Staff Bot Runtime and Operations]].
+Current merged code no longer consists only of Paper and Velocity. `staff-bot` builds a standalone Java/JDA executable with its own lifecycle, health, private service boundaries and release/update procedure; the separate AuthorityBridge artifact remains a narrow transition runtime. See [[Staff Bot Runtime and Operations]] and [[Architecture]].
 
 ### Discord enforcement exists, but safe defaults/cutover still matter
 
