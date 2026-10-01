@@ -1,0 +1,125 @@
+name: PR 280 web and deployment Codacy cleanup
+
+on:
+  push:
+    branches:
+      - codex/reopening-safety-2026-10-01
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Guard exact branch head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin codex/reopening-safety-2026-10-01
+          test "$(git rev-parse origin/codex/reopening-safety-2026-10-01)" = "$GITHUB_SHA"
+
+      - name: Apply bounded web, Python, and tunnel cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/pr280-web-python-cleanup.py
+          rm -f .github/pr280-web-python-cleanup.py
+          rm -f .github/workflows/pr280-web-python-cleanup.yml
+          rm -f .github/workflows/pr280-codacy-annotations.yml
+          git diff --check
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: moderation-web/package-lock.json
+
+      - name: Validate Python deployment script
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile moderation-web/deploy-production-bloom.py
+          python3 -m pip install --disable-pip-version-check --quiet bandit==1.8.6 lizard==1.17.31
+          bandit -q moderation-web/deploy-production-bloom.py
+
+      - name: Require changed functions within complexity and size limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import lizard
+
+          paths = [
+              'moderation-web/deploy-production-bloom.py',
+              'moderation-web/src/backend.js',
+              'staff-bot/src/main/resources/moderation-preview/live-actions.js',
+              'staff-bot/src/main/resources/moderation-preview/live-minecraft-actions.js',
+              'velocity/src/main/java/net/enthusia/staff/velocity/WebsiteTunnelConnector.java',
+          ]
+          failures = []
+          for path in paths:
+              analysis = lizard.analyze_file(path)
+              for function in analysis.function_list:
+                  print(f'{path}:{function.name} CCN={function.cyclomatic_complexity} NLOC={function.nloc}')
+                  if function.cyclomatic_complexity > 8:
+                      failures.append(f'{path}:{function.name} CCN {function.cyclomatic_complexity} > 8')
+                  if function.nloc > 50:
+                      failures.append(f'{path}:{function.name} NLOC {function.nloc} > 50')
+          if failures:
+              raise SystemExit('\n'.join(failures))
+          PY
+
+      - name: Reject the hosted-analyzer trigger patterns
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -F '.append(' staff-bot/src/main/resources/moderation-preview/live-actions.js
+          ! grep -F '.append(' staff-bot/src/main/resources/moderation-preview/live-minecraft-actions.js
+          ! grep -F 'replaceAll(' moderation-web/scripts/build.mjs
+          ! grep -F 'new ProcessBuilder(command' velocity/src/main/java/net/enthusia/staff/velocity/WebsiteTunnelConnector.java
+          ! grep -F 'urllib.request' moderation-web/deploy-production-bloom.py
+          ! grep -F '^[a-z0-9]+(?:[.-][a-z0-9]+)*$' moderation-web/src/backend.js
+
+      - name: Validate moderation web and preview behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check staff-bot/src/main/resources/moderation-preview/live-actions.js
+          node --check staff-bot/src/main/resources/moderation-preview/live-minecraft-actions.js
+          cd moderation-web
+          npm ci
+          npm check
+
+      - name: Run full Java validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon clean test check runtimeJars
+
+      - name: Commit validated cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          test -n "$(git status --porcelain)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Resolve web and deployment static analysis findings'
+          git fetch --no-tags origin codex/reopening-safety-2026-10-01
+          test "$(git rev-parse origin/codex/reopening-safety-2026-10-01)" = "$GITHUB_SHA"
+          git push origin HEAD:codex/reopening-safety-2026-10-01
