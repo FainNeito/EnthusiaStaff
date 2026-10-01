@@ -40,6 +40,7 @@ import net.enthusia.staff.paper.tester.FakeBaseManager;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
 import net.enthusia.staff.paper.visibility.VanishBroadcastListener;
 import net.enthusia.staff.paper.visibility.VanishManager;
+import net.enthusia.staff.paper.auth.LuckPermsStaffDutyContext;
 import net.enthusia.staff.paper.visibility.PrivateMessagePresenceListener;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.ServicePriority;
@@ -76,6 +77,7 @@ record PaperRuntimeComponents(
                 freeze
         );
         StaffModeManager staffMode = createStaffModeManager(dependencies);
+        registerStaffDutyContext(dependencies, staffMode);
         DefaultStaffVisibilityService visibility = createVisibilityService(dependencies);
         VanishManager vanish = createVanishManager(dependencies, staffMode, visibility);
         StaffStatePresentation statePresentation = new StaffStatePresentation(
@@ -144,7 +146,7 @@ record PaperRuntimeComponents(
         );
         plugin.getServer().getServicesManager().register(
                 StaffSessionService.class,
-                staffMode::active,
+                staffMode::authorityActive,
                 plugin,
                 ServicePriority.Normal
         );
@@ -192,6 +194,22 @@ record PaperRuntimeComponents(
         registerListener(plugin, new StaffModeWorldInteractionListener(staffMode));
         registerListener(plugin, staffMode);
         return staffMode;
+    }
+
+    private static void registerStaffDutyContext(Dependencies dependencies, StaffModeManager staffMode) {
+        JavaPlugin plugin = dependencies.environment().plugin();
+        if (plugin.getServer().getPluginManager().getPlugin("LuckPerms") == null) {
+            dependencies.featureIssues().put("staff-duty-context",
+                    "LuckPerms is unavailable; Staff Mode active-duty permission context is disabled");
+            return;
+        }
+        try {
+            LuckPermsStaffDutyContext.install(plugin, staffMode);
+            dependencies.featureIssues().remove("staff-duty-context");
+        } catch (IllegalStateException | LinkageError exception) {
+            dependencies.featureIssues().put("staff-duty-context", "LuckPerms Staff Mode context could not be registered");
+            plugin.getLogger().log(Level.WARNING, "Staff Mode LuckPerms active-duty context registration failed", exception);
+        }
     }
 
     private static DefaultStaffVisibilityService createVisibilityService(Dependencies dependencies) {

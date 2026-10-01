@@ -64,6 +64,16 @@ final class StaffWebPunishmentServiceTest {
     }
 
     @Test
+    void leavingStaffModeAfterWebsiteReviewCannotCommitThePunishment() {
+        Fixture fixture = new Fixture();
+        var prepared = fixture.prepare();
+        fixture.activeDuty.set(false);
+        assertThrows(SecurityException.class, () -> fixture.service.execute("confirm",
+                confirm(prepared.confirmationId(), TARGET, SESSION)));
+        assertTrue(fixture.plans.isEmpty());
+    }
+
+    @Test
     void currentAuthorityAndTargetProtectionAreCheckedAgainOnConfirmation() {
         Fixture fixture = new Fixture();
         var prepared = fixture.prepare();
@@ -108,6 +118,7 @@ final class StaffWebPunishmentServiceTest {
         final AtomicReference<OperationalMode> mode = new AtomicReference<>(OperationalMode.ACTIVE);
         final AtomicReference<Actor> actor = new AtomicReference<>(new Actor(ACTOR, "Moderator", StaffRank.MOD));
         final AtomicReference<Optional<StaffRank>> targetRank = new AtomicReference<>(Optional.empty());
+        final java.util.concurrent.atomic.AtomicBoolean activeDuty = new java.util.concurrent.atomic.AtomicBoolean(true);
         final List<PunishmentPlan> plans = new ArrayList<>();
         final StaffWebPunishmentService service;
 
@@ -121,7 +132,7 @@ final class StaffWebPunishmentServiceTest {
                     "chat.toxicity", "chat", "Chat toxicity", 10, true,
                     List.of(new PunishmentStep(0, "Mute", List.of(new SanctionSpec(SanctionType.MUTE,
                             SanctionLength.temporary(Duration.ofHours(1)))))))));
-            var authorization = new DefaultAuthorizationPolicy();
+            var authorization = new ActiveDutyAuthorizationPolicy(new DefaultAuthorizationPolicy(), id -> activeDuty.get());
             ModerationStore moderation = new ModerationStore() {
                 public List<PriorOffense> relatedHistory(UUID id, String family) { return List.of(); }
                 public PunishmentResult.Accepted createPunishment(PunishmentPlan plan) {
