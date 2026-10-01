@@ -38,6 +38,23 @@ class HelperObserverProtectionWiringTest {
     }
 
     @Test
+    void helperAirItemGuardDoesNotSkipPreCancelledAirInteractions() throws IOException {
+        String listener = Files.readString(paperModule().resolve(
+                "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
+        ));
+
+        assertTrue(
+                listener.contains("@EventHandler(priority = EventPriority.HIGHEST)\n    public void onAirItemUse"),
+                "Helper air-item protection must run even when Paper marks the interaction cancelled"
+        );
+        assertFalse(
+                listener.contains("@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)\n"
+                        + "    public void onAirItemUse"),
+                "Ignoring cancelled PlayerInteractEvent instances reopens ordinary air-item use"
+        );
+    }
+
+    @Test
     void retainedMobTargetsAreReconciledThroughEntitySchedulers() throws IOException {
         String listener = Files.readString(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
