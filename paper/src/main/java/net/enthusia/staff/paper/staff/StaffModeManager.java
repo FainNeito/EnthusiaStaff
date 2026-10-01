@@ -384,7 +384,7 @@ public final class StaffModeManager implements Listener {
             return;
         }
         StaffRank rank = rankForAction(player);
-        if (rank == null || event.getNewGameMode() != StaffModeAccessPolicy.requiredGameMode(rank)) {
+        if (!StaffModeAccessPolicy.allowsGameMode(rank, event.getNewGameMode())) {
             event.setCancelled(true);
             if (!transitions.contains(playerId)) {
                 player.sendMessage(StaffMessageStyle.style(Component.text(
