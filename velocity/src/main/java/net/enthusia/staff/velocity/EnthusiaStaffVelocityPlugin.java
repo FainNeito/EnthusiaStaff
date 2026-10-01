@@ -1088,10 +1088,38 @@ public final class EnthusiaStaffVelocityPlugin {
             denyServerSwitchWhenActive(event, "Asset safety status is temporarily unavailable.");
             return;
         }
-        if (!assetFencesAllowSwitch(event, inventories, economies) || event.getPreviousServer() == null) {
+        if (!assetFencesAllowSwitch(event, inventories, economies)) {
+            return;
+        }
+        if (event.getPreviousServer() == null) {
+            enforceStaffReconnectOwnership(event);
             return;
         }
         enforceModerationSwitchSafety(event);
+    }
+
+    private void enforceStaffReconnectOwnership(ServerPreConnectEvent event) {
+        StaffSessionStore sessions = staffSessionStore;
+        if (sessions == null) {
+            denyServerSwitchWhenActive(event, "Staff recovery status is temporarily unavailable. Please retry shortly.");
+            return;
+        }
+        try {
+            var session = sessions.active(event.getPlayer().getUniqueId());
+            if (session.isEmpty()) {
+                return;
+            }
+            String owner = session.orElseThrow().serverId();
+            var backend = proxy.getServer(owner);
+            if (backend.isEmpty()) {
+                denyServerSwitch(event, "Your staff snapshot belongs to an unavailable backend. Contact an administrator for recovery.");
+                return;
+            }
+            event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+        } catch (RuntimeException exception) {
+            logger.error("Staff snapshot ownership lookup failed during reconnect", exception);
+            denyServerSwitch(event, "Staff recovery status could not be verified. Please retry shortly.");
+        }
     }
 
     private boolean assetFencesAllowSwitch(
