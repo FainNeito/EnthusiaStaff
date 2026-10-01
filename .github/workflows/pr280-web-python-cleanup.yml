@@ -103,7 +103,7 @@ jobs:
           node --check staff-bot/src/main/resources/moderation-preview/live-minecraft-actions.js
           cd moderation-web
           npm ci
-          npm check
+          npm run check
 
       - name: Run full Java validation
         shell: bash
