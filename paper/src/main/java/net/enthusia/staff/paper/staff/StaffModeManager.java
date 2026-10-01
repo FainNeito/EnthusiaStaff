@@ -620,6 +620,7 @@ public final class StaffModeManager implements Listener {
         onEntity(playerId, player -> {
             try {
                 if (!restoreSavedState(player, session)) {
+                    recoveryGate.retry(playerId);
                     submit(() -> loaded.recoveryRequired(
                             session.sessionId(), "Original location could not be restored", clock.instant()
                     ));
@@ -635,6 +636,7 @@ public final class StaffModeManager implements Listener {
                     )));
                 }
             } catch (RuntimeException exception) {
+                recoveryGate.retry(playerId);
                 submit(() -> loaded.recoveryRequired(
                         session.sessionId(), "Runtime restoration failure", clock.instant()
                 ));

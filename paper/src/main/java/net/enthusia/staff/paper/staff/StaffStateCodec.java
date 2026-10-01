@@ -72,7 +72,7 @@ public final class StaffStateCodec {
                 output.writeBoolean(player.isFlying());
                 output.writeFloat(player.getFlySpeed());
                 output.writeFloat(player.getWalkSpeed());
-                output.writeBoolean(player.isInvulnerable());
+                output.writeBoolean(StaffInvulnerabilityFlag.read(player));
                 output.writeBoolean(player.isCollidable());
                 output.writeBoolean(player.getCanPickupItems());
                 output.writeInt(player.getFireTicks());
