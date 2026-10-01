@@ -63,25 +63,33 @@ jobs:
 
           path = Path("paper/src/test/java/net/enthusia/staff/paper/command/StaffModeCommandRecoveryWiringTest.java")
           source = path.read_text()
-          old = (
-              '        assertTrue(recoveryMethod.contains("arguments.length == 1"));\n'
-              '        assertTrue(recoveryMethod.contains("\\\"recover\\\".equalsIgnoreCase(arguments[0])"));\n'
-          )
-          new = (
-              '        java.util.regex.Matcher count = java.util.regex.Pattern.compile(\n'
-              '                "arguments\\\\.length\\\\s*==\\\\s*(1|[A-Z][A-Z0-9_]*)"\n'
-              '        ).matcher(recoveryMethod);\n'
-              '        assertTrue(count.find());\n'
-              '\n'
-              '        String countExpression = count.group(1);\n'
-              '        boolean literalOne = "1".equals(countExpression);\n'
-              '        boolean namedOne = java.util.regex.Pattern.compile(\n'
-              '                "private static final int\\\\s+" + java.util.regex.Pattern.quote(countExpression)\n'
-              '                        + "\\\\s*=\\\\s*1\\\\s*;"\n'
-              '        ).matcher(source).find();\n'
-              '        assertTrue(literalOne || namedOne);\n'
-              '        assertTrue(recoveryMethod.contains("\\\"recover\\\".equalsIgnoreCase(arguments[0])"));\n'
-          )
+          old = '''    @Test
+              void recoveryRequiresExactlyOneRecoverArgument() throws IOException {
+                  String source = Files.readString(SOURCE);
+                  int method = source.indexOf("private static boolean recoveryRequested");
+                  String recoveryMethod = source.substring(method);
+          
+                  assertTrue(recoveryMethod.contains("arguments.length == 1"));
+                  assertTrue(recoveryMethod.contains("\\\"recover\\\".equalsIgnoreCase(arguments[0])"));
+              }
+          '''
+          new = '''    @Test
+              void recoveryRequiresExactlyOneRecoverArgument() throws ReflectiveOperationException {
+                  java.lang.reflect.Method recoveryRequested = StaffModeCommand.class.getDeclaredMethod(
+                          "recoveryRequested",
+                          String[].class
+                  );
+                  recoveryRequested.setAccessible(true);
+          
+                  assertTrue((boolean) recoveryRequested.invoke(null, (Object) new String[]{"recover"}));
+                  org.junit.jupiter.api.Assertions.assertFalse(
+                          (boolean) recoveryRequested.invoke(null, (Object) new String[]{}));
+                  org.junit.jupiter.api.Assertions.assertFalse(
+                          (boolean) recoveryRequested.invoke(null, (Object) new String[]{"recover", "extra"}));
+                  org.junit.jupiter.api.Assertions.assertFalse(
+                          (boolean) recoveryRequested.invoke(null, (Object) new String[]{"other"}));
+              }
+          '''
           if old not in source:
               raise SystemExit("Recovery wiring test no longer matches the guarded pre-repair form")
           path.write_text(source.replace(old, new))
