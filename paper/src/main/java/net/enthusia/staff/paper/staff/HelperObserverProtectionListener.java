@@ -43,7 +43,7 @@ public final class HelperObserverProtectionListener implements Listener {
         startRetainedTargetReconciliation();
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onAirItemUse(PlayerInteractEvent event) {
         ItemStack item = event.getItem();
         StaffRank rank = rank(event.getPlayer());
