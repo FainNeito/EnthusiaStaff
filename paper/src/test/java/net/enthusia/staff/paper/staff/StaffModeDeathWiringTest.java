@@ -27,6 +27,7 @@ class StaffModeDeathWiringTest {
         ));
 
         assertTrue(listener.contains("@EventHandler(priority = EventPriority.LOWEST)"));
+        assertTrue(listener.contains("@EventHandler(priority = EventPriority.HIGHEST)"));
         assertTrue(listener.contains("StaffModeDeathPolicy.decide("));
         assertTrue(listener.contains("staffMode.authorityActive(playerId)"));
         assertTrue(listener.contains("event.setCancelled(true)"));
@@ -39,6 +40,19 @@ class StaffModeDeathWiringTest {
         assertTrue(listener.contains("event.setShowDeathMessages(false)"));
         assertTrue(listener.contains("event.setShouldPlayDeathSound(false)"));
         assertTrue(listener.contains("staffMode.exit(event.getPlayer())"));
+    }
+
+    @Test
+    void cheatTesterTreatsOnlyCompletedDeathsAsRecoveryTriggers() throws IOException {
+        String lifecycle = Files.readString(paperModule().resolve(
+                "src/main/java/net/enthusia/staff/paper/tester/CheatTesterLifecycleListener.java"
+        ));
+
+        assertTrue(
+                lifecycle.contains("@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)\n"
+                        + "    public void onDeath(PlayerDeathEvent event)"),
+                "Cancelled Staff Mode death events must not retire cheat-tester sessions"
+        );
     }
 
     private static Path paperModule() {
