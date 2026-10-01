@@ -23,6 +23,16 @@ final class StaffWebPunishmentServiceTest {
     private static final String SESSION = "a".repeat(64);
 
     @Test
+    void reviewResponseUsesIsoExpiryWithoutOptionalJacksonTimeModules() throws Exception {
+        var prepared = new Fixture().prepare();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var response = mapper.readTree(mapper.writeValueAsBytes(prepared));
+        assertEquals(prepared.targetId().toString(), response.get("targetId").asText());
+        assertEquals(prepared.confirmationId().toString(), response.get("confirmationId").asText());
+        assertEquals(Instant.parse(prepared.expiresAt()), Instant.parse(response.get("expiresAt").asText()));
+    }
+
+    @Test
     void configuredDraftCreatesOneCaseAndRetryReturnsItsOriginalResult() {
         Fixture fixture = new Fixture();
         var prepared = fixture.prepare();

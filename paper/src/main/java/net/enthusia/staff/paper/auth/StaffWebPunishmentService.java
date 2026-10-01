@@ -67,7 +67,7 @@ public final class StaffWebPunishmentService {
     public record Reason(String id, String family, String label) { }
     public record Consequence(String type, String duration) { }
     public record Prepared(UUID confirmationId, UUID targetId, String targetName, String reasonId,
-            String reason, String explanation, List<Consequence> consequences, Instant expiresAt) { }
+            String reason, String explanation, List<Consequence> consequences, String expiresAt) { }
     public record Status(UUID confirmationId, String state, String caseId, String requestId) { }
 
     private static final class Binding {
@@ -161,7 +161,7 @@ public final class StaffWebPunishmentService {
         confirmations.put(prepared.draft().draftId(), new Binding(request, expires));
         return new Prepared(prepared.draft().draftId(), request.targetId(), targetName, policy.id(),
                 policy.publicReason(), prepared.draft().internalExplanation(),
-                prepared.assessment().sanctions().stream().map(StaffWebPunishmentService::consequence).toList(), expires);
+                prepared.assessment().sanctions().stream().map(StaffWebPunishmentService::consequence).toList(), expires.toString());
     }
 
     private Status confirmOrStatus(String operation, Request request, Actor actor, PunishmentDraftWorkflow workflow) {
