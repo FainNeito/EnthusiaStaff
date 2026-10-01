@@ -31,6 +31,7 @@ class StaffModeDeathWiringTest {
         assertTrue(listener.contains("StaffModeDeathPolicy.decide("));
         assertTrue(listener.contains("staffMode.authorityActive(playerId)"));
         assertTrue(listener.contains("event.setCancelled(true)"));
+        assertTrue(listener.contains("event.setReviveHealth(maximumHealth.getValue())"));
         assertTrue(listener.contains("event.setKeepInventory(true)"));
         assertTrue(listener.contains("event.getDrops().clear()"));
         assertTrue(listener.contains("event.setKeepLevel(true)"));
