@@ -39,8 +39,9 @@ final class VelocitabStaffBridge implements AutoCloseable {
     private volatile long verifiedAt;
     private volatile boolean closed;
     private Map<UUID, StaffRank> lastRanks = Map.of();
-    private Set<UUID> lastPlayers = Set.of();
+    private volatile Set<UUID> lastPlayers = Set.of();
     private Set<UUID> lastUsers = Set.of();
+    private Runnable publicOnlinePlaceholderCleanup = () -> { };
     private boolean failureReported;
 
     static Optional<VelocitabStaffBridge> start(Object owner, ProxyServer proxy, Logger logger,
@@ -53,6 +54,7 @@ final class VelocitabStaffBridge implements AutoCloseable {
         try {
             VelocitabStaffBridge bridge = new VelocitabStaffBridge(proxy, logger, storage, workers,
                     plugin.get().getClass().getClassLoader());
+            bridge.installPublicOnlinePlaceholder();
             bridge.task = proxy.getScheduler().buildTask(owner, bridge::refresh)
                     .repeat(1, TimeUnit.SECONDS).schedule();
             logger.info("Velocitab staff visibility and state markers connected");
@@ -92,8 +94,28 @@ final class VelocitabStaffBridge implements AutoCloseable {
         api.getClass().getMethod("setVanishIntegration", integrationType).invoke(api, integration);
     }
 
+    private void installPublicOnlinePlaceholder() {
+        if (proxy.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
+            logger.warn("MiniPlaceholders is unavailable; {} is not registered",
+                    PublicOnlineCountPolicy.PLACEHOLDER);
+            return;
+        }
+        try {
+            publicOnlinePlaceholderCleanup = MiniPlaceholdersPublicOnlineBridge.register(this::publicOnlineCount, logger);
+        } catch (LinkageError | RuntimeException exception) {
+            logger.error("Staff public-online placeholder integration unavailable ({})",
+                    exception.getClass().getSimpleName());
+        }
+    }
+
     private boolean fresh() {
         return presence != null && System.nanoTime() - verifiedAt <= MAX_AGE;
+    }
+
+    int publicOnlineCount() {
+        StaffTabPresence current = presence;
+        Set<UUID> vanished = current == null ? Set.of() : current.vanished().keySet();
+        return PublicOnlineCountPolicy.count(fresh(), lastPlayers, vanished);
     }
 
     private boolean canSee(String viewerName, String targetName) throws ReflectiveOperationException {
@@ -183,12 +205,12 @@ final class VelocitabStaffBridge implements AutoCloseable {
         }
         boolean changed = !updated.equals(presence) || !ranks.equals(lastRanks) || !playerIds.equals(lastPlayers)
                 || !users.keySet().equals(lastUsers) || !fresh();
-        presence = updated;
-        verifiedAt = System.nanoTime();
-        failureReported = false;
         lastRanks = Map.copyOf(ranks);
         lastPlayers = Set.copyOf(playerIds);
         lastUsers = Set.copyOf(users.keySet());
+        presence = updated;
+        verifiedAt = System.nanoTime();
+        failureReported = false;
         for (Player player : players) {
             Object user = users.get(player.getUniqueId());
             if (user == null) {
@@ -274,6 +296,7 @@ final class VelocitabStaffBridge implements AutoCloseable {
     @Override
     public synchronized void close() {
         closed = true;
+        publicOnlinePlaceholderCleanup.run();
         if (task != null) {
             task.cancel();
         }
