@@ -1,5 +1,6 @@
 package net.enthusia.staff.paper.staff;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -17,6 +18,22 @@ class HelperObserverProtectionWiringTest {
         assertTrue(
                 runtime.contains("new HelperObserverProtectionListener(staffMode)"),
                 "Helper observer protections must remain registered in the Paper runtime"
+        );
+    }
+
+    @Test
+    void staffModeManagerUsesRankAwareAllowedGameModes() throws IOException {
+        String manager = Files.readString(paperModule().resolve(
+                "src/main/java/net/enthusia/staff/paper/staff/StaffModeManager.java"
+        ));
+
+        assertTrue(
+                manager.contains("StaffModeAccessPolicy.allowsGameMode(rank, event.getNewGameMode())"),
+                "Staff Mode runtime changes must use the rank-aware allowed game-mode policy"
+        );
+        assertFalse(
+                manager.contains("event.getNewGameMode() != StaffModeAccessPolicy.requiredGameMode(rank)"),
+                "The old single-required-mode runtime guard would block Helper Survival mode"
         );
     }
 
