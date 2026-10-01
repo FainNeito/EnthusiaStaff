@@ -29,7 +29,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/pr280-web-python-cleanup.py
+          python3 .github/pr280-web-python-complexity-followup.py
           rm -f .github/pr280-web-python-cleanup.py
+          rm -f .github/pr280-web-python-complexity-followup.py
           rm -f .github/workflows/pr280-web-python-cleanup.yml
           rm -f .github/workflows/pr280-codacy-annotations.yml
           git diff --check
