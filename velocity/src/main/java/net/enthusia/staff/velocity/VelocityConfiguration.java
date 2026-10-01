@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -67,6 +68,7 @@ public record VelocityConfiguration(
 ) {
     private static final String ROUTE_CLASS_VARIABLE = discordVariable("ROUTE_ENVIRONMENT");
     private static final String STAGING_HOSTS_VARIABLE = discordVariable("STAGING_ALLOWED_HOSTS");
+    private static final long MAX_PRIVATE_DATABASE_PROPERTIES_BYTES = 16_384L;
 
     public VelocityConfiguration {
         backendSecretEnvironments = Map.copyOf(backendSecretEnvironments);
@@ -223,6 +225,20 @@ public record VelocityConfiguration(
         return new DatabaseConfig(url, username, password, maximumPoolSize, connectionTimeoutMillis);
     }
 
+    public DatabaseConfig database(Path dataDirectory) {
+        DatabaseCredentialSource source = new DatabaseCredentialSource(
+                jdbcUrlEnvironment,
+                usernameEnvironment,
+                passwordEnvironment,
+                "db.jdbc-url",
+                "db.username",
+                "db.password"
+        );
+        return databaseFromPrivateFileOrEnvironment(
+                dataDirectory, source, maximumPoolSize, connectionTimeoutMillis, "MariaDB"
+        );
+    }
+
     public DatabaseConfig liteBansDatabaseFromEnvironment() {
         String url = System.getenv(liteBansJdbcUrlEnvironment);
         String username = System.getenv(liteBansUsernameEnvironment);
@@ -238,6 +254,120 @@ public record VelocityConfiguration(
                 liteBansMaximumPoolSize,
                 liteBansConnectionTimeoutMillis
         );
+    }
+
+    public DatabaseConfig liteBansDatabase(Path dataDirectory) {
+        DatabaseCredentialSource source = new DatabaseCredentialSource(
+                liteBansJdbcUrlEnvironment,
+                liteBansUsernameEnvironment,
+                liteBansPasswordEnvironment,
+                "litebans.jdbc-url",
+                "litebans.username",
+                "litebans.password"
+        );
+        return databaseFromPrivateFileOrEnvironment(
+                dataDirectory, source, liteBansMaximumPoolSize, liteBansConnectionTimeoutMillis, "LiteBans database"
+        );
+    }
+
+    private static DatabaseConfig databaseFromPrivateFileOrEnvironment(
+            Path dataDirectory,
+            DatabaseCredentialSource source,
+            int poolSize,
+            long timeoutMillis,
+            String label
+    ) {
+        DatabaseCredentials environment = environmentCredentials(source);
+        if (environment.anyPresent()) {
+            return environmentDatabaseConfig(environment, poolSize, timeoutMillis, label);
+        }
+        return privateFileDatabaseConfig(dataDirectory, source, poolSize, timeoutMillis, label);
+    }
+
+    private static DatabaseCredentials environmentCredentials(DatabaseCredentialSource source) {
+        return new DatabaseCredentials(
+                System.getenv(source.urlEnvironment()),
+                System.getenv(source.usernameEnvironment()),
+                System.getenv(source.passwordEnvironment())
+        );
+    }
+
+    private static DatabaseConfig environmentDatabaseConfig(
+            DatabaseCredentials credentials,
+            int poolSize,
+            long timeoutMillis,
+            String label
+    ) {
+        if (!credentials.complete()) {
+            throw new IllegalStateException("Incomplete " + label + " environment configuration");
+        }
+        return new DatabaseConfig(
+                credentials.url(), credentials.username(), credentials.password(), poolSize, timeoutMillis
+        );
+    }
+
+    private static DatabaseConfig privateFileDatabaseConfig(
+            Path dataDirectory,
+            DatabaseCredentialSource source,
+            int poolSize,
+            long timeoutMillis,
+            String label
+    ) {
+        Properties secrets = privateDatabaseProperties(dataDirectory, label);
+        DatabaseCredentials credentials = new DatabaseCredentials(
+                secrets.getProperty(source.urlKey()),
+                secrets.getProperty(source.usernameKey()),
+                secrets.getProperty(source.passwordKey())
+        );
+        if (!credentials.complete()) {
+            throw new IllegalStateException("Private " + label + " database.properties entries are incomplete");
+        }
+        return new DatabaseConfig(
+                credentials.url().trim(), credentials.username().trim(), credentials.password(), poolSize, timeoutMillis
+        );
+    }
+
+    private static Properties privateDatabaseProperties(Path dataDirectory, String label) {
+        Path file = dataDirectory.resolve("database.properties");
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("Private " + label + " database.properties file is missing");
+        }
+        try {
+            if (Files.size(file) > MAX_PRIVATE_DATABASE_PROPERTIES_BYTES) {
+                throw new IllegalStateException("Private database.properties file is too large");
+            }
+            Properties secrets = new Properties();
+            try (InputStream input = Files.newInputStream(file)) {
+                secrets.load(input);
+            }
+            return secrets;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Private database.properties file cannot be read", exception);
+        }
+    }
+
+    private static boolean present(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private record DatabaseCredentials(String url, String username, String password) {
+        private boolean anyPresent() {
+            return present(url) || present(username) || present(password);
+        }
+
+        private boolean complete() {
+            return present(url) && present(username) && present(password);
+        }
+    }
+
+    private record DatabaseCredentialSource(
+            String urlEnvironment,
+            String usernameEnvironment,
+            String passwordEnvironment,
+            String urlKey,
+            String usernameKey,
+            String passwordKey
+    ) {
     }
 
     public String websiteApiBearerTokenFromEnvironment() {

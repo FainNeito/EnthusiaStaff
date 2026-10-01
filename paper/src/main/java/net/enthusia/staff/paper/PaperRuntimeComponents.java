@@ -146,7 +146,7 @@ record PaperRuntimeComponents(
         );
         plugin.getServer().getServicesManager().register(
                 StaffSessionService.class,
-                staffMode::active,
+                staffMode::authorityActive,
                 plugin,
                 ServicePriority.Normal
         );
