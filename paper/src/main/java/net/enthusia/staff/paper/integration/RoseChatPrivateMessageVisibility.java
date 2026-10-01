@@ -17,6 +17,11 @@ final class RoseChatPrivateMessageVisibility {
 
     Optional<ModerationDecision> evaluate(PrivateMessageContext context) {
         Objects.requireNonNull(context, "context");
+        if (context.recipientId().isEmpty()) {
+            return Optional.of(ModerationDecision.block(
+                    INVALID_PLAYER_PREFIX + context.recipientName() + "'"
+            ));
+        }
         return context.recipientId()
                 .filter(recipientId -> !visibility.canSee(context.senderId(), recipientId))
                 .map(ignored -> ModerationDecision.block(
