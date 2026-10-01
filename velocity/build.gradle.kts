@@ -3,7 +3,7 @@ plugins {
 }
 
 val velocityApi = "com.velocitypowered:velocity-api:3.4.0-SNAPSHOT"
-val miniPlaceholdersApi = "io.github.miniplaceholders:miniplaceholders-api:3.1.0"
+val miniPlaceholdersApi = "io.github.miniplaceholders:miniplaceholders-api:3.0.1"
 
 dependencies {
     implementation(project(":domain"))
