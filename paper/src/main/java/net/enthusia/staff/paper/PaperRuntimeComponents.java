@@ -40,6 +40,7 @@ import net.enthusia.staff.paper.tester.FakeBaseManager;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
 import net.enthusia.staff.paper.visibility.VanishBroadcastListener;
 import net.enthusia.staff.paper.visibility.VanishManager;
+import net.enthusia.staff.paper.visibility.PrivateMessagePresenceListener;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -241,6 +242,7 @@ record PaperRuntimeComponents(
                 dependencies.environment().workers()
         ));
         registerListener(plugin, new VanishBroadcastListener(vanish));
+        registerListener(plugin, new PrivateMessagePresenceListener(plugin, vanish));
     }
 
     private static FakeBaseManager createFakeBaseManager(
