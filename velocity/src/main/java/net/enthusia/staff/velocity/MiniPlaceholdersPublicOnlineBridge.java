@@ -28,7 +28,9 @@ final class MiniPlaceholdersPublicOnlineBridge {
                 ))
                 .build();
         expansion.register();
-        logger.info("Registered Staff public-online placeholder {}", PublicOnlineCountPolicy.PLACEHOLDER);
+        if (logger.isInfoEnabled()) {
+            logger.info("Registered Staff public-online placeholder {}", PublicOnlineCountPolicy.PLACEHOLDER);
+        }
         return () -> {
             if (expansion.registered()) {
                 expansion.unregister();
