@@ -82,19 +82,22 @@ public final class StaffModeDeathListener implements Listener {
     }
 
     private void scheduleExitRetry(Player player, long delayTicks) {
-        player.getScheduler().execute(
+        UUID playerId = player.getUniqueId();
+        if (!player.getScheduler().execute(
                 plugin,
                 () -> retryPendingExit(player),
-                null,
+                () -> pendingDeathExits.add(playerId),
                 delayTicks
-        );
+        )) {
+            pendingDeathExits.add(playerId);
+        }
     }
 
     private void scheduleJoinRecoveryCheck(Player player, int attemptsRemaining) {
-        player.getScheduler().execute(
+        UUID playerId = player.getUniqueId();
+        if (!player.getScheduler().execute(
                 plugin,
                 () -> {
-                    UUID playerId = player.getUniqueId();
                     if (!pendingDeathExits.contains(playerId)) {
                         return;
                     }
@@ -108,9 +111,11 @@ public final class StaffModeDeathListener implements Listener {
                     }
                     scheduleJoinRecoveryCheck(player, attemptsRemaining - 1);
                 },
-                null,
+                () -> pendingDeathExits.add(playerId),
                 5L
-        );
+        )) {
+            pendingDeathExits.add(playerId);
+        }
     }
 
     static void contain(PlayerDeathEvent event) {
