@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -18,6 +19,36 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 class VelocitabStaffBridgeTest {
+    @Test
+    void presenceQueryUsesAcceptedJdbcLimit() {
+        java.util.concurrent.atomic.AtomicBoolean connected = new java.util.concurrent.atomic.AtomicBoolean();
+        javax.sql.DataSource source = (javax.sql.DataSource) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{javax.sql.DataSource.class}, (ignored, method, args) -> {
+                    if (method.getName().equals("getConnection")) {
+                        connected.set(true);
+                        throw new java.sql.SQLException("test database unavailable");
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+        assertThrows(net.enthusia.staff.persistence.ModerationPersistenceException.class,
+                () -> VelocitabStaffBridge.loadVanished(new net.enthusia.staff.persistence.JdbcVanishStore(source)));
+        assertTrue(connected.get(), "the bounded query must reach storage rather than fail its argument check");
+    }
+
+    @Test
+    void fullPresencePageFailsClosedInsteadOfPublishingATruncatedSet() {
+        var record = new net.enthusia.staff.domain.staff.VanishRecord(
+                UUID.randomUUID(), StaffRank.MOD, java.time.Instant.now(), 1);
+        var store = (net.enthusia.staff.domain.ports.VanishStore) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{net.enthusia.staff.domain.ports.VanishStore.class},
+                (ignored, method, args) -> {
+                    assertEquals("active", method.getName());
+                    assertEquals(10_000, args[0]);
+                    return java.util.Collections.nCopies(10_000, record);
+                });
+        assertThrows(IllegalStateException.class, () -> VelocitabStaffBridge.loadVanished(store));
+    }
+
     public interface VanishIntegration {
         boolean canSee(String viewer, String target);
         boolean isVanished(String name);

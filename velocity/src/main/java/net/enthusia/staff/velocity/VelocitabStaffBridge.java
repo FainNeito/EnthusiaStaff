@@ -153,10 +153,7 @@ final class VelocitabStaffBridge implements AutoCloseable {
             hideUnavailablePresence();
             return;
         }
-        var records = runtime.vanishStore().active(MAX_VANISHED + 1);
-        if (records.size() > MAX_VANISHED) {
-            throw new IllegalStateException("vanish presence limit exceeded");
-        }
+        var records = loadVanished(runtime.vanishStore());
         Map<UUID, StaffRank> vanished = new HashMap<>();
         records.forEach(record -> vanished.put(record.staffId(), record.rank()));
         Set<UUID> staffMode = new HashSet<>();
@@ -252,6 +249,16 @@ final class VelocitabStaffBridge implements AutoCloseable {
 
     private static Object call(Object object, String method) throws ReflectiveOperationException {
         return object.getClass().getMethod(method).invoke(object);
+    }
+
+    static java.util.List<net.enthusia.staff.domain.staff.VanishRecord> loadVanished(
+            net.enthusia.staff.domain.ports.VanishStore store) {
+        var records = store.active(MAX_VANISHED);
+        // A full bounded page may be truncated; do not publish incomplete visibility.
+        if (records.size() >= MAX_VANISHED) {
+            throw new IllegalStateException("vanish presence limit reached");
+        }
+        return records;
     }
 
     private static StaffRank rank(Player player) {
