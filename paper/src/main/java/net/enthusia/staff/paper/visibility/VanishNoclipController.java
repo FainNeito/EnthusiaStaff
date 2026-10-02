@@ -27,6 +27,9 @@ public final class VanishNoclipController {
     }
 
     boolean reconcile(Player player, boolean fullVanish) {
+        if (fullVanish && !canEnable(player)) {
+            return false;
+        }
         return fullVanish ? enable(player) : disable(player);
     }
 
