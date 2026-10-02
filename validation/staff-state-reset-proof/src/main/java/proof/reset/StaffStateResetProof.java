@@ -111,7 +111,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         activeSessions = rawMap(staffMode, "active");
         ranks = rawMap(staffMode, "ranks");
         toolSessions = rawMap(staffMode, "toolSessions");
-        recordRuntime();
+        evidence(RuntimeIdentity.describe());
     }
 
     private Plugin requireStaffPlugin() {
