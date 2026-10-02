@@ -110,7 +110,7 @@ class VanishNoclipControllerTest {
             return switch (method.getName()) {
                 case "updateInventory" -> updateInventory();
                 case "hashCode" -> System.identityHashCode(proxy);
-                case "equals" -> proxy == args[0];
+                case "equals" -> args[0] instanceof Player other && id.equals(other.getUniqueId());
                 case "toString" -> "FakePlayer[" + id + "]";
                 default -> defaultValue(method.getReturnType());
             };
