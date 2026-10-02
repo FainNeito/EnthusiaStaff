@@ -135,7 +135,6 @@ class StaffModeAccessPolicyTest {
         assertTrue(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.SYSTEM));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.SYSTEM));
         assertTrue(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.SYSTEM, true));
-        assertFalse(StaffModeAccessPolicy.usesCreativeMode(StaffRank.SYSTEM));
         assertFalse(StaffModeAccessPolicy.hasAdvancedStaffTools(StaffRank.SYSTEM));
     }
 

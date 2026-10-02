@@ -1,5 +1,6 @@
 package net.enthusia.staff.paper.command;
 
+import net.enthusia.staff.paper.testsupport.ClickEventTestValues;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -107,18 +108,18 @@ class InspectFreezeSectionTest {
     }
 
     private static String clickCommand(Component component) {
-        ClickEvent<?> event = findClick(component);
+        ClickEvent event = findClick(component);
         assertNotNull(event);
         assertEquals(ClickEvent.Action.SUGGEST_COMMAND, event.action());
-        return ((ClickEvent.Payload.Text) event.payload()).value();
+        return ClickEventTestValues.textValue(event);
     }
 
-    private static ClickEvent<?> findClick(Component component) {
+    private static ClickEvent findClick(Component component) {
         if (component.clickEvent() != null) {
             return component.clickEvent();
         }
         for (Component child : component.children()) {
-            ClickEvent<?> event = findClick(child);
+            ClickEvent event = findClick(child);
             if (event != null) {
                 return event;
             }
