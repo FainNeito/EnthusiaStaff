@@ -77,23 +77,66 @@ class VanishNoclipControllerTest {
         }
     }
     private static final class FakePlayer {
-        private final UUID id=UUID.randomUUID(); private GameMode gameMode; private boolean noPhysics;
-        private int inventoryUpdates; private int physicsWrites;
-        FakePlayer(GameMode gameMode,boolean noPhysics){this.gameMode=gameMode;this.noPhysics=noPhysics;}
-        Player player(){
-            return (Player)Proxy.newProxyInstance(
-                    Thread.currentThread().getContextClassLoader(), new Class<?>[]{Player.class},
-                    (proxy,method,args)->switch(method.getName()){
-                        case "getUniqueId"->id; case "getGameMode"->gameMode; case "hasNoPhysics"->noPhysics;
-                        case "setNoPhysics"->setNoPhysics(args); case "updateInventory"->updateInventory();
-                        case "hashCode"->System.identityHashCode(proxy); case "equals"->proxy==args[0];
-                        case "toString"->"FakePlayer["+id+"]"; default->defaultValue(method.getReturnType());
-                    });
+        private final UUID id = UUID.randomUUID();
+        private GameMode gameMode;
+        private boolean noPhysics;
+        private int inventoryUpdates;
+        private int physicsWrites;
+
+        FakePlayer(GameMode gameMode, boolean noPhysics) {
+            this.gameMode = gameMode;
+            this.noPhysics = noPhysics;
         }
-        private Object setNoPhysics(Object[] args){noPhysics=(Boolean)args[0];physicsWrites++;return null;}
-        private Object updateInventory(){inventoryUpdates++;return null;}
-        private static Object defaultValue(Class<?> type){
-            if(!type.isPrimitive())return null; if(type==boolean.class)return false; if(type==char.class)return '\0';
+
+        Player player() {
+            return (Player) Proxy.newProxyInstance(
+                    Thread.currentThread().getContextClassLoader(),
+                    new Class<?>[]{Player.class},
+                    this::invoke
+            );
+        }
+
+        private Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+            return switch (method.getName()) {
+                case "getUniqueId" -> id;
+                case "getGameMode" -> gameMode;
+                case "hasNoPhysics" -> noPhysics;
+                case "setNoPhysics" -> setNoPhysics(args);
+                default -> invokeUtility(proxy, method, args);
+            };
+        }
+
+        private Object invokeUtility(Object proxy, java.lang.reflect.Method method, Object[] args) {
+            return switch (method.getName()) {
+                case "updateInventory" -> updateInventory();
+                case "hashCode" -> System.identityHashCode(proxy);
+                case "equals" -> proxy == args[0];
+                case "toString" -> "FakePlayer[" + id + "]";
+                default -> defaultValue(method.getReturnType());
+            };
+        }
+
+        private Object setNoPhysics(Object[] args) {
+            noPhysics = (Boolean) args[0];
+            physicsWrites++;
+            return null;
+        }
+
+        private Object updateInventory() {
+            inventoryUpdates++;
+            return null;
+        }
+
+        private static Object defaultValue(Class<?> type) {
+            if (!type.isPrimitive()) {
+                return null;
+            }
+            if (type == boolean.class) {
+                return false;
+            }
+            if (type == char.class) {
+                return '\0';
+            }
             return 0;
         }
     }
