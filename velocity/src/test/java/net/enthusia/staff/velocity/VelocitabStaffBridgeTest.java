@@ -8,7 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.ServerConnection;
+import com.velocitypowered.api.proxy.server.ServerInfo;
 import java.lang.reflect.Proxy;
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,6 +24,8 @@ import org.slf4j.LoggerFactory;
 class VelocitabStaffBridgeTest {
     private static final String MOD = "Mod";
     private static final String ADMIN = "Admin";
+    private static final String MOD_RANK = "mod";
+    private static final String SMP_SERVER = "SMP";
 
     @Test
     void presenceQueryUsesAcceptedJdbcLimit() {
@@ -73,7 +78,7 @@ class VelocitabStaffBridgeTest {
     void unknownAndStalePresenceFailClosedAndVerifiedMatrixApplies() throws ReflectiveOperationException {
         UUID modId = UUID.randomUUID();
         UUID adminId = UUID.randomUUID();
-        Player mod = player(modId, MOD, "mod");
+        Player mod = player(modId, MOD, MOD_RANK);
         Player admin = player(adminId, ADMIN, "admin");
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api, List.of(mod, admin));
@@ -96,7 +101,7 @@ class VelocitabStaffBridgeTest {
 
     @Test
     void markersPreserveForeignNamesAndCleanupRestoresOnlyOwnedValues() throws ReflectiveOperationException {
-        Player player = player(UUID.randomUUID(), "Staff", "mod");
+        Player player = player(UUID.randomUUID(), "Staff", MOD_RANK);
         FakeApi api = new FakeApi();
         VanishIntegration previous = api.integration;
         VelocitabStaffBridge bridge = bridge(api, List.of(player));
@@ -118,7 +123,7 @@ class VelocitabStaffBridgeTest {
 
     @Test
     void cleanupDoesNotOverwriteANewerIntegrationOrName() throws ReflectiveOperationException {
-        Player player = player(UUID.randomUUID(), "Staff", "mod");
+        Player player = player(UUID.randomUUID(), "Staff", MOD_RANK);
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api, List.of(player));
         var update = VelocitabStaffBridge.class.getDeclaredMethod("updateName", Player.class, String.class);
@@ -135,6 +140,33 @@ class VelocitabStaffBridgeTest {
         assertSame(newer, api.integration);
     }
 
+    @Test
+    void localPublicCountUsesViewerBackendButNotViewerRankAndFailsClosed() throws ReflectiveOperationException {
+        UUID ordinaryId = UUID.randomUUID();
+        UUID hiddenId = UUID.randomUUID();
+        UUID ordinaryViewerId = UUID.randomUUID();
+        UUID founderViewerId = UUID.randomUUID();
+        Player ordinary = player(ordinaryId, "Ordinary", "none", SMP_SERVER);
+        Player hidden = player(hiddenId, "Hidden", MOD_RANK, SMP_SERVER);
+        Player ordinaryViewer = player(ordinaryViewerId, "Viewer", "none", SMP_SERVER);
+        Player founderViewer = player(founderViewerId, "Founder", "founder", SMP_SERVER);
+        VelocitabStaffBridge bridge = bridge(new FakeApi(),
+                List.of(ordinary, hidden, ordinaryViewer, founderViewer));
+
+        var presence = VelocitabStaffBridge.class.getDeclaredField("presence");
+        presence.trySetAccessible();
+        presence.set(bridge, new StaffTabPresence(Map.of(hiddenId, StaffRank.MOD), Set.of()));
+        var verifiedAt = VelocitabStaffBridge.class.getDeclaredField("verifiedAt");
+        verifiedAt.trySetAccessible();
+        verifiedAt.setLong(bridge, System.nanoTime());
+        assertEquals(3, bridge.localPublicOnlineCount(ordinaryViewer));
+        assertEquals(3, bridge.localPublicOnlineCount(founderViewer));
+        assertEquals(0, bridge.localPublicOnlineCount(player(UUID.randomUUID(), "Connecting", "founder")));
+        verifiedAt.setLong(bridge, System.nanoTime() - java.time.Duration.ofSeconds(6).toNanos());
+        assertEquals(0, bridge.localPublicOnlineCount(founderViewer));
+        bridge.close();
+    }
+
     private static VelocitabStaffBridge bridge(FakeApi api, List<Player> players) throws ReflectiveOperationException {
         ProxyServer proxy = (ProxyServer) Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(),
                 new Class<?>[]{ProxyServer.class}, (ignored, method, args) -> switch (method.getName()) {
@@ -147,12 +179,32 @@ class VelocitabStaffBridgeTest {
     }
 
     private static Player player(UUID id, String name, String rank) {
+        return player(id, name, rank, null);
+    }
+
+    private static Player player(UUID id, String name, String rank, String serverName) {
         return (Player) Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class<?>[]{Player.class},
                 (ignored, method, args) -> switch (method.getName()) {
                     case "getUniqueId" -> id;
                     case "getUsername" -> name;
+                    case "getCurrentServer" -> serverName == null
+                            ? Optional.empty() : Optional.of(serverConnection(serverName));
                     case "hasPermission" -> args[0].equals("enthusiastaff.rank." + rank);
                     default -> throw new UnsupportedOperationException(method.getName());
                 });
+    }
+
+    private static ServerConnection serverConnection(String serverName) {
+        return (ServerConnection) Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[]{ServerConnection.class},
+                (ignored, method, args) -> switch (method.getName()) {
+                    case "getServerInfo" -> new ServerInfo(
+                            serverName,
+                            InetSocketAddress.createUnresolved("127.0.0.1", 25565)
+                    );
+                    default -> throw new UnsupportedOperationException(method.getName());
+                }
+        );
     }
 }

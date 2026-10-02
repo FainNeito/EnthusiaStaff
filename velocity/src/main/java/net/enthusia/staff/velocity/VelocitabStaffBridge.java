@@ -113,7 +113,8 @@ final class VelocitabStaffBridge implements AutoCloseable {
             return;
         }
         try {
-            publicOnlinePlaceholderCleanup = MiniPlaceholdersPublicOnlineBridge.register(this::publicOnlineCount, logger);
+            publicOnlinePlaceholderCleanup = MiniPlaceholdersPublicOnlineBridge.register(
+                    this::publicOnlineCount, this::localPublicOnlineCount, logger);
         } catch (LinkageError | RuntimeException exception) {
             if (logger.isErrorEnabled()) {
                 logger.error("Staff public-online placeholder integration unavailable ({})",
@@ -130,6 +131,24 @@ final class VelocitabStaffBridge implements AutoCloseable {
         StaffTabPresence current = presence;
         Set<UUID> vanished = current == null ? Set.of() : current.vanished().keySet();
         return PublicOnlineCountPolicy.count(fresh(), lastPlayers, vanished);
+    }
+
+    int localPublicOnlineCount(Player viewer) {
+        StaffTabPresence current = presence;
+        Set<UUID> vanished = current == null ? Set.of() : current.vanished().keySet();
+        String backend = viewer == null ? null : viewer.getCurrentServer()
+                .map(connection -> connection.getServerInfo().getName())
+                .orElse(null);
+        return LocalPublicOnlineCountPolicy.count(fresh(), backend, currentBackends(), vanished);
+    }
+
+    private Map<UUID, String> currentBackends() {
+        Map<UUID, String> backends = new HashMap<>();
+        for (Player player : proxy.getAllPlayers()) {
+            player.getCurrentServer().ifPresent(connection ->
+                    backends.put(player.getUniqueId(), connection.getServerInfo().getName()));
+        }
+        return Map.copyOf(backends);
     }
 
     private boolean canSee(String viewerName, String targetName) throws ReflectiveOperationException {
