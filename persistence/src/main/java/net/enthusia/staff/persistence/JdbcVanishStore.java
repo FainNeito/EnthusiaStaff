@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
 import net.enthusia.staff.domain.auth.StaffRank;
@@ -54,6 +55,40 @@ public final class JdbcVanishStore implements VanishStore {
             throw new ModerationPersistenceException("Unable to load active vanish states", exception);
         }
     }
+
+    @Override
+    public Optional<VanishRecord> active(UUID staffId) {
+        if (staffId == null) {
+            throw new IllegalArgumentException("staffId must be present");
+        }
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT staff_id, staff_rank, selected_game_mode, updated_at, revision
+                     FROM staff_vanish_states
+                     WHERE staff_id = ? AND active = TRUE
+                     """)) {
+            statement.setBytes(1, UuidBytes.toBytes(staffId));
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                VanishRecord record = new VanishRecord(
+                        UuidBytes.fromBytes(result.getBytes("staff_id")),
+                        StaffRank.valueOf(result.getString("staff_rank")),
+                        result.getString("selected_game_mode"),
+                        result.getTimestamp("updated_at").toInstant(),
+                        result.getLong("revision")
+                );
+                if (result.next()) {
+                    throw new SQLException("duplicate canonical vanish state exists for staff member");
+                }
+                return Optional.of(record);
+            }
+        } catch (SQLException | IllegalArgumentException exception) {
+            throw new ModerationPersistenceException("Unable to load staff vanish state", exception);
+        }
+    }
+
 
     @Override
     public WriteResult set(
