@@ -47,24 +47,38 @@ class VanishNoclipControllerTest {
         assertTrue(x.reconcile(s.player(),false)); assertFalse(s.noPhysics); assertTrue(c.presented.isEmpty());
         assertEquals(0,s.inventoryUpdates);
     }
-    @Test void incompatibleCreativeRuntimeFailsClosedAndRestoresPhysics() {
+    @Test void incompatibleCreativeRuntimeFailsClosedWithoutTakingPhysicsOwnership() {
         FakePlayer s=new FakePlayer(GameMode.CREATIVE,false); FakeClientModes c=new FakeClientModes(false);
         VanishNoclipController x=new VanishNoclipController(c);
         assertFalse(x.canEnable(s.player())); assertFalse(x.reconcile(s.player(),true)); assertFalse(s.noPhysics);
+        assertEquals(0,s.physicsWrites);
+    }
+    @Test void failedCreativePresentationRestoresPhysicsAndReleasesOwnership() {
+        FakePlayer s=new FakePlayer(GameMode.CREATIVE,false); FakeClientModes c=new FakeClientModes(true);
+        c.presentationSucceeds=false; VanishNoclipController x=new VanishNoclipController(c);
+        assertFalse(x.reconcile(s.player(),true)); assertFalse(s.noPhysics); assertEquals(2,s.physicsWrites);
+        assertTrue(x.reconcile(s.player(),false)); assertEquals(0,s.inventoryUpdates);
+    }
+    @Test void failedDisablePresentationStillRestoresServerPhysicsAndSignalsFailure() {
+        FakePlayer s=new FakePlayer(GameMode.CREATIVE,false); FakeClientModes c=new FakeClientModes(true);
+        VanishNoclipController x=new VanishNoclipController(c);
+        assertTrue(x.reconcile(s.player(),true)); c.presentationSucceeds=false;
+        assertFalse(x.reconcile(s.player(),false)); assertFalse(s.noPhysics); assertEquals(1,s.inventoryUpdates);
     }
 
     private static final class FakeClientModes implements VanishClientGameModeAdapter {
         private final boolean available; private final List<GameMode> presented=new ArrayList<>();
+        private boolean presentationSucceeds=true;
         FakeClientModes(boolean available){this.available=available;}
         @Override public boolean available(){return available;}
         @Override public String unavailableReason(){return available?"":"test runtime mismatch";}
         @Override public boolean present(Player player,GameMode gameMode){
-            if(!available)return false; presented.add(gameMode); return true;
+            if(!available||!presentationSucceeds)return false; presented.add(gameMode); return true;
         }
     }
     private static final class FakePlayer {
         private final UUID id=UUID.randomUUID(); private GameMode gameMode; private boolean noPhysics;
-        private int inventoryUpdates;
+        private int inventoryUpdates; private int physicsWrites;
         FakePlayer(GameMode gameMode,boolean noPhysics){this.gameMode=gameMode;this.noPhysics=noPhysics;}
         Player player(){
             return (Player)Proxy.newProxyInstance(Player.class.getClassLoader(),new Class<?>[]{Player.class},
@@ -75,7 +89,7 @@ class VanishNoclipControllerTest {
                         case "toString"->"FakePlayer["+id+"]"; default->defaultValue(method.getReturnType());
                     });
         }
-        private Object setNoPhysics(Object[] args){noPhysics=(Boolean)args[0];return null;}
+        private Object setNoPhysics(Object[] args){noPhysics=(Boolean)args[0];physicsWrites++;return null;}
         private Object updateInventory(){inventoryUpdates++;return null;}
         private static Object defaultValue(Class<?> type){
             if(!type.isPrimitive())return null; if(type==boolean.class)return false; if(type==char.class)return '\0';
