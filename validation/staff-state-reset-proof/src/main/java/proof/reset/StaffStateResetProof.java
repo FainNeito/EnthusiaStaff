@@ -141,7 +141,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
             state(player, "VISIBLE_CREATIVE", false, GameMode.CREATIVE);
             transition(player, GameMode.SURVIVAL, "VISIBLE_SURVIVAL", false,
                     () -> transition(player, GameMode.SPECTATOR, "VISIBLE_SPECTATOR", false,
-                            () -> geometryMatrix(player, false, "VISIBLE", () ->
+                            () -> geometryMatrix(player, "VISIBLE", () ->
                                     transition(player, GameMode.CREATIVE, "VISIBLE_CREATIVE_2", false,
                                             () -> vanishOn(player)))));
         } catch (Exception exception) {
@@ -157,7 +157,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
                     player,
                     GameMode.SURVIVAL,
                     "VANISHED_SELECT_SURVIVAL",
-                    () -> geometryMatrix(player, true, "VANISHED", () -> vanishOffToSurvival(player))
+                    () -> geometryMatrix(player, "VANISHED", () -> vanishOffToSurvival(player))
             );
         } catch (Exception exception) {
             fail("VANISH_ON", exception);
@@ -309,7 +309,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         });
     }
 
-    private void geometryMatrix(Player player, boolean vanished, String prefix, Runnable next) {
+    private void geometryMatrix(Player player, String prefix, Runnable next) {
         Location base = chamber(player);
         geometryCase(
                 player,
