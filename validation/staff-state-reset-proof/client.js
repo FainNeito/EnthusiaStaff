@@ -1,40 +1,10 @@
 'use strict'
 
 const fs = require('node:fs')
-const path = require('node:path')
 
 const port = Number(process.argv[2])
 const version = process.argv[3]
 const output = process.argv[4]
-
-if (version === '26.3') {
-  const root = path.dirname(require.resolve('mineflayer'))
-  const physics = path.join(root, 'lib', 'plugins', 'physics.js')
-  let source = fs.readFileSync(physics, 'utf8')
-  const marker = 'RESET_PROOF_DEFERRED_TELEPORT_ECHO'
-  if (!source.includes(marker)) {
-    const oldTail = `    sendPacketPositionAndLook(pos, newYaw, newPitch, bot.entity.onGround)
-
-    shouldUsePhysics = true
-    bot.jumpTicks = 0
-    lastSentYaw = bot.entity.yaw
-    lastSentPitch = bot.entity.pitch
-
-    bot.emit('forcedMove')`
-    if (!source.includes(oldTail)) throw new Error('unexpected 26.3 Mineflayer physics source')
-    const replacement = `    // ${marker}
-    if (!bot.physicsEnabled) {
-      shouldUsePhysics = false
-      bot.jumpTicks = 0
-      lastSentYaw = bot.entity.yaw
-      lastSentPitch = bot.entity.pitch
-      bot.emit('forcedMove')
-      return
-    }
-${oldTail}`
-    fs.writeFileSync(physics, source.replace(oldTail, replacement))
-  }
-}
 
 const mineflayer = require('mineflayer')
 let done = false
@@ -55,7 +25,6 @@ function sendPosition (bot, x, y, z) {
     x, y, z,
     onGround: false,
     flags: {
-      _value: 0,
       onGround: false,
       hasHorizontalCollision: false
     }
@@ -76,6 +45,10 @@ bot.physicsEnabled = false
 if (version === '26.3') {
   const originalWrite = bot._client.write.bind(bot._client)
   bot._client.write = (name, packet) => {
+    if (name === 'position_look' && bot.physicsEnabled === false) {
+      log('FORCED_POSITION_ECHO_SUPPRESSED=true')
+      return
+    }
     if (name !== 'teleport_confirm') return originalWrite(name, packet)
     const position = bot.entity?.position
     const normalized = {
