@@ -920,7 +920,13 @@ public final class VanishManager implements Listener {
         visibility.setVanished(playerId, writeRank, false);
         applySpectatorPolicy(player, player.getGameMode(), false);
         audiences.refreshTarget(playerId);
-        plugin.getLogger().severe("Full vanish was fail-closed for " + playerId + " because " + reason);
+        if (plugin.getLogger().isLoggable(Level.SEVERE)) {
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Full vanish was fail-closed for {0} because {1}",
+                    new Object[]{playerId, reason}
+            );
+        }
         if (writeRank != null) {
             reconcileDurableState(
                     playerId,
@@ -933,9 +939,13 @@ public final class VanishManager implements Listener {
 
     private void requireSafeReconnect(Player player) {
         UUID playerId = player.getUniqueId();
-        plugin.getLogger().severe(
-                "No-clip client presentation failed for " + playerId + "; forcing reconnect to restore authoritative state"
-        );
+        if (plugin.getLogger().isLoggable(Level.SEVERE)) {
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "No-clip client presentation failed for {0}; forcing reconnect to restore authoritative state",
+                    playerId
+            );
+        }
         player.kick(NOCLIP_SYNC_RECONNECT_MESSAGE);
     }
 
