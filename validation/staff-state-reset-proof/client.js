@@ -51,18 +51,15 @@ function sleep (ms) {
 
 function sendPosition (bot, x, y, z) {
   bot.entity.position.set(x, y, z)
-  if (version === '26.3') {
-    bot._client.write('position_look', {
-      x, y, z, yaw: 0, pitch: 0,
-      flags: { _value: 0, onGround: false, hasHorizontalCollision: false }
-    })
-  } else {
-    bot._client.write('position', {
-      x, y, z,
+  bot._client.write('position', {
+    x, y, z,
+    onGround: false,
+    flags: {
+      _value: 0,
       onGround: false,
-      flags: { onGround: false, hasHorizontalCollision: false }
-    })
-  }
+      hasHorizontalCollision: false
+    }
+  })
   log(`CLIENT_MOVE|x=${x}|y=${y}|z=${z}|mode=${bot.game.gameMode}`)
 }
 
