@@ -32,6 +32,9 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private Object staffMode;
     private Object visibility;
     private Object adminRank;
+    private Object founderRank;
+    private Object recoveryGate;
+    private Method clearRecoveryGate;
     private Method staffActive;
     private Method isVanished;
     private Method setVanished;
@@ -67,6 +70,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         evidence("MODE_EVENT|from=" + player.getGameMode()
                 + "|to=" + event.getNewGameMode()
                 + "|cancelled=" + event.isCancelled()
+                + "|identityOwner=" + player.hasPermission("enthusiastaff.identity.owner")
                 + "|identityAdmin=" + player.hasPermission("enthusiastaff.identity.admin")
                 + "|legacyAdmin=" + player.hasPermission("enthusiastaff.rank.admin"));
     }
@@ -93,6 +97,12 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
 
         Class<?> rankClass = loader.loadClass("net.enthusia.staff.domain.auth.StaffRank");
         adminRank = rankClass.getField("ADMIN").get(null);
+        founderRank = rankClass.getField("FOUNDER").get(null);
+        Field recoveryGateField = staffMode.getClass().getDeclaredField("recoveryGate");
+        recoveryGateField.setAccessible(true);
+        recoveryGate = recoveryGateField.get(staffMode);
+        clearRecoveryGate = recoveryGate.getClass().getDeclaredMethod("clear", UUID.class);
+        clearRecoveryGate.setAccessible(true);
         setVanished = visibility.getClass().getMethod(
                 "setVanished", UUID.class, rankClass, boolean.class);
 
@@ -171,11 +181,46 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
                                 base,
                                 base.clone().add(2.0D, 0.0D, 0.0D),
                                 position -> position.getX() > base.getX() + 1.5D,
-                                this::finish
+                                () -> beginFounderMatrix(player)
                         );
                     });
         } catch (Exception exception) {
             fail("VANISH_OFF", exception);
+        }
+    }
+
+    private void beginFounderMatrix(Player player) {
+        player.addAttachment(this, "enthusiastaff.identity.owner", true);
+        ranks.put(player.getUniqueId(), founderRank);
+        evidence("FOUNDER_AUTHORITY|identityOwner="
+                + player.hasPermission("enthusiastaff.identity.owner"));
+        transition(player, GameMode.CREATIVE, "FOUNDER_VISIBLE_CREATIVE", false,
+                () -> transition(player, GameMode.SURVIVAL, "FOUNDER_VISIBLE_SURVIVAL", false,
+                        () -> transition(player, GameMode.SPECTATOR, "FOUNDER_VISIBLE_SPECTATOR", false,
+                                () -> transition(player, GameMode.CREATIVE, "FOUNDER_VISIBLE_CREATIVE_2", false,
+                                        () -> founderVanishOn(player)))));
+    }
+
+    private void founderVanishOn(Player player) {
+        try {
+            setVanish(player, true);
+            state(player, "FOUNDER_VANISH_ON_CREATIVE", true, GameMode.CREATIVE);
+            transition(player, GameMode.SURVIVAL, "FOUNDER_VANISHED_SURVIVAL", true,
+                    () -> transition(player, GameMode.SPECTATOR, "FOUNDER_VANISHED_SPECTATOR", true,
+                            () -> transition(player, GameMode.CREATIVE, "FOUNDER_VANISHED_CREATIVE", true,
+                                    () -> founderVanishOff(player))));
+        } catch (Exception exception) {
+            fail("FOUNDER_VANISH_ON", exception);
+        }
+    }
+
+    private void founderVanishOff(Player player) {
+        try {
+            setVanish(player, false);
+            state(player, "FOUNDER_VANISH_OFF_CREATIVE", false, GameMode.CREATIVE);
+            finish();
+        } catch (Exception exception) {
+            fail("FOUNDER_VANISH_OFF", exception);
         }
     }
 
@@ -277,9 +322,11 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         UUID playerId = player.getUniqueId();
         injectedSession = newSession(playerId);
         toolToken = UUID.randomUUID().toString();
+        clearRecoveryGate.invoke(recoveryGate, playerId);
         activeSessions.put(playerId, injectedSession);
         ranks.put(playerId, adminRank);
         toolSessions.put(playerId, toolToken);
+        evidence("RECOVERY_FENCE_CLEARED=true");
     }
 
     private Object newSession(UUID playerId) throws Exception {
