@@ -81,7 +81,8 @@ class VanishNoclipControllerTest {
         private int inventoryUpdates; private int physicsWrites;
         FakePlayer(GameMode gameMode,boolean noPhysics){this.gameMode=gameMode;this.noPhysics=noPhysics;}
         Player player(){
-            return (Player)Proxy.newProxyInstance(Player.class.getClassLoader(),new Class<?>[]{Player.class},
+            return (Player)Proxy.newProxyInstance(
+                    Thread.currentThread().getContextClassLoader(), new Class<?>[]{Player.class},
                     (proxy,method,args)->switch(method.getName()){
                         case "getUniqueId"->id; case "getGameMode"->gameMode; case "hasNoPhysics"->noPhysics;
                         case "setNoPhysics"->setNoPhysics(args); case "updateInventory"->updateInventory();
