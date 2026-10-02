@@ -54,7 +54,7 @@ function sendPosition (bot, x, y, z) {
   if (version === '26.3') {
     bot._client.write('position_look', {
       x, y, z, yaw: 0, pitch: 0,
-      flags: { onGround: false, hasHorizontalCollision: false }
+      flags: { _value: 0, onGround: false, hasHorizontalCollision: false }
     })
   } else {
     bot._client.write('position', {
@@ -75,6 +75,24 @@ const bot = mineflayer.createBot({
   physicsEnabled: false
 })
 bot.physicsEnabled = false
+
+if (version === '26.3') {
+  const originalWrite = bot._client.write.bind(bot._client)
+  bot._client.write = (name, packet) => {
+    if (name !== 'teleport_confirm') return originalWrite(name, packet)
+    const position = bot.entity?.position
+    const normalized = {
+      ...packet,
+      x: Number.isFinite(packet?.x) ? packet.x : position?.x,
+      y: Number.isFinite(packet?.y) ? packet.y : position?.y,
+      z: Number.isFinite(packet?.z) ? packet.z : position?.z,
+      yaw: Number.isFinite(packet?.yaw) ? packet.yaw : 0,
+      pitch: Number.isFinite(packet?.pitch) ? packet.pitch : 0
+    }
+    log('TELEPORT_CONFIRM|' + JSON.stringify(normalized))
+    return originalWrite(name, normalized)
+  }
+}
 
 bot._client.on('game_state_change', packet => {
   log('GAME_STATE|reason=' + String(packet.reason) + '|gameMode=' + String(packet.gameMode))
