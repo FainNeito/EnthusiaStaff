@@ -49,6 +49,18 @@ Entry should fail closed when combat safety, storage, worker capacity, or durabl
 
 Staff mode must never be used to escape combat, travel for normal play, protect ordinary items, find bases, or gain gameplay information.
 
+### Game mode while Staff Mode is active
+
+Staff Mode and game mode are separate states. The entry profile still starts Admin
+and Founder in Creative and lower staff in Spectator. After activation, Admin and
+Founder may freely select Survival, Creative, or Spectator without entering or
+leaving Staff Mode and without changing vanish. Lower staff remain Spectator-only.
+
+The selected mode is the real Bukkit/Paper game mode. Spectator block phasing comes
+from actual Spectator mode; vanish does not provide block no-clip in Survival or
+Creative. When Staff Mode exits, the exact pre-Staff game mode from the durable
+snapshot is restored with the rest of the saved state.
+
 ## Staff hotbar
 
 The operational hotbar routes into existing commands/services; possessing the item does not grant authority.
@@ -91,7 +103,9 @@ Random-teleport/cooldown settings under `staff-tools` are restart-owned; `/estaf
 
 `/stafftools spectate <player>` and the hotbar action share one path. The target must be an eligible player on the current backend and the target location is captured on the target's owning scheduler before the staff teleport.
 
-Do not weaken the staff member's required profile/game mode merely to force spectating. A safe refusal is preferable to cross-thread or state-ownership shortcuts.
+Follow / Spectate does not own the staff member's game mode. It must not silently
+toggle Staff Mode or vanish, and lower-rank game-mode restrictions still apply. A
+safe refusal is preferable to cross-thread or state-ownership shortcuts.
 
 ## Cheat Tester
 

@@ -23,8 +23,6 @@ one `hidePlayer` call covers every plugin, packet, command, and visual effect.
 paper/src/main/java/net/enthusia/staff/paper/visibility/VanishManager.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/VanishAudienceCoordinator.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/VanishRankReconciliationPolicy.java
-paper/src/main/java/net/enthusia/staff/paper/visibility/VanishNoclipController.java
-paper/src/main/java/net/enthusia/staff/paper/visibility/Paper26VanishClientGameModeAdapter.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/DefaultStaffVisibilityService.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/ProtocolLibSpectatorTabPacketAdapter.java
 paper/src/main/java/net/enthusia/staff/paper/api/StaffVisibilityService.java
@@ -165,11 +163,11 @@ Registered at `EventPriority.MONITOR` with cancelled changes ignored.
 - Refreshes the changed viewer when rank authority changed.
 - Refreshes the changed player as a target.
 
-The manager also reconciles true block no-clip after teleport and accepted game-mode
-changes. While full vanish is active, suffocation damage is cancelled narrowly so
-phasing through terrain does not become a damage source. It does not directly
-listen for chat, command completion, entity-tracking, sound, particle, inventory,
-pickup, advancement, scoreboard, or voice events.
+Vanish does not alter the player's authoritative game mode or block-collision
+physics. Actual Spectator mode uses vanilla/Paper spectator phasing; Survival and
+Creative remain normal authoritative modes whether vanished or visible. The
+manager does not directly listen for chat, command completion, sound, particle,
+inventory, pickup, advancement, scoreboard, or voice events.
 
 ## Visibility decisions
 
@@ -239,13 +237,10 @@ fail-closed on owning entity threads. Without a healthy adapter, affected
 spectator staff remain unlisted.
 
 Do not extend that claim to entity-destroy, spawn-player, metadata, equipment, or
-other visibility packets. Full vanish additionally uses a self-only game-mode
-presentation packet so a Creative/Survival/Adventure staff client receives
-spectator collision semantics without changing the authoritative Bukkit game mode
-or Staff Mode inventory. The adapter is pinned to exact Paper 26.2 build 129 and
-fails closed when its Mojang-mapped packet seam is unavailable. Server-side block
-collision uses Paper's supported Entity#setNoPhysics API rather than an NMS field.
-ProtocolLib remains limited to player-info masking.
+other visibility packets. ProtocolLib is limited to observer-facing player-info
+masking; EnthusiaStaff does not send a self-only fake game-mode packet. The
+player's authoritative Bukkit/Paper game mode remains the mode the client is
+actually using.
 
 ## What is not currently intercepted
 
@@ -305,11 +300,10 @@ provider integrations that trigger additional scans.
   reconciliation state where applicable.
 - Failed durable session verification leaves current visibility unchanged and
   retries after backoff.
-- A persisted vanish record reapplies no-clip on join; Creative-mode full vanish
-  is refused when the exact client-presentation adapter is unavailable.
-- A runtime no-clip application failure removes full vanish from live visibility so
-  durable reconciliation can close the persisted state instead of reporting a
-  false successful vanish.
+- A persisted vanish record restores visibility/privacy state on join without
+  rewriting the player's game mode.
+- Vanish remains valid in Survival, Creative, and Spectator; only real Spectator
+  mode supplies vanilla block phasing.
 - Complete visual and integration coverage still requires staging.
 
 ## Review and staging checklist
@@ -326,6 +320,8 @@ Reviewers should verify:
 - normal players never seeing vanished staff;
 - self-visibility;
 - tab list and entity visibility on each supported Paper version;
+- Survival, Creative, and real Spectator while vanished and while visible;
+- wall, floor, and ceiling phasing only when the authoritative mode is Spectator;
 - ProtocolLib present, absent, incompatible, and runtime failure paths;
 - RoseChat, voice, `/seen`, commands, player counts, and public APIs;
 - sounds, particles, containers, damage, pickup, and other observable effects;

@@ -318,7 +318,6 @@ public final class VanishManager implements Listener {
         StaffRank liveRank = resolveLiveRank(player);
         reconcileViewerAuthority(player, playerId, cachedRank, liveRank);
         if (stateWrites.contains(playerId)) {
-            reconcileNoclip(player);
             return;
         }
         StaffRank durableRank = durableVanishedRanks.get(playerId);
@@ -331,7 +330,6 @@ public final class VanishManager implements Listener {
                 staffModeState
         );
         applyVanishAction(player, action, cachedRank, liveRank, durableRank, vanished);
-        reconcileNoclip(player);
     }
 
     private void reconcileViewerAuthority(
@@ -526,7 +524,6 @@ public final class VanishManager implements Listener {
         }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshTarget(playerId);
-        reconcileNoclip(player);
     }
 
     private void reconcileDurableState(UUID playerId, StaffRank rank, boolean vanished, String successMessage) {
