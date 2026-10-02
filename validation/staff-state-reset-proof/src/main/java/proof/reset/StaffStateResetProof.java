@@ -253,6 +253,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
                     player,
                     GameMode.CREATIVE,
                     "FOUNDER_VISIBLE_CREATIVE_3",
+                    false,
                     () -> founderSecondVanish(player)
             );
         } catch (Exception exception) {
