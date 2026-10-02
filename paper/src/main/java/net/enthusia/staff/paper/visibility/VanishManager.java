@@ -628,6 +628,11 @@ public final class VanishManager implements Listener {
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
+        if (visibility.isVanished(playerId) && staffMode.restoringSavedState(playerId)) {
+            visibility.setVanished(playerId, onlineStaffRanks.get(playerId), false);
+            selectedGameModes.remove(playerId);
+            hiddenSpectators.remove(playerId);
+        }
         if (visibility.isVanished(playerId) && !vanishGameModeApplications.contains(playerId)) {
             StaffRank rank = resolveLiveRank(player);
             if (isSelectableGameMode(rank, event.getNewGameMode())) {
