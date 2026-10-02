@@ -27,6 +27,7 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class StaffStateResetProof extends JavaPlugin implements Listener {
+    private static final int GEOMETRY_ACCEPTANCE_TICKS = 40;
     private static final Path EVIDENCE = Path.of("staff-state-reset-proof.txt");
     private final AtomicBoolean started = new AtomicBoolean();
     private Object staffMode;
@@ -346,20 +347,33 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         player.teleport(base);
         later(4L, () -> {
             marker(player, "MOVE:" + label + ":" + target.getX() + ":" + target.getY() + ":" + target.getZ());
-            later(24L, () -> {
-                boolean success = passed.test(player.getLocation());
-                evidence("GEOMETRY|" + label + "|pass=" + success
-                        + "|mode=" + player.getGameMode()
-                        + "|vanish=" + vanished(player)
-                        + "|x=" + player.getLocation().getX()
-                        + "|y=" + player.getLocation().getY()
-                        + "|z=" + player.getLocation().getZ());
-                if (!success) {
-                    evidence("FAIL|GEOMETRY|" + label);
-                }
-                later(2L, next);
-            });
+            waitForGeometryAcceptance(player, label, passed, next, GEOMETRY_ACCEPTANCE_TICKS);
         });
+    }
+
+    private void waitForGeometryAcceptance(
+            Player player,
+            String label,
+            java.util.function.Predicate<Location> passed,
+            Runnable next,
+            int remainingTicks
+    ) {
+        Location position = player.getLocation();
+        boolean success = passed.test(position);
+        if (!success && remainingTicks > 0) {
+            later(1L, () -> waitForGeometryAcceptance(player, label, passed, next, remainingTicks - 1));
+            return;
+        }
+        evidence("GEOMETRY|" + label + "|pass=" + success
+                + "|mode=" + player.getGameMode()
+                + "|vanish=" + vanished(player)
+                + "|x=" + position.getX()
+                + "|y=" + position.getY()
+                + "|z=" + position.getZ());
+        if (!success) {
+            evidence("FAIL|GEOMETRY|" + label);
+        }
+        later(2L, next);
     }
 
     private Location chamber(Player player) {
