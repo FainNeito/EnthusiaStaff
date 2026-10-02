@@ -15,7 +15,7 @@ activate EnthusiaStaff as production authority.
 
 ## Requirements
 
-- Java 21
+- Java 25
 - Paper/Leaf/Purpur 1.21.x-compatible backends, with current focus on
   1.21.8–1.21.11
 - Velocity 3.4-compatible proxy

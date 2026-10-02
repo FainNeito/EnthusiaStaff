@@ -5,7 +5,7 @@ Use this page to prepare a clean development environment. Before changing behavi
 ## Prerequisites
 
 - Git
-- Java 21 JDK
+- Java 25 JDK
 - Docker daemon compatible with the repository's MariaDB Testcontainers usage
 - Python 3 for Wiki validation
 - An IDE with Gradle support
@@ -44,7 +44,7 @@ java -version
 ./gradlew --version
 ```
 
-Both should resolve Java 21 for normal repository builds. The project treats compiler warnings seriously; do not weaken lint/quality gates merely to make a change pass.
+Both should resolve Java 25 for normal repository builds. The project treats compiler warnings seriously; do not weaken lint/quality gates merely to make a change pass.
 
 ## Docker and MariaDB
 

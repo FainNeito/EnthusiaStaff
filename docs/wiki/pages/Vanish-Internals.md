@@ -23,6 +23,8 @@ one `hidePlayer` call covers every plugin, packet, command, and visual effect.
 paper/src/main/java/net/enthusia/staff/paper/visibility/VanishManager.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/VanishAudienceCoordinator.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/VanishRankReconciliationPolicy.java
+paper/src/main/java/net/enthusia/staff/paper/visibility/VanishNoclipController.java
+paper/src/main/java/net/enthusia/staff/paper/visibility/Paper26VanishClientGameModeAdapter.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/DefaultStaffVisibilityService.java
 paper/src/main/java/net/enthusia/staff/paper/visibility/ProtocolLibSpectatorTabPacketAdapter.java
 paper/src/main/java/net/enthusia/staff/paper/api/StaffVisibilityService.java
@@ -163,9 +165,11 @@ Registered at `EventPriority.MONITOR` with cancelled changes ignored.
 - Refreshes the changed viewer when rank authority changed.
 - Refreshes the changed player as a target.
 
-The current manager does not directly listen for chat, command completion,
-teleport, entity-tracking, sound, particle, inventory, damage, pickup,
-advancement, scoreboard, or voice events.
+The manager also reconciles true block no-clip after teleport and accepted game-mode
+changes. While full vanish is active, suffocation damage is cancelled narrowly so
+phasing through terrain does not become a damage source. It does not directly
+listen for chat, command completion, entity-tracking, sound, particle, inventory,
+pickup, advancement, scoreboard, or voice events.
 
 ## Visibility decisions
 
@@ -235,8 +239,13 @@ fail-closed on owning entity threads. Without a healthy adapter, affected
 spectator staff remain unlisted.
 
 Do not extend that claim to entity-destroy, spawn-player, metadata, equipment, or
-other packets. Direct packet handling is limited to player-info and still requires
-live compatibility testing on supported Paper and ProtocolLib versions.
+other visibility packets. Full vanish additionally uses a self-only game-mode
+presentation packet so a Creative/Survival/Adventure staff client receives
+spectator collision semantics without changing the authoritative Bukkit game mode
+or Staff Mode inventory. The adapter is pinned to exact Paper 26.2 build 129 and
+fails closed when its Mojang-mapped packet seam is unavailable. Server-side block
+collision uses Paper's supported Entity#setNoPhysics API rather than an NMS field.
+ProtocolLib remains limited to player-info masking.
 
 ## What is not currently intercepted
 
@@ -296,8 +305,12 @@ provider integrations that trigger additional scans.
   reconciliation state where applicable.
 - Failed durable session verification leaves current visibility unchanged and
   retries after backoff.
-- A persisted vanish record can be restored after restart, but complete visual and
-  integration coverage still requires staging.
+- A persisted vanish record reapplies no-clip on join; Creative-mode full vanish
+  is refused when the exact client-presentation adapter is unavailable.
+- A runtime no-clip application failure removes full vanish from live visibility so
+  durable reconciliation can close the persisted state instead of reporting a
+  false successful vanish.
+- Complete visual and integration coverage still requires staging.
 
 ## Review and staging checklist
 

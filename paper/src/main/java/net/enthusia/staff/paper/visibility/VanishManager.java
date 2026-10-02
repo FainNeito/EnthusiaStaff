@@ -28,9 +28,11 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -61,6 +63,7 @@ public final class VanishManager implements Listener {
     private final AtomicInteger rankReconciliationPass = new AtomicInteger();
     private final VanishAudienceCoordinator<Player> audiences;
     private final SpectatorTabPacketAdapter spectatorTabPackets;
+    private final VanishNoclipController noclip;
 
     public VanishManager(
             JavaPlugin plugin,
@@ -69,7 +72,8 @@ public final class VanishManager implements Listener {
             Supplier<VanishStore> store,
             Supplier<StaffSessionStore> sessions,
             StaffModeManager staffMode,
-            ExecutorService workers
+            ExecutorService workers,
+            VanishNoclipController noclip
     ) {
         this.plugin = plugin;
         this.clock = clock;
@@ -78,6 +82,7 @@ public final class VanishManager implements Listener {
         this.sessions = sessions;
         this.staffMode = staffMode;
         this.workers = workers;
+        this.noclip = java.util.Objects.requireNonNull(noclip, "noclip");
         this.audiences = new VanishAudienceCoordinator<>(this::onEntity, this::refreshPair);
         this.spectatorTabPackets = installSpectatorTabPackets();
     }
@@ -179,6 +184,12 @@ public final class VanishManager implements Listener {
             return;
         }
         boolean next = !visibility.isVanished(player.getUniqueId());
+        if (next && !noclip.canEnable(player)) {
+            player.sendMessage(StaffMessageStyle.style(Component.text(
+                    "Full vanish no-clip is unavailable on this runtime: " + noclip.unavailableReason()
+            )));
+            return;
+        }
         set(player, rank, next);
     }
 
@@ -228,6 +239,7 @@ public final class VanishManager implements Listener {
 
     private void disableAfterStaffModeExit(UUID playerId, Player player) {
         durableStaffSessionPresence.put(playerId, false);
+        reconcileNoclip(player);
         StaffRank rank = resolveAndPublishRank(player);
         if (rank == null || !requiresStaffMode(rank)) {
             pendingStaffModeExitDisables.remove(playerId);
@@ -302,6 +314,7 @@ public final class VanishManager implements Listener {
 
     private void finishSet(Player player, boolean vanished, boolean viewerChanged) {
         UUID playerId = player.getUniqueId();
+        boolean noclipReady = reconcileNoclip(player);
         if (!vanished) {
             applySpectatorPolicy(player, player.getGameMode(), true);
         }
@@ -310,6 +323,12 @@ public final class VanishManager implements Listener {
             audiences.refreshViewer(playerId);
         }
         audiences.refreshTarget(playerId);
+        if (vanished && !noclipReady) {
+            player.sendMessage(StaffMessageStyle.style(Component.text(
+                    "Vanish was disabled because true block no-clip could not be activated."
+            )));
+            return;
+        }
         player.sendMessage(StaffMessageStyle.style(Component.text(vanished ? "Vanish enabled." : "Vanish disabled.")));
     }
 
@@ -319,6 +338,7 @@ public final class VanishManager implements Listener {
         StaffRank liveRank = resolveLiveRank(player);
         reconcileViewerAuthority(player, playerId, cachedRank, liveRank);
         if (stateWrites.contains(playerId)) {
+            reconcileNoclip(player);
             return;
         }
         StaffRank durableRank = durableVanishedRanks.get(playerId);
@@ -331,6 +351,7 @@ public final class VanishManager implements Listener {
                 staffModeState
         );
         applyVanishAction(player, action, cachedRank, liveRank, durableRank, vanished);
+        reconcileNoclip(player);
     }
 
     private void reconcileViewerAuthority(
@@ -525,6 +546,7 @@ public final class VanishManager implements Listener {
         }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshTarget(playerId);
+        reconcileNoclip(player);
     }
 
     private void reconcileDurableState(UUID playerId, StaffRank rank, boolean vanished, String successMessage) {
@@ -588,13 +610,35 @@ public final class VanishManager implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
         Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
         boolean viewerChanged = recordViewerRank(player);
         applySpectatorPolicy(player, event.getNewGameMode(), true);
-        audiences.updateGameMode(player.getUniqueId(), event.getNewGameMode());
+        audiences.updateGameMode(playerId, event.getNewGameMode());
+        noclip.gameModeChanged(playerId, event.getNewGameMode(), visibility.isVanished(playerId));
         if (viewerChanged) {
-            audiences.refreshViewer(player.getUniqueId());
+            audiences.refreshViewer(playerId);
         }
-        audiences.refreshTarget(player.getUniqueId());
+        audiences.refreshTarget(playerId);
+        if (visibility.isVanished(playerId)) {
+            onEntity(player, () -> reconcileNoclip(player));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        if (visibility.isVanished(player.getUniqueId())) {
+            onEntity(player, () -> reconcileNoclip(player));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSuffocation(EntityDamageEvent event) {
+        if (event.getCause() == EntityDamageEvent.DamageCause.SUFFOCATION
+                && event.getEntity() instanceof Player player
+                && visibility.isVanished(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -631,6 +675,7 @@ public final class VanishManager implements Listener {
         pendingStaffModeExitDisables.remove(playerId);
         reconciliationRetryAfter.remove(playerId);
         reconciliationFailureNotified.remove(playerId);
+        noclip.retire(playerId);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -813,6 +858,23 @@ public final class VanishManager implements Listener {
 
     private boolean recordViewerRank(Player player) {
         return publishViewerRank(player.getUniqueId(), resolveLiveRank(player));
+    }
+
+    private boolean reconcileNoclip(Player player) {
+        UUID playerId = player.getUniqueId();
+        boolean vanished = visibility.isVanished(playerId);
+        if (noclip.reconcile(player, vanished)) {
+            return true;
+        }
+        if (vanished) {
+            visibility.setVanished(playerId, null, false);
+            applySpectatorPolicy(player, player.getGameMode(), false);
+            audiences.refreshTarget(playerId);
+            plugin.getLogger().severe(
+                    "Full vanish was fail-closed for " + playerId + " because true block no-clip could not be applied"
+            );
+        }
+        return false;
     }
 
     private boolean publishViewerRank(UUID playerId, StaffRank rank) {

@@ -24,7 +24,7 @@ subprojects {
     apply(plugin = "jacoco")
 
     extensions.configure<JavaPluginExtension> {
-        toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+        toolchain.languageVersion.set(JavaLanguageVersion.of(25))
         withSourcesJar()
     }
 
