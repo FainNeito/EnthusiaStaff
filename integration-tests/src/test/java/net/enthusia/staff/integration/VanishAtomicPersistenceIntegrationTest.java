@@ -67,6 +67,36 @@ class VanishAtomicPersistenceIntegrationTest {
     }
 
     @Test
+    void persistsSelectedGameplayModeAcrossRuntimeRestart() throws Exception {
+        UUID staffId = identifier("vanish-selected-mode-restart");
+        try (MariaDbRuntime runtime = runtimeWithActiveSession(staffId)) {
+            assertEquals(
+                    VanishStore.WriteResult.COMMITTED,
+                    runtime.vanishStore().set(
+                            staffId,
+                            StaffRank.ADMIN,
+                            true,
+                            staffId,
+                            NOW.plusSeconds(1),
+                            true,
+                            "SURVIVAL"
+                    )
+            );
+            assertEquals(
+                    "SURVIVAL",
+                    runtime.vanishStore().active(staffId).orElseThrow().selectedGameMode()
+            );
+        }
+
+        try (MariaDbRuntime restarted = MariaDb.initialize(MariaDbIntegrationSupport.databaseConfig(DATABASE))) {
+            var recovered = restarted.vanishStore().active(staffId).orElseThrow();
+            assertEquals(StaffRank.ADMIN, recovered.rank());
+            assertEquals("SURVIVAL", recovered.selectedGameMode());
+            assertTrue(restarted.staffSessionStore().active(staffId).orElseThrow().vanishActive());
+        }
+    }
+
+    @Test
     void mirrorsRecoveryRequiredSessionInTheSameCommit() throws Exception {
         UUID staffId = identifier("vanish-atomic-recovery-required");
         try (MariaDbRuntime runtime = runtimeWithActiveSession(staffId)) {
