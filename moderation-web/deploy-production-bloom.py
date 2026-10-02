@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import http.client
 import importlib
 import io
 import json
@@ -13,7 +12,9 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 
 paramiko: Any = importlib.import_module("paramiko")
@@ -80,15 +81,16 @@ def wrangler_oauth_token() -> str:
 def cloudflare_get(oauth_token: str, path: str) -> dict[str, Any]:
     if not path.startswith(CLOUDFLARE_PREFIX) or "://" in path:
         raise RuntimeError("Cloudflare API path is invalid")
-    connection = http.client.HTTPSConnection(CLOUDFLARE_HOST, timeout=20)
+    request = Request(
+        f"https://${CLOUDFLARE_HOST}${path}",
+        headers={"Authorization": f"Bearer ${oauth_token}"},
+        method="GET",
+    )
     try:
-        connection.request("GET", path, headers={"Authorization": f"Bearer {oauth_token}"})
-        response = connection.getresponse()
-        if response.status < 200 or response.status >= 300:
-            raise RuntimeError("Cloudflare API request failed")
-        payload = json.load(response)
-    finally:
-        connection.close()
+        with urlopen(request, timeout=20) as response:
+            payload = json.load(response)
+    except (HTTPError, URLError, OSError) as exception:
+        raise RuntimeError("Cloudflare API request failed") from exception
     if not isinstance(payload, dict) or not payload.get("success"):
         raise RuntimeError("Cloudflare API rejected the tunnel lookup")
     return payload
