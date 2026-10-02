@@ -442,7 +442,11 @@ public final class StaffModeManager implements Listener {
                 loaded,
                 rank,
                 path,
-                () -> applyStaffState(player, rank),
+                () -> applyStaffState(
+                        player,
+                        rank,
+                        path == StaffModeActivationCoordinator.ActivationPath.ACTIVE_RECOVERY
+                ),
                 () -> {
                     StaffSessionSnapshot exiting = loaded.beginExit(playerId, clock.instant()).orElseThrow(() ->
                             new IllegalStateException("staff session disappeared during activation rollback"));
@@ -644,7 +648,7 @@ public final class StaffModeManager implements Listener {
             return;
         }
         StaffRank rank = rankForAction(player);
-        if (rank == null || event.getNewGameMode() != StaffModeAccessPolicy.requiredGameMode(rank)) {
+        if (rank == null || !StaffModeAccessPolicy.allowsGameMode(rank, event.getNewGameMode())) {
             event.setCancelled(true);
             if (!transitions.contains(playerId)) {
                 player.sendMessage(StaffMessageStyle.style(Component.text(
@@ -842,7 +846,7 @@ public final class StaffModeManager implements Listener {
             return;
         }
         try {
-            applyStaffState(player, liveRank);
+            applyStaffState(player, liveRank, true);
             ranks.put(playerId, liveRank);
             transitions.remove(playerId);
             player.sendMessage(StaffMessageStyle.style(Component.text("Your active staff-mode profile was updated for your current rank.")));
@@ -992,8 +996,11 @@ public final class StaffModeManager implements Listener {
         toolSessions.remove(playerId);
     }
 
-    private void applyStaffState(Player player, StaffRank rank) {
+    private void applyStaffState(Player player, StaffRank rank, boolean preserveAllowedGameMode) {
         UUID playerId = player.getUniqueId();
+        GameMode targetGameMode = preserveAllowedGameMode
+                ? StaffModeAccessPolicy.reconciledGameMode(rank, player.getGameMode())
+                : StaffModeAccessPolicy.initialGameMode(rank);
         profileApplications.add(playerId);
         String toolSession = UUID.randomUUID().toString();
         toolSessions.put(playerId, toolSession);
@@ -1017,9 +1024,9 @@ public final class StaffModeManager implements Listener {
             player.setInvulnerable(true);
             player.setCollidable(false);
             player.setCanPickupItems(false);
-            player.setGameMode(StaffModeAccessPolicy.requiredGameMode(rank));
-            if (player.getGameMode() != StaffModeAccessPolicy.requiredGameMode(rank)) {
-                throw new IllegalStateException("required staff game mode was rejected");
+            player.setGameMode(targetGameMode);
+            if (player.getGameMode() != targetGameMode) {
+                throw new IllegalStateException("staff game mode transition was rejected");
             }
             player.setAllowFlight(true);
             player.setFlying(true);

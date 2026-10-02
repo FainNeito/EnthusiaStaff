@@ -22,7 +22,7 @@ class PluginMetadataIntegrityTest {
 
         assertEquals("EnthusiaStaff", metadata.path("name").asText());
         assertEquals("net.enthusia.staff.paper.EnthusiaStaffPaperPlugin", metadata.path("main").asText());
-        assertEquals("26.2", metadata.path("api-version").asText());
+        assertEquals("1.21", metadata.path("api-version").asText());
         assertEquals("POSTWORLD", metadata.path("load").asText());
         assertFalse(metadata.path("description").asText().isBlank());
     }

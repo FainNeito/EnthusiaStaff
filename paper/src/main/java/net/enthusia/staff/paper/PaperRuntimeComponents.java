@@ -41,7 +41,6 @@ import net.enthusia.staff.paper.tester.FakeBaseManager;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
 import net.enthusia.staff.paper.visibility.VanishBroadcastListener;
 import net.enthusia.staff.paper.visibility.VanishManager;
-import net.enthusia.staff.paper.visibility.VanishNoclipController;
 import net.enthusia.staff.paper.visibility.VanishTargetingGuard;
 import net.enthusia.staff.paper.auth.LuckPermsStaffDutyContext;
 import net.enthusia.staff.paper.visibility.PrivateMessagePresenceListener;
@@ -244,8 +243,6 @@ record PaperRuntimeComponents(
         visibility.setVanishEnabledListener(playerId ->
                 scheduleVanishTargetingReconciliation(plugin, targeting, playerId));
         registerListener(plugin, targeting);
-        VanishNoclipController noclip = VanishNoclipController.install(plugin);
-        publishNoclipHealth(dependencies, noclip);
         VanishManager vanish = new VanishManager(
                 plugin,
                 dependencies.environment().clock(),
@@ -253,26 +250,11 @@ record PaperRuntimeComponents(
                 dependencies.stores().vanishStore(),
                 dependencies.stores().staffSessionStore(),
                 staffMode,
-                dependencies.environment().workers(),
-                noclip
+                dependencies.environment().workers()
         );
         staffMode.setExitListener(vanish::staffModeExited);
         registerListener(plugin, vanish);
         return vanish;
-    }
-
-    private static void publishNoclipHealth(
-            Dependencies dependencies,
-            VanishNoclipController noclip
-    ) {
-        if (noclip.supportsClientPresentation()) {
-            dependencies.featureIssues().remove("vanish-noclip");
-            return;
-        }
-        dependencies.featureIssues().put(
-                "vanish-noclip",
-                "Creative-mode full vanish cannot provide true block no-clip: " + noclip.unavailableReason()
-        );
     }
 
     private static void scheduleVanishTargetingReconciliation(
