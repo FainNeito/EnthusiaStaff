@@ -1,0 +1,25 @@
+name: PR 280 vanish Codacy diagnostic
+
+on:
+  push:
+    branches:
+      - codex/reopening-safety-2026-10-01
+
+permissions:
+  checks: read
+  contents: read
+
+jobs:
+  annotation:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Print current Codacy annotations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            '/repos/wsg138/EnthusiaStaff/check-runs/110651045619/annotations?per_page=100' \
+            --jq '.[] | [.path, (.start_line|tostring), .annotation_level, .title, .message, (.raw_details // "")] | @tsv'
