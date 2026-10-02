@@ -1,17 +1,12 @@
 'use strict'
 
-const fs = require('node:fs')
-
 const port = Number(process.argv[2])
 const version = process.argv[3]
-const output = process.argv[4]
-
 const mineflayer = require('mineflayer')
 let done = false
 const seen = new Set()
 
 function log (line) {
-  fs.appendFileSync(output, line + '\n')
   console.log(line)
 }
 
@@ -29,7 +24,7 @@ function sendPosition (bot, x, y, z) {
       hasHorizontalCollision: false
     }
   })
-  log(`CLIENT_MOVE|x=${x}|y=${y}|z=${z}|mode=${bot.game.gameMode}`)
+  log('CLIENT_MOVE|x=' + x + '|y=' + y + '|z=' + z + '|mode=' + bot.game.gameMode)
 }
 
 const bot = mineflayer.createBot({
