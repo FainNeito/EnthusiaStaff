@@ -165,13 +165,105 @@ jobs:
 
             local completed=0
             for _ in $(seq 1 150); do
-              if grep -q '^DONE=true$' "$dir/server/staff-state-reset-proof.txt" 2>/dev/null; then completed=1; break; fi
-              if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+              if grep -q '^DONE=true          }
+
+          run_one leaf115 25590 1.21.11 'RUNTIME|brandId=winds-studio:leaf|minecraft=1.21.11|build=115'
+          run_one paper128 25591 26.2 'RUNTIME|brandId=papermc:paper|minecraft=26.2|build=128'
+          run_one paper129 25592 26.2 'RUNTIME|brandId=papermc:paper|minecraft=26.2|build=129'
+          run_one paper134 25593 26.3 'RUNTIME|brandId=papermc:paper|minecraft=26.3|build=134'
+
+      - name: Verify state and geometry acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          root="$RUNNER_TEMP/runtime-proof"
+          require() {
+            local file="$1" pattern="$2"
+            grep -Eq "$pattern" "$file" || {
+              echo "::error::Missing '$pattern' in $file"
+              tail -n 240 "$file" || true
+              return 1
+            }
+          }
+          for name in leaf115 paper128 paper129 paper134; do
+            evidence="$root/$name/server/staff-state-reset-proof.txt"
+            client="$root/$name/client.log"
+            require "$evidence" '^HARNESS_READY=true$'
+            for state in VISIBLE_CREATIVE VISIBLE_SURVIVAL VISIBLE_SPECTATOR VISIBLE_CREATIVE_2 VANISH_ON_CREATIVE VANISHED_SURVIVAL VANISHED_SPECTATOR VANISHED_CREATIVE ADVENTURE_REJECTED VANISH_OFF_CREATIVE VISIBLE_SPECTATOR_FINAL; do
+              require "$evidence" "^STATE\\|$state\\|pass=true"
+            done
+            for phase in VISIBLE_WALL VISIBLE_FLOOR VISIBLE_CEILING VANISHED_WALL VANISHED_FLOOR VANISHED_CEILING VISIBLE_FINAL_TELEPORT_WALL; do
+              require "$evidence" "^GEOMETRY\\|$phase\\|pass=true\\|mode=SPECTATOR"
+            done
+            require "$client" '^MARKER\\|STATE\\|VISIBLE_SURVIVAL\\|mode=survival$'
+            require "$client" '^MARKER\\|STATE\\|VISIBLE_SPECTATOR\\|mode=spectator$'
+            require "$client" '^MARKER\\|STATE\\|VANISHED_SURVIVAL\\|mode=survival$'
+            require "$client" '^MARKER\\|STATE\\|VANISHED_SPECTATOR\\|mode=spectator$'
+            require "$client" '^MARKER\\|STATE\\|VANISHED_CREATIVE\\|mode=creative$'
+            require "$client" '^DONE=true\\|mode=spectator$'
+            require "$evidence" '^DONE=true$'
+            if grep -q '^FAIL|' "$evidence"; then
+              grep '^FAIL|' "$evidence"
+              exit 1
+            fi
+            cmp "$RUNNER_TEMP/candidate/EnthusiaStaff-Paper.jar" "$root/$name/server/plugins/EnthusiaStaff-Paper.jar"
+            echo "===== $name ====="
+            cat "$root/$name/runtime-receipt.txt"
+            grep -E '^(RUNTIME|STATE|GEOMETRY|DONE|FAIL)' "$evidence"
+          done
+          echo 'COMMON_JAR_IDENTICAL=true'
+
+      - name: Upload runtime proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: staff-state-reset-runtime-proof
+          path: |
+            ${{ runner.temp }}/evidence/
+            ${{ runner.temp }}/runtime-proof/*/evidence.txt
+            ${{ runner.temp }}/runtime-proof/*/console.log
+            ${{ runner.temp }}/runtime-proof/*/client-evidence.log
+            ${{ runner.temp }}/runtime-proof/*/client-console-evidence.log
+            ${{ runner.temp }}/runtime-proof/*/runtime-receipt.txt
+            ${{ runner.temp }}/servers/*/receipt.txt
+          if-no-files-found: warn
+          retention-days: 30
+ "$dir/server/staff-state-reset-proof.txt" 2>/dev/null; then
+                completed=1
+                break
+              fi
+              if ! kill -0 "$server_pid" 2>/dev/null; then
+                break
+              fi
               sleep 1
             done
-            wait "$server_pid" || true
-            wait "$client_pid" || true
-            test "$completed" = 1
+
+            if [[ "$completed" != 1 ]]; then
+              echo "::error::$name did not complete the reset proof"
+              cat "$dir/server/staff-state-reset-proof.txt" 2>/dev/null || true
+              tail -n 300 "$dir/server/console.log" 2>/dev/null || true
+              cat "$dir/client.log" 2>/dev/null || true
+              kill "$client_pid" 2>/dev/null || true
+              kill "$server_pid" 2>/dev/null || true
+              wait "$client_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+              return 1
+            fi
+
+            for _ in $(seq 1 30); do
+              kill -0 "$server_pid" 2>/dev/null || break
+              sleep 1
+            done
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+            wait "$client_pid" 2>/dev/null || true
+
+            cp "$dir/server/staff-state-reset-proof.txt" "$dir/evidence.txt"
+            cp "$dir/server/console.log" "$dir/console.log"
+            cp "$dir/client.log" "$dir/client-evidence.log"
+            cp "$dir/client-console.log" "$dir/client-console-evidence.log"
+            echo "===== completed $name ====="
+            grep -E '^(RUNTIME|STATE|GEOMETRY|DONE|FAIL)' "$dir/evidence.txt"
           }
 
           run_one leaf115 25590 1.21.11 'RUNTIME|brandId=winds-studio:leaf|minecraft=1.21.11|build=115'
