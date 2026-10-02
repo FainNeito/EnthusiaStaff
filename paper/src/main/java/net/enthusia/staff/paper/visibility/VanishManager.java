@@ -39,6 +39,12 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class VanishManager implements Listener {
     private static final long RECONCILIATION_RETRY_SECONDS = 5L;
     private static final int FULL_RANK_SCAN_INTERVAL_PASSES = 5;
+    private static final Component NOCLIP_RESET_RECONNECT_MESSAGE = Component.text(
+            "Staff vanish state could not be safely reset; reconnect before continuing."
+    );
+    private static final Component NOCLIP_SYNC_RECONNECT_MESSAGE = Component.text(
+            "Staff vanish state could not be safely synchronized; reconnect before continuing."
+    );
 
     private final JavaPlugin plugin;
     private final Clock clock;
@@ -680,7 +686,7 @@ public final class VanishManager implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPluginDisable(PluginDisableEvent event) {
-        if (event.getPlugin() == plugin) {
+        if (event.getPlugin().equals(plugin)) {
             spectatorTabPackets.close();
             resetNoclipBeforeDisable();
             return;
@@ -692,22 +698,26 @@ public final class VanishManager implements Listener {
     }
 
     private void resetNoclipBeforeDisable() {
-        for (UUID playerId : audiences.playerIds()) {
-            Player player = plugin.getServer().getPlayer(playerId);
-            if (player == null) {
-                noclip.retire(playerId);
-                continue;
-            }
-            if (!noclip.reconcile(player, false)) {
-                plugin.getLogger().severe(
-                        "No-clip client presentation could not be restored during plugin disable for " + playerId
-                );
-                player.kick(Component.text(
-                        "Staff vanish state could not be safely reset; reconnect before continuing."
-                ));
-            }
+        audiences.playerIds().forEach(this::resetNoclipBeforeDisable);
+    }
+
+    private void resetNoclipBeforeDisable(UUID playerId) {
+        Player player = plugin.getServer().getPlayer(playerId);
+        if (player == null) {
             noclip.retire(playerId);
+            return;
         }
+        if (!noclip.reconcile(player, false)) {
+            if (plugin.getLogger().isLoggable(Level.SEVERE)) {
+                plugin.getLogger().log(
+                        Level.SEVERE,
+                        "No-clip client presentation could not be restored during plugin disable for {0}",
+                        playerId
+                );
+            }
+            player.kick(NOCLIP_RESET_RECONNECT_MESSAGE);
+        }
+        noclip.retire(playerId);
     }
 
     public void refreshAll() {
@@ -926,9 +936,7 @@ public final class VanishManager implements Listener {
         plugin.getLogger().severe(
                 "No-clip client presentation failed for " + playerId + "; forcing reconnect to restore authoritative state"
         );
-        player.kick(Component.text(
-                "Staff vanish state could not be safely synchronized; reconnect before continuing."
-        ));
+        player.kick(NOCLIP_SYNC_RECONNECT_MESSAGE);
     }
 
     private boolean publishViewerRank(UUID playerId, StaffRank rank) {
