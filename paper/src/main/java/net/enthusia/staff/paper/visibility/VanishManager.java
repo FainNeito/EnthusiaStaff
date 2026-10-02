@@ -680,11 +680,33 @@ public final class VanishManager implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPluginDisable(PluginDisableEvent event) {
-        if (event.getPlugin() == plugin || event.getPlugin().getName().equals("ProtocolLib")) {
+        if (event.getPlugin() == plugin) {
             spectatorTabPackets.close();
-            if (event.getPlugin() != plugin) {
-                packetMaskFailed();
+            resetNoclipBeforeDisable();
+            return;
+        }
+        if (event.getPlugin().getName().equals("ProtocolLib")) {
+            spectatorTabPackets.close();
+            packetMaskFailed();
+        }
+    }
+
+    private void resetNoclipBeforeDisable() {
+        for (UUID playerId : audiences.playerIds()) {
+            Player player = plugin.getServer().getPlayer(playerId);
+            if (player == null) {
+                noclip.retire(playerId);
+                continue;
             }
+            if (!noclip.reconcile(player, false)) {
+                plugin.getLogger().severe(
+                        "No-clip client presentation could not be restored during plugin disable for " + playerId
+                );
+                player.kick(Component.text(
+                        "Staff vanish state could not be safely reset; reconnect before continuing."
+                ));
+            }
+            noclip.retire(playerId);
         }
     }
 
@@ -863,18 +885,50 @@ public final class VanishManager implements Listener {
     private boolean reconcileNoclip(Player player) {
         UUID playerId = player.getUniqueId();
         boolean vanished = visibility.isVanished(playerId);
+        if (vanished && !noclip.canEnable(player)) {
+            failClosedNoclip(player, "the pinned client adapter is unavailable");
+            return false;
+        }
         if (noclip.reconcile(player, vanished)) {
             return true;
         }
         if (vanished) {
-            visibility.setVanished(playerId, null, false);
-            applySpectatorPolicy(player, player.getGameMode(), false);
-            audiences.refreshTarget(playerId);
-            plugin.getLogger().severe(
-                    "Full vanish was fail-closed for " + playerId + " because true block no-clip could not be applied"
+            failClosedNoclip(player, "client game-mode presentation failed");
+        }
+        requireSafeReconnect(player);
+        return false;
+    }
+
+    private void failClosedNoclip(Player player, String reason) {
+        UUID playerId = player.getUniqueId();
+        StaffRank writeRank = firstPlayerRank(
+                durableVanishedRanks.get(playerId),
+                visibility.vanishedRank(playerId),
+                onlineStaffRanks.get(playerId),
+                resolveLiveRank(player)
+        );
+        visibility.setVanished(playerId, writeRank, false);
+        applySpectatorPolicy(player, player.getGameMode(), false);
+        audiences.refreshTarget(playerId);
+        plugin.getLogger().severe("Full vanish was fail-closed for " + playerId + " because " + reason);
+        if (writeRank != null) {
+            reconcileDurableState(
+                    playerId,
+                    writeRank,
+                    false,
+                    "Vanish was disabled because true block no-clip became unavailable."
             );
         }
-        return false;
+    }
+
+    private void requireSafeReconnect(Player player) {
+        UUID playerId = player.getUniqueId();
+        plugin.getLogger().severe(
+                "No-clip client presentation failed for " + playerId + "; forcing reconnect to restore authoritative state"
+        );
+        player.kick(Component.text(
+                "Staff vanish state could not be safely synchronized; reconnect before continuing."
+        ));
     }
 
     private boolean publishViewerRank(UUID playerId, StaffRank rank) {
