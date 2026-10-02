@@ -22,7 +22,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           check_run_id=""
-          for attempt in $(seq 1 60); do
+          for attempt in $(seq 1 180); do
             check_run_id="$(
               curl --fail --silent --show-error \
                 -H "Authorization: Bearer $GH_TOKEN" \
