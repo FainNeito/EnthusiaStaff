@@ -31,13 +31,14 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private final AtomicBoolean started = new AtomicBoolean();
     private Object staffMode;
     private Object visibility;
+    private Object vanishManager;
     private Object adminRank;
     private Object founderRank;
     private Object recoveryGate;
     private Method clearRecoveryGate;
     private Method staffActive;
     private Method isVanished;
-    private Method setVanished;
+    private Method applyVanishMemoryState;
     private Map<Object, Object> activeSessions;
     private Map<Object, Object> ranks;
     private Map<Object, Object> toolSessions;
@@ -85,13 +86,14 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
 
     private void prepareRuntime() throws Exception {
         Plugin staff = requireStaffPlugin();
-        ClassLoader loader = staff.getClass().getClassLoader();
+        ClassLoader loader = staff.getClass().getClassLoader(); // NOPMD - cross-plugin proof must use the target plugin loader.
         Field componentsField = staff.getClass().getDeclaredField("runtimeComponents");
-        componentsField.setAccessible(true);
+        componentsField.setAccessible(true); // NOPMD - proof inspects the private runtime composition without widening production API.
         Object components = componentsField.get(staff);
 
         staffMode = accessor(components, "staffMode").invoke(components);
         visibility = accessor(components, "visibility").invoke(components);
+        vanishManager = accessor(components, "vanish").invoke(components);
         staffActive = staffMode.getClass().getMethod("active", UUID.class);
         isVanished = visibility.getClass().getMethod("isVanished", UUID.class);
 
@@ -99,12 +101,13 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         adminRank = rankClass.getField("ADMIN").get(null);
         founderRank = rankClass.getField("FOUNDER").get(null);
         Field recoveryGateField = staffMode.getClass().getDeclaredField("recoveryGate");
-        recoveryGateField.setAccessible(true);
+        recoveryGateField.setAccessible(true); // NOPMD - proof verifies recovery fencing without widening production API.
         recoveryGate = recoveryGateField.get(staffMode);
         clearRecoveryGate = recoveryGate.getClass().getDeclaredMethod("clear", UUID.class);
-        clearRecoveryGate.setAccessible(true);
-        setVanished = visibility.getClass().getMethod(
-                "setVanished", UUID.class, rankClass, boolean.class);
+        clearRecoveryGate.setAccessible(true); // NOPMD - proof clears only its injected test identity.
+        applyVanishMemoryState = vanishManager.getClass().getDeclaredMethod(
+                "applyReconciledMemoryState", Player.class, rankClass, boolean.class);
+        applyVanishMemoryState.setAccessible(true); // NOPMD - proof drives the real vanish state machine without persistence.
 
         activeSessions = rawMap(staffMode, "active");
         ranks = rawMap(staffMode, "ranks");
@@ -149,26 +152,52 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void vanishOn(Player player) {
         try {
             setVanish(player, true);
-            state(player, "VANISH_ON_CREATIVE", true, GameMode.CREATIVE);
-            transition(player, GameMode.SURVIVAL, "VANISHED_SURVIVAL", true,
-                    () -> transition(player, GameMode.SPECTATOR, "VANISHED_SPECTATOR", true,
-                            () -> geometryMatrix(player, true, "VANISHED", () ->
-                                    transition(player, GameMode.CREATIVE, "VANISHED_CREATIVE", true,
-                                            () -> rejectAdventure(player)))));
+            state(player, "VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
+            selectWhileVanished(
+                    player,
+                    GameMode.SURVIVAL,
+                    "VANISHED_SELECT_SURVIVAL",
+                    () -> geometryMatrix(player, true, "VANISHED", () -> vanishOffToSurvival(player))
+            );
         } catch (Exception exception) {
             fail("VANISH_ON", exception);
+        }
+    }
+
+    private void vanishOffToSurvival(Player player) {
+        try {
+            setVanish(player, false);
+            state(player, "VANISH_OFF_SURVIVAL", false, GameMode.SURVIVAL);
+            transition(player, GameMode.CREATIVE, "VISIBLE_CREATIVE_3", false, () -> secondAdminVanish(player));
+        } catch (Exception exception) {
+            fail("VANISH_OFF_SURVIVAL", exception);
+        }
+    }
+
+    private void secondAdminVanish(Player player) {
+        try {
+            setVanish(player, true);
+            state(player, "VANISH_ON_SPECTATOR_2", true, GameMode.SPECTATOR);
+            selectWhileVanished(
+                    player,
+                    GameMode.CREATIVE,
+                    "VANISHED_SELECT_CREATIVE",
+                    () -> rejectAdventure(player)
+            );
+        } catch (Exception exception) {
+            fail("VANISH_ON_SECOND", exception);
         }
     }
 
     private void rejectAdventure(Player player) {
         player.setGameMode(GameMode.ADVENTURE);
         later(2L, () -> {
-            state(player, "ADVENTURE_REJECTED", true, GameMode.CREATIVE);
-            vanishOff(player);
+            state(player, "ADVENTURE_REJECTED", true, GameMode.SPECTATOR);
+            vanishOffToCreative(player);
         });
     }
 
-    private void vanishOff(Player player) {
+    private void vanishOffToCreative(Player player) {
         try {
             setVanish(player, false);
             state(player, "VANISH_OFF_CREATIVE", false, GameMode.CREATIVE);
@@ -185,7 +214,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
                         );
                     });
         } catch (Exception exception) {
-            fail("VANISH_OFF", exception);
+            fail("VANISH_OFF_CREATIVE", exception);
         }
     }
 
@@ -204,24 +233,70 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void founderVanishOn(Player player) {
         try {
             setVanish(player, true);
-            state(player, "FOUNDER_VANISH_ON_CREATIVE", true, GameMode.CREATIVE);
-            transition(player, GameMode.SURVIVAL, "FOUNDER_VANISHED_SURVIVAL", true,
-                    () -> transition(player, GameMode.SPECTATOR, "FOUNDER_VANISHED_SPECTATOR", true,
-                            () -> transition(player, GameMode.CREATIVE, "FOUNDER_VANISHED_CREATIVE", true,
-                                    () -> founderVanishOff(player))));
+            state(player, "FOUNDER_VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
+            selectWhileVanished(
+                    player,
+                    GameMode.SURVIVAL,
+                    "FOUNDER_VANISHED_SELECT_SURVIVAL",
+                    () -> founderVanishOffToSurvival(player)
+            );
         } catch (Exception exception) {
             fail("FOUNDER_VANISH_ON", exception);
         }
     }
 
-    private void founderVanishOff(Player player) {
+    private void founderVanishOffToSurvival(Player player) {
+        try {
+            setVanish(player, false);
+            state(player, "FOUNDER_VANISH_OFF_SURVIVAL", false, GameMode.SURVIVAL);
+            transition(
+                    player,
+                    GameMode.CREATIVE,
+                    "FOUNDER_VISIBLE_CREATIVE_3",
+                    () -> founderSecondVanish(player)
+            );
+        } catch (Exception exception) {
+            fail("FOUNDER_VANISH_OFF_SURVIVAL", exception);
+        }
+    }
+
+    private void founderSecondVanish(Player player) {
+        try {
+            setVanish(player, true);
+            state(player, "FOUNDER_VANISH_ON_SPECTATOR_2", true, GameMode.SPECTATOR);
+            selectWhileVanished(
+                    player,
+                    GameMode.CREATIVE,
+                    "FOUNDER_VANISHED_SELECT_CREATIVE",
+                    () -> founderVanishOffToCreative(player)
+            );
+        } catch (Exception exception) {
+            fail("FOUNDER_VANISH_ON_SECOND", exception);
+        }
+    }
+
+    private void founderVanishOffToCreative(Player player) {
         try {
             setVanish(player, false);
             state(player, "FOUNDER_VANISH_OFF_CREATIVE", false, GameMode.CREATIVE);
             finish();
         } catch (Exception exception) {
-            fail("FOUNDER_VANISH_OFF", exception);
+            fail("FOUNDER_VANISH_OFF_CREATIVE", exception);
         }
+    }
+
+    private void selectWhileVanished(
+            Player player,
+            GameMode selected,
+            String label,
+            Runnable next
+    ) {
+        player.setGameMode(selected);
+        later(2L, () -> {
+            state(player, label, true, GameMode.SPECTATOR);
+            marker(player, "STATE:" + label);
+            later(2L, next);
+        });
     }
 
     private void transition(Player player, GameMode mode, String label, boolean vanished, Runnable next) {
@@ -330,7 +405,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     }
 
     private Object newSession(UUID playerId) throws Exception {
-        ClassLoader loader = staffMode.getClass().getClassLoader();
+        ClassLoader loader = staffMode.getClass().getClassLoader(); // NOPMD - session type belongs to the target plugin loader.
         Class<?> stateClass = loader.loadClass("net.enthusia.staff.domain.staff.StaffSessionState");
         Class<?> snapshotClass = loader.loadClass("net.enthusia.staff.domain.staff.StaffSessionSnapshot");
         @SuppressWarnings({"unchecked", "rawtypes"})
@@ -366,7 +441,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
             UUID playerId = player.getUniqueId();
             boolean staff = (boolean) staffActive.invoke(staffMode, playerId);
             boolean vanish = vanished(player);
-            boolean snapshotSame = activeSessions.get(playerId) == injectedSession;
+            boolean snapshotSame = activeSessions.get(playerId) == injectedSession; // NOPMD - identity is the assertion.
             boolean toolSame = toolToken.equals(toolSessions.get(playerId));
             boolean pass = staff
                     && vanish == expectedVanish
@@ -389,7 +464,8 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     }
 
     private void setVanish(Player player, boolean vanished) throws Exception {
-        setVanished.invoke(visibility, player.getUniqueId(), adminRank, vanished);
+        Object rank = ranks.getOrDefault(player.getUniqueId(), adminRank);
+        applyVanishMemoryState.invoke(vanishManager, player, rank, vanished);
     }
 
     private boolean vanished(Player player) {
@@ -418,14 +494,14 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
 
     private static Method accessor(Object target, String name) throws Exception {
         Method method = target.getClass().getDeclaredMethod(name);
-        method.setAccessible(true);
+        method.setAccessible(true); // NOPMD - proof accesses private record accessors without widening production API.
         return method;
     }
 
     @SuppressWarnings("unchecked")
     private static Map<Object, Object> rawMap(Object target, String name) throws Exception {
         Field field = target.getClass().getDeclaredField(name);
-        field.setAccessible(true);
+        field.setAccessible(true); // NOPMD - proof inspects private state identity without widening production API.
         return (Map<Object, Object>) field.get(target);
     }
 
@@ -438,21 +514,23 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         while (root.getCause() != null) {
             root = root.getCause();
         }
-        evidence("FAIL|" + phase + "|" + root.getClass().getName() + ":" + String.valueOf(root.getMessage()));
+        evidence("FAIL|" + phase + "|" + root.getClass().getName() + ":" + root.getMessage());
     }
 
-    private synchronized void evidence(String line) {
-        try {
-            Files.writeString(
-                    EVIDENCE,
-                    line + System.lineSeparator(),
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND
-            );
-            getLogger().info("[RESET-PROOF] " + line);
-        } catch (Exception exception) {
-            getLogger().severe("Could not write reset proof evidence: " + exception);
+    private void evidence(String line) {
+        synchronized (this) {
+            try {
+                Files.writeString(
+                        EVIDENCE,
+                        line + System.lineSeparator(),
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND
+                );
+                getLogger().info("[RESET-PROOF] " + line);
+            } catch (Exception exception) {
+                getLogger().severe("Could not write reset proof evidence: " + exception);
+            }
         }
     }
 }
