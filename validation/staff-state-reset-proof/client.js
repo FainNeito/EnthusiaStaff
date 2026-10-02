@@ -95,7 +95,13 @@ bot._client.on('game_state_change', packet => {
   log('GAME_STATE|reason=' + String(packet.reason) + '|gameMode=' + String(packet.gameMode))
 })
 
-bot.once('spawn', () => log('SPAWN|mode=' + bot.game.gameMode))
+bot.once('spawn', () => {
+  log('SPAWN|mode=' + bot.game.gameMode)
+  if (version === '26.3') {
+    bot._client.write('player_loaded', {})
+    log('PLAYER_LOADED_SENT=true')
+  }
+})
 
 async function inspect (value) {
   const text = String(value)
