@@ -4,6 +4,7 @@ import io.papermc.paper.ServerBuildInfo;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
@@ -15,48 +16,35 @@ final class Paper26VanishClientGameModeAdapter implements VanishClientGameModeAd
     static final String SUPPORTED_MINECRAFT_VERSION = "26.2";
     static final int SUPPORTED_PAPER_BUILD = 129;
     private final Logger logger;
-    private final Method getHandle;
-    private final Field connection;
-    private final Constructor<?> gameEventPacket;
-    private final Object changeGameMode;
-    private final Method sendPacket;
+    private final ReflectionAccess access;
     private final AtomicBoolean healthy = new AtomicBoolean(true);
-    private final String unavailableReason;
 
     private Paper26VanishClientGameModeAdapter(Logger logger, ReflectionAccess access) {
-        this.logger = logger;
-        this.getHandle = access.getHandle();
-        this.connection = access.connection();
-        this.gameEventPacket = access.gameEventPacket();
-        this.changeGameMode = access.changeGameMode();
-        this.sendPacket = access.sendPacket();
-        this.unavailableReason = "";
-    }
-
-    private Paper26VanishClientGameModeAdapter(Logger logger, String unavailableReason) {
-        this.logger = logger;
-        this.getHandle = null;
-        this.connection = null;
-        this.gameEventPacket = null;
-        this.changeGameMode = null;
-        this.sendPacket = null;
-        this.unavailableReason = unavailableReason;
-        this.healthy.set(false);
+        this.logger = Objects.requireNonNull(logger, "logger");
+        this.access = Objects.requireNonNull(access, "access");
     }
 
     static VanishClientGameModeAdapter install(Logger logger) {
         ServerBuildInfo info = ServerBuildInfo.buildInfo();
         String incompatibility = incompatibility(info);
         if (incompatibility != null) {
-            logger.severe("Vanish no-clip client adapter disabled: " + incompatibility);
-            return new Paper26VanishClientGameModeAdapter(logger, incompatibility);
+            logIncompatibility(logger, incompatibility);
+            return new UnavailableClientGameModeAdapter(incompatibility);
         }
         try {
             return new Paper26VanishClientGameModeAdapter(logger, reflectionAccess());
         } catch (ReflectiveOperationException | LinkageError exception) {
             String reason = "Paper 26.2 build 129 internals do not match the pinned no-clip adapter";
-            logger.log(Level.SEVERE, reason, exception);
-            return new Paper26VanishClientGameModeAdapter(logger, reason);
+            if (logger.isLoggable(Level.SEVERE)) {
+                logger.log(Level.SEVERE, reason, exception);
+            }
+            return new UnavailableClientGameModeAdapter(reason);
+        }
+    }
+
+    private static void logIncompatibility(Logger logger, String incompatibility) {
+        if (logger.isLoggable(Level.SEVERE)) {
+            logger.log(Level.SEVERE, "Vanish no-clip client adapter disabled: {0}", incompatibility);
         }
     }
 
@@ -86,27 +74,38 @@ final class Paper26VanishClientGameModeAdapter implements VanishClientGameModeAd
         Field change = gameEvent.getField("CHANGE_GAME_MODE");
         Object changeValue = change.get(null);
         Constructor<?> constructor = gameEvent.getConstructor(change.getType(), float.class);
-        return new ReflectionAccess(craftPlayer.getMethod("getHandle"), serverPlayer.getField("connection"),
-                constructor, changeValue, listener.getMethod("send", packet));
+        return new ReflectionAccess(
+                craftPlayer.getMethod("getHandle"),
+                serverPlayer.getField("connection"),
+                constructor,
+                changeValue,
+                listener.getMethod("send", packet)
+        );
     }
 
-    @Override public boolean available() { return healthy.get(); }
+    @Override
+    public boolean available() {
+        return healthy.get();
+    }
 
     @Override
     public String unavailableReason() {
-        if (available()) return "";
-        return unavailableReason.isBlank() ? "client game-mode presentation failed at runtime" : unavailableReason;
+        return available() ? "" : "client game-mode presentation failed at runtime";
     }
 
     @Override
     public boolean present(Player player, GameMode gameMode) {
-        if (!available()) return false;
+        if (!available()) {
+            return false;
+        }
         try {
-            Object handle = getHandle.invoke(player);
-            Object listener = connection.get(handle);
-            if (listener == null) return false;
-            Object packet = gameEventPacket.newInstance(changeGameMode, gameModeId(gameMode));
-            sendPacket.invoke(listener, packet);
+            Object handle = access.getHandle().invoke(player);
+            Object listener = access.connection().get(handle);
+            if (listener == null) {
+                return false;
+            }
+            Object packet = access.gameEventPacket().newInstance(access.changeGameMode(), gameModeId(gameMode));
+            access.sendPacket().invoke(listener, packet);
             return true;
         } catch (ReflectiveOperationException | RuntimeException exception) {
             disableAfterFailure(exception);
@@ -115,7 +114,7 @@ final class Paper26VanishClientGameModeAdapter implements VanishClientGameModeAd
     }
 
     private void disableAfterFailure(Exception exception) {
-        if (healthy.compareAndSet(true, false)) {
+        if (healthy.compareAndSet(true, false) && logger.isLoggable(Level.SEVERE)) {
             logger.log(Level.SEVERE, "Vanish no-clip client presentation failed; adapter is now fail-closed", exception);
         }
     }
@@ -129,7 +128,31 @@ final class Paper26VanishClientGameModeAdapter implements VanishClientGameModeAd
         };
     }
 
-    private record ReflectionAccess(Method getHandle, Field connection, Constructor<?> gameEventPacket,
-                                    Object changeGameMode, Method sendPacket) {
+    private record ReflectionAccess(
+            Method getHandle,
+            Field connection,
+            Constructor<?> gameEventPacket,
+            Object changeGameMode,
+            Method sendPacket
+    ) {
+    }
+
+    private record UnavailableClientGameModeAdapter(String unavailableReason)
+            implements VanishClientGameModeAdapter {
+        private UnavailableClientGameModeAdapter {
+            Objects.requireNonNull(unavailableReason, "unavailableReason");
+        }
+
+        @Override
+        public boolean available() {
+            return false;
+        }
+
+        @Override
+        public boolean present(Player player, GameMode gameMode) {
+            Objects.requireNonNull(player, "player");
+            Objects.requireNonNull(gameMode, "gameMode");
+            return false;
+        }
     }
 }
