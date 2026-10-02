@@ -1,6 +1,5 @@
 package proof.reset;
 
-import io.papermc.paper.ServerBuildInfo;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -10,7 +9,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.kyori.adventure.text.Component;
@@ -122,13 +120,6 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
             throw new IllegalStateException("EnthusiaStaff is not enabled");
         }
         return staff;
-    }
-
-    private void recordRuntime() {
-        ServerBuildInfo info = ServerBuildInfo.buildInfo();
-        evidence("RUNTIME|brandId=" + info.brandId()
-                + "|minecraft=" + info.minecraftVersionId()
-                + "|build=" + optionalInt(info.buildNumber()));
     }
 
     private void begin(Player player) {
@@ -518,10 +509,6 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true); // NOPMD - proof inspects private state identity without widening production API.
         return (Map<Object, Object>) field.get(target);
-    }
-
-    private static String optionalInt(OptionalInt value) {
-        return value.isPresent() ? Integer.toString(value.getAsInt()) : "missing";
     }
 
     private void fail(String phase, Exception exception) {
