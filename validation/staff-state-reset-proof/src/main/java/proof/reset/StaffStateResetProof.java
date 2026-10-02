@@ -21,6 +21,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -55,8 +56,19 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void prepareRank(PlayerJoinEvent event) {
+        event.getPlayer().addAttachment(this, "enthusiastaff.identity.admin", true);
         event.getPlayer().addAttachment(this, "enthusiastaff.rank.admin", true);
         event.getPlayer().addAttachment(this, "enthusiastaff.vanish", true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onGameModeChange(PlayerGameModeChangeEvent event) {
+        Player player = event.getPlayer();
+        evidence("MODE_EVENT|from=" + player.getGameMode()
+                + "|to=" + event.getNewGameMode()
+                + "|cancelled=" + event.isCancelled()
+                + "|identityAdmin=" + player.hasPermission("enthusiastaff.identity.admin")
+                + "|legacyAdmin=" + player.hasPermission("enthusiastaff.rank.admin"));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -110,6 +122,9 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
             player.setGameMode(GameMode.CREATIVE);
             injectActiveSession(player);
             setVanish(player, false);
+            evidence("RANK_AUTHORITY|identityAdmin="
+                    + player.hasPermission("enthusiastaff.identity.admin")
+                    + "|legacyAdmin=" + player.hasPermission("enthusiastaff.rank.admin"));
             state(player, "VISIBLE_CREATIVE", false, GameMode.CREATIVE);
             transition(player, GameMode.SURVIVAL, "VISIBLE_SURVIVAL", false,
                     () -> transition(player, GameMode.SPECTATOR, "VISIBLE_SPECTATOR", false,
@@ -148,14 +163,17 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
             setVanish(player, false);
             state(player, "VANISH_OFF_CREATIVE", false, GameMode.CREATIVE);
             transition(player, GameMode.SPECTATOR, "VISIBLE_SPECTATOR_FINAL", false,
-                    () -> geometryCase(
-                            player,
-                            "VISIBLE_FINAL_TELEPORT_WALL",
-                            chamber(player, 260),
-                            new Location(player.getWorld(), 262.5D, 80.0D, 200.5D),
-                            position -> position.getX() > 261.5D,
-                            this::finish
-                    ));
+                    () -> {
+                        Location base = chamber(player);
+                        geometryCase(
+                                player,
+                                "VISIBLE_FINAL_TELEPORT_WALL",
+                                base,
+                                base.clone().add(2.0D, 0.0D, 0.0D),
+                                position -> position.getX() > base.getX() + 1.5D,
+                                this::finish
+                        );
+                    });
         } catch (Exception exception) {
             fail("VANISH_OFF", exception);
         }
@@ -171,27 +189,25 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     }
 
     private void geometryMatrix(Player player, boolean vanished, String prefix, Runnable next) {
-        Location wallBase = chamber(player, vanished ? 230 : 200);
-        Location floorBase = chamber(player, vanished ? 240 : 210);
-        Location ceilingBase = chamber(player, vanished ? 250 : 220);
+        Location base = chamber(player);
         geometryCase(
                 player,
                 prefix + "_WALL",
-                wallBase,
-                wallBase.clone().add(2.0D, 0.0D, 0.0D),
-                position -> position.getX() > wallBase.getX() + 1.5D,
+                base,
+                base.clone().add(2.0D, 0.0D, 0.0D),
+                position -> position.getX() > base.getX() + 1.5D,
                 () -> geometryCase(
                         player,
                         prefix + "_FLOOR",
-                        floorBase,
-                        floorBase.clone().add(0.0D, -2.5D, 0.0D),
-                        position -> position.getY() < floorBase.getY() - 1.5D,
+                        base,
+                        base.clone().add(0.0D, -2.5D, 0.0D),
+                        position -> position.getY() < base.getY() - 1.5D,
                         () -> geometryCase(
                                 player,
                                 prefix + "_CEILING",
-                                ceilingBase,
-                                ceilingBase.clone().add(0.0D, 3.5D, 0.0D),
-                                position -> position.getY() > ceilingBase.getY() + 2.5D,
+                                base,
+                                base.clone().add(0.0D, 3.5D, 0.0D),
+                                position -> position.getY() > base.getY() + 2.5D,
                                 next
                         )
                 )
@@ -225,8 +241,14 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         });
     }
 
-    private Location chamber(Player player, int x) {
-        Location base = new Location(player.getWorld(), x + 0.5D, 80.0D, 200.5D);
+    private Location chamber(Player player) {
+        Location current = player.getLocation();
+        Location base = new Location(
+                player.getWorld(),
+                current.getBlockX() + 0.5D,
+                current.getBlockY(),
+                current.getBlockZ() + 0.5D
+        );
         int bx = base.getBlockX();
         int by = base.getBlockY();
         int bz = base.getBlockZ();

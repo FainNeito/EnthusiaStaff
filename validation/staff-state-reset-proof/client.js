@@ -38,6 +38,7 @@ ${oldTail}`
 
 const mineflayer = require('mineflayer')
 let done = false
+const seen = new Set()
 
 function log (line) {
   fs.appendFileSync(output, line + '\n')
@@ -86,6 +87,9 @@ async function inspect (value) {
   const text = String(value)
   const move = text.match(/RESET_PROOF:MOVE:([A-Z_]+):(-?[0-9.]+):(-?[0-9.]+):(-?[0-9.]+)/)
   if (move) {
+    const key = 'MOVE:' + move[1]
+    if (seen.has(key)) return
+    seen.add(key)
     log('MARKER|MOVE|' + move[1] + '|mode=' + bot.game.gameMode)
     await sleep(150)
     sendPosition(bot, Number(move[2]), Number(move[3]), Number(move[4]))
@@ -93,10 +97,15 @@ async function inspect (value) {
   }
   const state = text.match(/RESET_PROOF:STATE:([A-Z0-9_]+)/)
   if (state) {
+    const key = 'STATE:' + state[1]
+    if (seen.has(key)) return
+    seen.add(key)
     log('MARKER|STATE|' + state[1] + '|mode=' + bot.game.gameMode)
     return
   }
   if (text.includes('RESET_PROOF:DONE')) {
+    if (seen.has('DONE')) return
+    seen.add('DONE')
     done = true
     log('DONE=true|mode=' + bot.game.gameMode)
   }

@@ -128,6 +128,7 @@ jobs:
           allow-flight=true
           gamemode=creative
           force-gamemode=false
+          white-list=false
           max-players=4
           view-distance=3
           simulation-distance=3
