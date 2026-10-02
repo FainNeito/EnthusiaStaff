@@ -923,9 +923,14 @@ public final class VanishManager implements Listener {
     private void applyDurableVanishRecovery(Player player, VanishRecord record) {
         UUID playerId = player.getUniqueId();
         if (record == null) {
+            boolean wasVanished = visibility.isVanished(playerId);
             durableVanishedRanks.remove(playerId);
-            selectedGameModes.remove(playerId);
             visibility.setVanished(playerId, null, false);
+            if (wasVanished && selectedGameModes.containsKey(playerId)) {
+                restoreSelectedGameMode(player);
+            } else {
+                selectedGameModes.remove(playerId);
+            }
             applySpectatorPolicy(player, player.getGameMode(), false);
             audiences.updateGameMode(playerId, player.getGameMode());
             audiences.refreshTarget(playerId);
