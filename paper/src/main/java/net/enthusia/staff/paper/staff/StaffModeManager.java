@@ -66,6 +66,7 @@ public final class StaffModeManager implements Listener {
     private final java.util.Set<UUID> handoffGaps = ConcurrentHashMap.newKeySet();
     private final StaffModeRecoveryGate recoveryGate = new StaffModeRecoveryGate(transitions);
     private final java.util.Set<UUID> profileApplications = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<UUID> snapshotRestorations = ConcurrentHashMap.newKeySet();
     private final java.util.Set<UUID> pendingRankChecks = ConcurrentHashMap.newKeySet();
     private final StaffModeHandoffIntentRegistry handoffResumes;
     private final StaffModeSourceHandoffRegistry sourceHandoffs = new StaffModeSourceHandoffRegistry();
@@ -116,6 +117,10 @@ public final class StaffModeManager implements Listener {
 
     public CombatStatusAdapter combat() {
         return combat;
+    }
+
+    public boolean restoringSavedState(UUID playerId) {
+        return snapshotRestorations.contains(playerId);
     }
 
     public void setExitListener(Consumer<UUID> exitListener) {
@@ -636,6 +641,7 @@ public final class StaffModeManager implements Listener {
         toolSessions.remove(playerId);
         recoveryGate.clear(playerId);
         profileApplications.remove(playerId);
+        snapshotRestorations.remove(playerId);
         pendingRankChecks.remove(playerId);
         handoffGaps.remove(playerId);
     }
@@ -922,6 +928,7 @@ public final class StaffModeManager implements Listener {
         }
         UUID playerId = player.getUniqueId();
         profileApplications.add(playerId);
+        snapshotRestorations.add(playerId);
         try {
             removeStaffTools(player);
             if (player.getGameMode() == GameMode.SPECTATOR) {
@@ -929,6 +936,7 @@ public final class StaffModeManager implements Listener {
             }
             return codec.restore(player, session.snapshot());
         } finally {
+            snapshotRestorations.remove(playerId);
             profileApplications.remove(playerId);
         }
     }
