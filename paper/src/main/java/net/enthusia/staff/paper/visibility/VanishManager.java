@@ -581,7 +581,7 @@ public final class VanishManager implements Listener {
                 if (loaded == null) {
                     throw new IllegalStateException("vanish storage is not ready");
                 }
-                persistState(loaded, playerId, rank, vanished);
+                persistState(loaded, playerId, rank, vanished, selectedGameModes.get(playerId));
                 if (vanished) {
                     durableVanishedRanks.put(playerId, rank);
                 } else {
