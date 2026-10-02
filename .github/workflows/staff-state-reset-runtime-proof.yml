@@ -159,9 +159,8 @@ jobs:
 
             local node_path="$RUNNER_TEMP/mf-pre263/node_modules"
             if [[ "$version" == "26.3" ]]; then node_path="$RUNNER_TEMP/mf-263/node_modules"; fi
-            (
-              NODE_PATH="$node_path" node validation/staff-state-reset-proof/client.js "$port" "$version" "$dir/client.log"
-            ) > "$dir/client-console.log" 2>&1 &
+            NODE_PATH="$node_path" node validation/staff-state-reset-proof/client.js "$port" "$version" \
+              > "$dir/client.log" 2> "$dir/client-console.log" &
             local client_pid=$!
 
             local completed=0
