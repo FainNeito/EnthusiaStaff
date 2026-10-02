@@ -23,4 +23,16 @@ public interface VanishStore {
             Instant now,
             boolean requireActiveStaffSession
     );
+
+    default WriteResult set(
+            UUID staffId,
+            StaffRank rank,
+            boolean vanished,
+            UUID actorId,
+            Instant now,
+            boolean requireActiveStaffSession,
+            String selectedGameMode
+    ) {
+        return set(staffId, rank, vanished, actorId, now, requireActiveStaffSession);
+    }
 }
