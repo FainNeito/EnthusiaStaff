@@ -38,7 +38,7 @@ These are product categories, not work assignments.
 
 Current `main` already includes:
 
-- standalone Java 21/JDA StaffBot runtime;
+- standalone Java 25/JDA StaffBot runtime;
 - Discord moderation/read commands and signed interaction flow;
 - linked-staff actor resolution and central authorization;
 - Discord punishment execution/reconciliation for warn/mute/kick/ban/restriction scopes;

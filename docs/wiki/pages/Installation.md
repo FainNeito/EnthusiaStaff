@@ -18,7 +18,7 @@ This page describes **private staging installation and topology**, not permissio
 
 Depending on the staging group being exercised:
 
-- Java 21;
+- Java 25;
 - supported Paper/Leaf/Purpur backend(s);
 - supported Velocity proxy;
 - MariaDB;

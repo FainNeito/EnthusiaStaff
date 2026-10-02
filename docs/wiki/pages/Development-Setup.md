@@ -5,7 +5,7 @@ Use this page to prepare a clean EnthusiaStaff development environment. Before c
 ## Prerequisites
 
 - Git
-- Java 21 JDK
+- Java 25 JDK
 - Docker compatible with MariaDB Testcontainers
 - Python 3 for Wiki validation
 - Node/npm when changing `moderation-web/` or site frontend/functions
@@ -41,7 +41,7 @@ java -version
 ./gradlew --version
 ```
 
-Both should use Java 21.
+Both should use Java 25.
 
 Complete Java validation is documented in [[Build and Testing]]. The root `runtimeJars` task builds/verifies four Java runtimes:
 
