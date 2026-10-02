@@ -996,11 +996,11 @@ public final class VanishManager implements Listener {
         UUID playerId = player.getUniqueId();
         vanishGameModeApplications.add(playerId);
         try {
-            player.setSpectatorTarget(null);
             player.setGameMode(GameMode.SPECTATOR);
             if (player.getGameMode() != GameMode.SPECTATOR) {
                 throw new IllegalStateException("server-side spectator transition was rejected");
             }
+            player.setSpectatorTarget(null);
         } finally {
             vanishGameModeApplications.remove(playerId);
         }
