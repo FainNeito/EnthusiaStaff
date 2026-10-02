@@ -54,8 +54,7 @@ function sendPosition (bot, x, y, z) {
   if (version === '26.3') {
     bot._client.write('position_look', {
       x, y, z, yaw: 0, pitch: 0,
-      onGround: false,
-      horizontalCollision: false
+      flags: { onGround: false, hasHorizontalCollision: false }
     })
   } else {
     bot._client.write('position', {
