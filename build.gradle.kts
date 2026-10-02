@@ -4,7 +4,7 @@ import org.gradle.testing.jacoco.tasks.JacocoReport
 plugins {
     base
     jacoco
-    id("com.gradleup.shadow") version "8.3.6" apply false
+    id("com.gradleup.shadow") version "8.3.11" apply false
 }
 
 group = "net.enthusia.staff"
