@@ -118,6 +118,14 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         if (staffId == null || now == null) {
             throw new IllegalArgumentException("staff and current time are required");
         }
+        // M4: exit serializes on the same staff row as entry; apply the deadlock retry here too.
+        return new JdbcDeadlockRetry().execute(
+                "Staff session exit was interrupted during deadlock retry",
+                () -> beginExitOnce(staffId)
+        );
+    }
+
+    private Optional<StaffSessionSnapshot> beginExitOnce(UUID staffId) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
