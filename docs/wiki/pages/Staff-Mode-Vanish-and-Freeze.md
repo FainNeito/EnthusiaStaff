@@ -61,6 +61,18 @@ from actual Spectator mode; vanish does not provide block no-clip in Survival or
 Creative. When Staff Mode exits, the exact pre-Staff game mode from the durable
 snapshot is restored with the rest of the saved state.
 
+Vanish now honors that same rank-authorized mode selection. Admin and Founder keep
+their real Survival or Creative mode and its normal hotbar when enabling vanish;
+they can switch into or out of real Spectator without disabling vanish. Lower
+staff retain the Spectator-only restriction. Spectator itself uses Minecraft's
+spectator controls instead of the normal inventory hotbar.
+
+Java F3+N/F3+F4 shortcuts receive a client capability hint for Admin/Founder who
+already have `minecraft.command.gamemode`. No operator status or server command
+permission is granted. Real operators keep their existing status; loss of the
+rank or command permission clears the hint. The server still authorizes the
+requested mode, and vanilla keyboard shortcuts do not apply to Bedrock clients.
+
 ## Staff hotbar
 
 The operational hotbar routes into existing commands/services; possessing the item does not grant authority.
