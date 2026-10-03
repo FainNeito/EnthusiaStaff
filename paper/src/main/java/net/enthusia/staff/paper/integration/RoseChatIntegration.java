@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -96,6 +97,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             Supplier<MuteEnforcementListener> mutes,
             FreezeManager freezes,
             StaffVisibilityService visibility,
+            Predicate<UUID> presenceStateReady,
             ChatContextBuffer chat,
             JavaPlugin staffPlugin,
             Supplier<PunishmentService> punishments,
@@ -114,6 +116,7 @@ public final class RoseChatIntegration implements AutoCloseable {
                     mutes,
                     freezes,
                     visibility,
+                    presenceStateReady,
                     chat,
                     staffPlugin,
                     punishments,
@@ -142,6 +145,7 @@ public final class RoseChatIntegration implements AutoCloseable {
         Objects.requireNonNull(mutes, "mutes");
         Objects.requireNonNull(freezes, "freezes");
         Objects.requireNonNull(visibility, "visibility");
+        Objects.requireNonNull(presenceStateReady, "presenceStateReady");
         Objects.requireNonNull(chat, "chat");
         try {
             RoseChatStaffService service = services.load(RoseChatStaffService.class);
@@ -166,7 +170,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             BridgeRegistration registration = service.installBridge(
                     BRIDGE_OWNER,
                     configuration,
-                    new StaffBridge(configuration, mode, mutes, freezes, visibility, chat)
+                    new StaffBridge(configuration, mode, mutes, freezes, visibility, presenceStateReady, chat)
             );
             return new Discovery(
                     Optional.of(new RoseChatIntegration(service, registration)),
@@ -187,6 +191,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             Supplier<MuteEnforcementListener> mutes,
             FreezeManager freezes,
             StaffVisibilityService visibility,
+            Predicate<UUID> presenceStateReady,
             ChatContextBuffer chat,
             JavaPlugin staffPlugin,
             Supplier<PunishmentService> punishments,
@@ -275,6 +280,21 @@ public final class RoseChatIntegration implements AutoCloseable {
         return registration.isActive();
     }
 
+    static boolean shouldRenderLifecyclePresence(
+            Predicate<UUID> presenceStateReady,
+            StaffVisibilityService visibility,
+            PresenceContext context
+    ) {
+        Objects.requireNonNull(presenceStateReady, "presenceStateReady");
+        Objects.requireNonNull(visibility, "visibility");
+        Objects.requireNonNull(context, "context");
+        UUID subjectId = context.subjectId();
+        if (!presenceStateReady.test(subjectId)) {
+            return false;
+        }
+        return !visibility.isVanished(subjectId);
+    }
+
     public boolean renderPresenceTransition(UUID subjectId, UUID viewerId, boolean vanished) {
         Objects.requireNonNull(subjectId, "subjectId");
         Objects.requireNonNull(viewerId, "viewerId");
@@ -329,6 +349,7 @@ public final class RoseChatIntegration implements AutoCloseable {
         private final Supplier<MuteEnforcementListener> mutes;
         private final FreezeManager freezes;
         private final StaffVisibilityService visibility;
+        private final Predicate<UUID> presenceStateReady;
         private final RoseChatPrivateMessageVisibility privateMessages;
         private final ChatContextBuffer chat;
 
@@ -338,6 +359,7 @@ public final class RoseChatIntegration implements AutoCloseable {
                 Supplier<MuteEnforcementListener> mutes,
                 FreezeManager freezes,
                 StaffVisibilityService visibility,
+                Predicate<UUID> presenceStateReady,
                 ChatContextBuffer chat
         ) {
             this.channels = channels;
@@ -345,6 +367,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             this.mutes = mutes;
             this.freezes = freezes;
             this.visibility = visibility;
+            this.presenceStateReady = presenceStateReady;
             this.privateMessages = new RoseChatPrivateMessageVisibility(visibility);
             this.chat = chat;
         }
@@ -419,44 +442,13 @@ public final class RoseChatIntegration implements AutoCloseable {
 
         @Override
         public boolean canRenderPresence(PresenceContext context) {
-            return checkVisibility("presence", context.viewerId(), context.subjectId());
-        }
-
-        /**
-         * H1: presence/channel rendering is decoupled from vanish-map inconsistencies. A subject
-         * that is not vanished never consults the matrix; every suppression is logged; and a
-         * failing visibility check fails open (renders) instead of silently swallowing
-         * join/leave and channel chat.
-         */
-        private boolean checkVisibility(String surface, UUID viewerId, UUID subjectId) {
-            if (subjectId == null || viewerId.equals(subjectId)) {
-                return true;
-            }
-            boolean vanished;
             try {
-                vanished = visibility.isVanished(subjectId);
+                return shouldRenderLifecyclePresence(presenceStateReady, visibility, context);
             } catch (RuntimeException exception) {
                 log.log(Level.WARNING, exception,
-                        () -> "Vanish visibility check failed for RoseChat " + surface + "; rendering anyway");
-                return true;
+                        () -> "RoseChat lifecycle-presence check failed; suppressing the message");
+                return false;
             }
-            if (!vanished) {
-                return true;
-            }
-            boolean canSee;
-            try {
-                canSee = visibility.canSee(viewerId, subjectId);
-            } catch (RuntimeException exception) {
-                log.log(Level.WARNING, exception,
-                        () -> "Vanish visibility check failed for RoseChat " + surface + "; rendering anyway");
-                return true;
-            }
-            if (!canSee) {
-                log.log(Level.FINE,
-                        "Suppressing RoseChat {0} for vanished subject {1} (viewer {2})",
-                        new Object[]{surface, subjectId, viewerId});
-            }
-            return canSee;
         }
 
         /**
