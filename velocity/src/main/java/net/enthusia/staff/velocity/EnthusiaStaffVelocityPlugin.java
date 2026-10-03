@@ -14,8 +14,8 @@ import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
-import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.Dependency;
+import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -50,20 +50,21 @@ import javax.net.ssl.SSLContext;
 import net.enthusia.staff.common.CaseId;
 import net.enthusia.staff.common.security.HmacTokenService;
 import net.enthusia.staff.common.security.NetworkIdentityProtector;
-import net.enthusia.staff.common.security.SecretKeyMaterial;
 import net.enthusia.staff.common.security.PrivateRuntimeSecrets;
+import net.enthusia.staff.common.security.SecretKeyMaterial;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.alt.AltRelationshipState;
 import net.enthusia.staff.domain.alt.AltRelationshipSummary;
 import net.enthusia.staff.domain.application.SanctionChangeService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.DefaultAuthorizationPolicy;
-import net.enthusia.staff.domain.moderation.CurrentLinkedMinecraftAccount;
 import net.enthusia.staff.domain.migration.CutoverAssessment;
 import net.enthusia.staff.domain.migration.CutoverEvidence;
 import net.enthusia.staff.domain.migration.DecisionComparison;
 import net.enthusia.staff.domain.migration.FounderOverride;
 import net.enthusia.staff.domain.migration.MigrationMode;
+import net.enthusia.staff.domain.moderation.CurrentLinkedMinecraftAccount;
+import net.enthusia.staff.domain.player.PlayerNames;
 import net.enthusia.staff.domain.player.PlayerPlatform;
 import net.enthusia.staff.domain.ports.AccountLinkingStore;
 import net.enthusia.staff.domain.ports.DiscordOutboxStore;
@@ -1638,7 +1639,8 @@ public final class EnthusiaStaffVelocityPlugin {
                         target,
                         linkedAccounts.orElseGet(List::of),
                         linkedAccounts.isPresent(),
-                        relationships
+                        relationships,
+                        new PlayerNames(directory)
                 ).forEach(source::sendMessage);
             });
         }

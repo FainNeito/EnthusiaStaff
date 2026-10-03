@@ -1,6 +1,5 @@
 package net.enthusia.staff.paper.punishment;
 
-import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import java.util.List;
 import java.util.Locale;
@@ -28,11 +27,13 @@ import net.enthusia.staff.domain.auth.ModerationAction;
 import net.enthusia.staff.domain.casefile.CaseVisibility;
 import net.enthusia.staff.domain.escalation.ReasonPolicy;
 import net.enthusia.staff.domain.player.PlayerIdentity;
+import net.enthusia.staff.domain.player.PlayerNames;
 import net.enthusia.staff.domain.ports.PlayerDirectory;
 import net.enthusia.staff.domain.ports.ReasonPolicyRepository;
 import net.enthusia.staff.paper.auth.LuckPermsStaffTargetGuard;
 import net.enthusia.staff.paper.auth.PaperActorResolver;
 import net.enthusia.staff.paper.auth.StaffTargetGuard;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -631,7 +632,7 @@ public final class PunishmentGuiController implements Listener {
     }
 
     private static String targetName(PlayerIdentity target) {
-        return target.currentUsername().orElse(target.playerId().toString());
+        return PlayerNames.label(target);
     }
 
     record Dependencies(

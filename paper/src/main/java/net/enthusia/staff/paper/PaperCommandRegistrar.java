@@ -226,10 +226,12 @@ final class PaperCommandRegistrar {
                 clock(),
                 activeReportStore,
                 dependencies.environment().reportConfiguration(),
-                workers()
+                workers(),
+                storage(PaperStorageBindings::playerDirectory)
         );
         plugin().getServer().getPluginManager().registerEvents(reportGui, plugin());
-        ReportsCommand reports = new ReportsCommand(plugin(), clock(), activeReportStore, workers(), reportGui);
+        ReportsCommand reports = new ReportsCommand(plugin(), clock(), activeReportStore, workers(), reportGui,
+                new net.enthusia.staff.paper.report.ReportEvidenceFormatter(), storage(PaperStorageBindings::playerDirectory));
         bindCompleting("reports", reports, reports);
     }
 
@@ -281,7 +283,7 @@ final class PaperCommandRegistrar {
         bindCompleting("history", history, history);
         CaseCommand caseCommand = new CaseCommand(
                 plugin(), cases, dependencies.integrations().confiscation(), histories,
-                moderationSettings::current, activeAuthorization, workers()
+                moderationSettings::current, activeAuthorization, workers(), players
         );
         InventoryRecoveryCoordinator recovery = new InventoryRecoveryCoordinator(
                 clock(), storage(PaperStorageBindings::inventoryRecoveryStore), activeAuthorization

@@ -10,6 +10,7 @@ import net.enthusia.staff.domain.application.PunishmentDraft;
 import net.enthusia.staff.domain.auth.Actor;
 import net.enthusia.staff.domain.escalation.ReasonPolicy;
 import net.enthusia.staff.domain.player.PlayerIdentity;
+import net.enthusia.staff.domain.player.PlayerNames;
 import net.enthusia.staff.domain.sanction.SanctionLength;
 import net.enthusia.staff.domain.sanction.SanctionSpec;
 import net.kyori.adventure.text.Component;
@@ -109,7 +110,6 @@ final class PunishmentGuiRenderer {
                 Material.PLAYER_HEAD,
                 targetName(state.target()),
                 List.of(
-                        Component.text(state.target().playerId().toString(), NamedTextColor.DARK_GRAY),
                         Component.text("Platform: " + state.target().platform(), NamedTextColor.GRAY),
                         Component.text("Last seen: " + state.target().lastSeenAt(), NamedTextColor.GRAY)
                 )
@@ -296,7 +296,7 @@ final class PunishmentGuiRenderer {
     }
 
     private static String targetName(PlayerIdentity target) {
-        return target.currentUsername().orElse(target.playerId().toString());
+        return PlayerNames.label(target);
     }
 
     private static String humanize(String identifier) {

@@ -1,14 +1,13 @@
 package net.enthusia.staff.paper.command;
 
-import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.OptionalLong;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -19,6 +18,7 @@ import net.enthusia.staff.domain.auth.Actor;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.ModerationAction;
 import net.enthusia.staff.domain.player.PlayerIdentity;
+import net.enthusia.staff.domain.player.PlayerNames;
 import net.enthusia.staff.domain.player.PlayerPresence;
 import net.enthusia.staff.domain.ports.CaseLookup;
 import net.enthusia.staff.domain.ports.FreezeStore;
@@ -27,10 +27,11 @@ import net.enthusia.staff.domain.ports.ReportStore;
 import net.enthusia.staff.domain.sanction.SanctionType;
 import net.enthusia.staff.paper.auth.PaperActorResolver;
 import net.enthusia.staff.paper.economy.EconomyCoordinator;
-import net.enthusia.staff.paper.inventory.ConfiscationCoordinator;
-import net.enthusia.staff.paper.inventory.InventoryCoordinator;
 import net.enthusia.staff.paper.integration.MarketIntegration;
 import net.enthusia.staff.paper.integration.ReputationIntegration;
+import net.enthusia.staff.paper.inventory.ConfiscationCoordinator;
+import net.enthusia.staff.paper.inventory.InventoryCoordinator;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -189,12 +190,11 @@ public final class InspectCommand implements CommandExecutor, TabCompleter {
                 return;
             }
             PlayerPresence presence = loaded.presence(target.playerId()).orElse(null);
-            String name = target.currentUsername().orElse(target.playerId().toString());
+            String name = PlayerNames.label(target);
             String server = presence == null
                     ? "offline/unknown"
                     : presence.currentServer().orElse("offline");
             String summary = "Inspector: " + name
-                    + " | UUID " + target.playerId()
                     + " | platform " + target.platform()
                     + " | server " + server
                     + " | last seen " + target.lastSeenAt();
@@ -229,7 +229,7 @@ public final class InspectCommand implements CommandExecutor, TabCompleter {
     }
 
     private void showFreeze(Player viewer, UUID playerId, boolean canManageFreeze) {
-        List<Component> lines = freeze.render(playerId, canManageFreeze);
+        List<Component> lines = freeze.render(playerId, canManageFreeze, new PlayerNames(directory.get()));
         onViewer(viewer, () -> lines.forEach(viewer::sendMessage));
     }
 
