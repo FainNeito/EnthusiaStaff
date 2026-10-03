@@ -18,6 +18,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.application.PunishmentService;
 import net.enthusia.staff.domain.ports.AtomicReasonPolicyRepository;
@@ -305,6 +307,8 @@ public final class RoseChatIntegration implements AutoCloseable {
     }
 
     private static final class StaffBridge implements RoseChatModerationBridge {
+        private static final Logger log = Logger.getLogger(StaffBridge.class.getName());
+
         private final StaffChannelConfiguration channels;
         private final Supplier<OperationalMode> mode;
         private final Supplier<MuteEnforcementListener> mutes;
