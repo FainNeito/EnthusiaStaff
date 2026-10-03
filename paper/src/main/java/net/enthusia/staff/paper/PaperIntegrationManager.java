@@ -264,6 +264,7 @@ final class PaperIntegrationManager implements Listener {
                     dependencies.evidence().muteEnforcement(),
                     dependencies.players().freeze(),
                     dependencies.players().visibility(),
+                    dependencies.players().vanish()::presenceStateReady,
                     dependencies.evidence().chatContext().get(),
                     plugin(),
                     dependencies.stores().punishmentService(),
