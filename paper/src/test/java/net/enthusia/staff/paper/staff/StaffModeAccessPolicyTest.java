@@ -17,9 +17,8 @@ class StaffModeAccessPolicyTest {
         assertTrue(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.HELPER, true));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.HELPER));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.HELPER));
-        assertFalse(StaffModeAccessPolicy.usesCreativeMode(StaffRank.HELPER));
         assertFalse(StaffModeAccessPolicy.hasAdvancedStaffTools(StaffRank.HELPER));
-        assertEquals(GameMode.SPECTATOR, StaffModeAccessPolicy.requiredGameMode(StaffRank.HELPER));
+        assertEquals(GameMode.SPECTATOR, StaffModeAccessPolicy.initialGameMode(StaffRank.HELPER));
     }
 
     @Test
@@ -27,11 +26,10 @@ class StaffModeAccessPolicyTest {
         assertFalse(StaffRank.DEVELOPER.canApprovePunishmentRequests());
         assertFalse(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.DEVELOPER, false));
         assertTrue(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.DEVELOPER, true));
-        assertFalse(StaffModeAccessPolicy.usesCreativeMode(StaffRank.DEVELOPER));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.DEVELOPER));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.DEVELOPER));
         assertTrue(StaffModeAccessPolicy.hasAdvancedStaffTools(StaffRank.DEVELOPER));
-        assertEquals(GameMode.SPECTATOR, StaffModeAccessPolicy.requiredGameMode(StaffRank.DEVELOPER));
+        assertEquals(GameMode.SPECTATOR, StaffModeAccessPolicy.initialGameMode(StaffRank.DEVELOPER));
     }
 
     @Test
@@ -40,8 +38,7 @@ class StaffModeAccessPolicyTest {
         assertTrue(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.MOD, true));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.MOD));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.MOD));
-        assertFalse(StaffModeAccessPolicy.usesCreativeMode(StaffRank.MOD));
-        assertEquals(GameMode.SPECTATOR, StaffModeAccessPolicy.requiredGameMode(StaffRank.MOD));
+        assertEquals(GameMode.SPECTATOR, StaffModeAccessPolicy.initialGameMode(StaffRank.MOD));
     }
 
     @Test
@@ -51,16 +48,50 @@ class StaffModeAccessPolicyTest {
         assertTrue(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.ADMIN, true));
         assertFalse(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.ADMIN));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.ADMIN));
-        assertTrue(StaffModeAccessPolicy.usesCreativeMode(StaffRank.ADMIN));
-        assertEquals(GameMode.CREATIVE, StaffModeAccessPolicy.requiredGameMode(StaffRank.ADMIN));
+        assertEquals(GameMode.CREATIVE, StaffModeAccessPolicy.initialGameMode(StaffRank.ADMIN));
 
         assertFalse(StaffModeAccessPolicy.blocksAllInventoryMutation(StaffRank.FOUNDER));
         assertFalse(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.FOUNDER, false));
         assertFalse(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.FOUNDER, true));
         assertFalse(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.FOUNDER));
         assertFalse(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.FOUNDER));
-        assertTrue(StaffModeAccessPolicy.usesCreativeMode(StaffRank.FOUNDER));
-        assertEquals(GameMode.CREATIVE, StaffModeAccessPolicy.requiredGameMode(StaffRank.FOUNDER));
+        assertEquals(GameMode.CREATIVE, StaffModeAccessPolicy.initialGameMode(StaffRank.FOUNDER));
+    }
+
+    @Test
+    void adminAndFounderCanSelectOnlyTheThreeSupportedVanillaModes() {
+        for (StaffRank rank : new StaffRank[]{StaffRank.ADMIN, StaffRank.FOUNDER}) {
+            assertTrue(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.SURVIVAL));
+            assertTrue(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.CREATIVE));
+            assertTrue(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.SPECTATOR));
+            assertFalse(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.ADVENTURE));
+        }
+    }
+
+    @Test
+    void lowerStaffRemainSpectatorOnly() {
+        for (StaffRank rank : new StaffRank[]{StaffRank.HELPER, StaffRank.MOD, StaffRank.DEVELOPER}) {
+            assertTrue(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.SPECTATOR));
+            assertFalse(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.SURVIVAL));
+            assertFalse(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.CREATIVE));
+            assertFalse(StaffModeAccessPolicy.allowsGameMode(rank, GameMode.ADVENTURE));
+        }
+    }
+
+    @Test
+    void rankReconciliationPreservesAllowedModesAndOnlyCorrectsDisallowedOnes() {
+        assertEquals(
+                GameMode.SURVIVAL,
+                StaffModeAccessPolicy.reconciledGameMode(StaffRank.ADMIN, GameMode.SURVIVAL)
+        );
+        assertEquals(
+                GameMode.SPECTATOR,
+                StaffModeAccessPolicy.reconciledGameMode(StaffRank.FOUNDER, GameMode.SPECTATOR)
+        );
+        assertEquals(
+                GameMode.SPECTATOR,
+                StaffModeAccessPolicy.reconciledGameMode(StaffRank.MOD, GameMode.CREATIVE)
+        );
     }
 
     @Test
@@ -104,7 +135,6 @@ class StaffModeAccessPolicyTest {
         assertTrue(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.SYSTEM));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.SYSTEM));
         assertTrue(StaffModeAccessPolicy.blocksInventoryMutation(StaffRank.SYSTEM, true));
-        assertFalse(StaffModeAccessPolicy.usesCreativeMode(StaffRank.SYSTEM));
         assertFalse(StaffModeAccessPolicy.hasAdvancedStaffTools(StaffRank.SYSTEM));
     }
 

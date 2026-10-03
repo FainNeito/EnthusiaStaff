@@ -1,6 +1,6 @@
 # EnthusiaStaff Staff Bot
 
-This module is the standalone Java 21 Discord runtime for EnthusiaStaff. It runs beside the Paper/Velocity platform; it is not a Minecraft plugin.
+This module is the standalone Java 25 Discord runtime for EnthusiaStaff. It runs beside the Paper/Velocity platform; it is not a Minecraft plugin.
 
 This runbook describes the safe launch path for the runtime now present on canonical `main` after Staff repair PR #249 merged as `de6d6767d3da3caa8d64c4a30db30bf82c21631d`. It does not authorize production punishment enforcement or merge any parked Discord feature package.
 
@@ -30,7 +30,7 @@ The launch candidate must be rebuilt and exact-head validated from post-#249 can
 
 ## Safe initial launch mode
 
-Use Java 21. Configuration comes from environment variables. Do not place tokens, database passwords, HMAC secrets, or component secrets on the Java command line.
+Use Java 25. Configuration comes from environment variables. Do not place tokens, database passwords, HMAC secrets, or component secrets on the Java command line.
 
 Normal startup:
 
@@ -146,7 +146,7 @@ The Discord punishment runtime has durable database-backed work/recovery, but it
 
 ## Bloom / Pterodactyl requirements
 
-Use an isolated Java 21 split/container.
+Use an isolated Java 25 split/container.
 
 Keep these private/loopback unless an explicitly documented private tunnel is in use:
 
@@ -176,7 +176,7 @@ Before turning on the production application:
 
 - build the exact Staff Bot launch artifact from canonical post-#249 `main` and exact-head validate it;
 - record artifact checksum and source provenance;
-- select Java 21;
+- select Java 25;
 - supply the production Discord token only through the runtime secret store;
 - verify shared MariaDB connectivity/schema;
 - verify the private Paper authority route;

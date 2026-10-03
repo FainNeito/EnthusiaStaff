@@ -90,8 +90,8 @@ final class RoseChatCommandOwnershipCoordinator {
         boolean claim(String label, Command expected, Command replacement);
     }
 
-    private record PaperCommandRegistry(CommandMap commandMap) implements CommandRegistry {
-        private PaperCommandRegistry {
+    record PaperCommandRegistry(CommandMap commandMap) implements CommandRegistry {
+        PaperCommandRegistry {
             Objects.requireNonNull(commandMap, "commandMap");
         }
 
@@ -103,10 +103,12 @@ final class RoseChatCommandOwnershipCoordinator {
         @Override
         public boolean claim(String label, Command expected, Command replacement) {
             Map<String, Command> commands = commandMap.getKnownCommands();
-            if (expected == null) {
-                return commands.putIfAbsent(label, replacement) == null;
+            // Paper forwards get/put to Brigadier. HashMap's conditional methods bypass that bridge.
+            if (commands.get(label) != expected) {
+                return false;
             }
-            return commands.replace(label, expected, replacement);
+            commands.put(label, replacement);
+            return commands.get(label) == replacement;
         }
     }
 }

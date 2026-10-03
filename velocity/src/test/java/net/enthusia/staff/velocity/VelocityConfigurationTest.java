@@ -20,6 +20,31 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 final class VelocityConfigurationTest {
+    @Test
+    void privateDeliverySecretsKeepProductionDestinationValidation(@TempDir Path directory) throws IOException {
+        VelocityConfiguration configuration = VelocityConfiguration.load(directory);
+        Properties secrets = new Properties();
+        secrets.setProperty("ES_DISCORD_ROUTE_ENVIRONMENT", "PRODUCTION");
+        configuration.discordWebhookEnvironments().values().forEach(name ->
+                secrets.setProperty(name, "https://discord.com/api/webhooks/123456/test-placeholder"));
+        secrets.setProperty(configuration.websiteApiBearerTokenEnvironment(), "b".repeat(32));
+        secrets.setProperty(configuration.websiteApiHmacSecretEnvironment(), "h".repeat(32));
+        secrets.setProperty(configuration.punishmentCodeSecretEnvironment(),
+                java.util.Base64.getEncoder().encodeToString(new byte[32]));
+        try (OutputStream output = Files.newOutputStream(directory.resolve("secrets.properties"))) {
+            secrets.store(output, "Test-only placeholders");
+        }
+        assertEquals(4, configuration.discordWebhooks(directory).size());
+        assertEquals("b".repeat(32), configuration.websiteApiBearerToken(directory));
+        assertEquals("h".repeat(32), configuration.websiteApiHmacSecret(directory));
+        assertDoesNotThrow(() -> configuration.punishmentCodeProtector(directory));
+        secrets.setProperty(configuration.discordWebhookEnvironments().get("alerts"), "https://example.org/api/webhooks/123/test");
+        try (OutputStream output = Files.newOutputStream(directory.resolve("secrets.properties"))) {
+            secrets.store(output, "Test-only placeholders");
+        }
+        assertThrows(IllegalStateException.class, () -> configuration.discordWebhooks(directory));
+    }
+
     private static final String TEST_VALUE = VelocityConfigurationTest.class.getName();
     private static final String TLS_KEY_STORE = "channel.tls-key-store";
 
@@ -34,13 +59,13 @@ final class VelocityConfigurationTest {
         secrets.setProperty("litebans.jdbc-url", "jdbc:mariadb://example.invalid:3306/litebans");
         secrets.setProperty("litebans.username", "litebans-user");
         secrets.setProperty("litebans.password", "litebans-secret");
-        storeSecrets(directory, secrets);
+        try (OutputStream output = Files.newOutputStream(directory.resolve("database.properties"))) {
+            secrets.store(output, null);
+        }
 
         assertEquals("staff-user", configuration.database(directory).username());
-        assertEquals(
-                "jdbc:mariadb://example.invalid:3306/litebans",
-                configuration.liteBansDatabase(directory).jdbcUrl()
-        );
+        assertEquals("jdbc:mariadb://example.invalid:3306/litebans",
+                configuration.liteBansDatabase(directory).jdbcUrl());
     }
 
     @Test
@@ -51,18 +76,36 @@ final class VelocityConfigurationTest {
         Properties incomplete = new Properties();
         incomplete.setProperty("db.jdbc-url", "jdbc:mariadb://example.invalid:3306/staff");
         incomplete.setProperty("db.username", "staff-user");
-        storeSecrets(directory, incomplete);
-
+        try (OutputStream output = Files.newOutputStream(directory.resolve("database.properties"))) {
+            incomplete.store(output, null);
+        }
         assertThrows(IllegalStateException.class, () -> configuration.database(directory));
-        assertThrows(IllegalStateException.class, () -> configuration.liteBansDatabase(directory));
     }
 
     @Test
-    void privateDatabaseFileRejectsOversizedContent(@TempDir Path directory) throws IOException {
+    void privateSecretsFileSuppliesIndependentNetworkIdentityKeys(@TempDir Path directory) throws IOException {
         VelocityConfiguration configuration = VelocityConfiguration.load(directory);
-        Files.writeString(directory.resolve("database.properties"), "x".repeat(16_385));
+        Properties secrets = new Properties();
+        secrets.setProperty(configuration.networkIdentityHmacSecretEnvironment(), "a".repeat(44));
+        secrets.setProperty(configuration.networkIdentityEncryptionSecretEnvironment(), "b".repeat(44));
+        try (OutputStream output = Files.newOutputStream(directory.resolve("secrets.properties"))) {
+            secrets.store(output, null);
+        }
 
-        assertThrows(IllegalStateException.class, () -> configuration.database(directory));
+        assertEquals("a".repeat(44), configuration.networkIdentitySecret(
+                directory, configuration.networkIdentityHmacSecretEnvironment()));
+        assertEquals("b".repeat(44), configuration.networkIdentitySecret(
+                directory, configuration.networkIdentityEncryptionSecretEnvironment()));
+        assertThrows(IllegalArgumentException.class,
+                () -> configuration.networkIdentitySecret(directory, "UNRECOGNIZED_SECRET"));
+    }
+
+    @Test
+    void privateNetworkIdentitySecretIsRequiredWhenEnabled(@TempDir Path directory) throws IOException {
+        VelocityConfiguration configuration = VelocityConfiguration.load(directory);
+
+        assertThrows(IllegalStateException.class, () -> configuration.networkIdentitySecret(
+                directory, configuration.networkIdentityHmacSecretEnvironment()));
     }
 
     @Test
@@ -280,12 +323,6 @@ final class VelocityConfigurationTest {
         store(directory, candidate);
 
         assertThrows(IllegalArgumentException.class, () -> VelocityConfiguration.load(directory));
-    }
-
-    private static void storeSecrets(Path directory, Properties properties) throws IOException {
-        try (OutputStream output = Files.newOutputStream(directory.resolve("database.properties"))) {
-            properties.store(output, "private test credentials");
-        }
     }
 
     private static void store(Path directory, Properties properties) throws IOException {

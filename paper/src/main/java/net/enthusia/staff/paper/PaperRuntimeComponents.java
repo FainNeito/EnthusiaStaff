@@ -2,6 +2,7 @@ package net.enthusia.staff.paper;
 
 import java.time.Clock;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -20,7 +21,6 @@ import net.enthusia.staff.paper.api.InventoryLockService;
 import net.enthusia.staff.paper.api.StaffModeQueryService;
 import net.enthusia.staff.paper.api.StaffSessionService;
 import net.enthusia.staff.paper.api.StaffVisibilityService;
-import net.enthusia.staff.paper.auth.LuckPermsStaffDutyContext;
 import net.enthusia.staff.paper.freeze.FreezeManager;
 import net.enthusia.staff.paper.freeze.FreezeNetworkReconciler;
 import net.enthusia.staff.paper.freeze.FreezeNoticeService;
@@ -41,6 +41,9 @@ import net.enthusia.staff.paper.tester.FakeBaseManager;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
 import net.enthusia.staff.paper.visibility.VanishBroadcastListener;
 import net.enthusia.staff.paper.visibility.VanishManager;
+import net.enthusia.staff.paper.visibility.VanishTargetingGuard;
+import net.enthusia.staff.paper.auth.LuckPermsStaffDutyContext;
+import net.enthusia.staff.paper.visibility.PrivateMessagePresenceListener;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -198,25 +201,16 @@ record PaperRuntimeComponents(
     private static void registerStaffDutyContext(Dependencies dependencies, StaffModeManager staffMode) {
         JavaPlugin plugin = dependencies.environment().plugin();
         if (plugin.getServer().getPluginManager().getPlugin("LuckPerms") == null) {
-            dependencies.featureIssues().put(
-                    "staff-duty-context",
-                    "LuckPerms is unavailable; Staff Mode active-duty permission context is disabled"
-            );
+            dependencies.featureIssues().put("staff-duty-context",
+                    "LuckPerms is unavailable; Staff Mode active-duty permission context is disabled");
             return;
         }
         try {
             LuckPermsStaffDutyContext.install(plugin, staffMode);
             dependencies.featureIssues().remove("staff-duty-context");
         } catch (IllegalStateException | LinkageError exception) {
-            dependencies.featureIssues().put(
-                    "staff-duty-context",
-                    "LuckPerms Staff Mode context could not be registered"
-            );
-            plugin.getLogger().log(
-                    Level.WARNING,
-                    "Staff Mode LuckPerms active-duty context registration failed",
-                    exception
-            );
+            dependencies.featureIssues().put("staff-duty-context", "LuckPerms Staff Mode context could not be registered");
+            plugin.getLogger().log(Level.WARNING, "Staff Mode LuckPerms active-duty context registration failed", exception);
         }
     }
 
@@ -244,8 +238,13 @@ record PaperRuntimeComponents(
             StaffModeManager staffMode,
             DefaultStaffVisibilityService visibility
     ) {
+        JavaPlugin plugin = dependencies.environment().plugin();
+        VanishTargetingGuard targeting = new VanishTargetingGuard(plugin, visibility::isVanished);
+        visibility.setVanishEnabledListener(playerId ->
+                scheduleVanishTargetingReconciliation(plugin, targeting, playerId));
+        registerListener(plugin, targeting);
         VanishManager vanish = new VanishManager(
-                dependencies.environment().plugin(),
+                plugin,
                 dependencies.environment().clock(),
                 visibility,
                 dependencies.stores().vanishStore(),
@@ -254,8 +253,41 @@ record PaperRuntimeComponents(
                 dependencies.environment().workers()
         );
         staffMode.setExitListener(vanish::staffModeExited);
-        registerListener(dependencies.environment().plugin(), vanish);
+        registerListener(plugin, vanish);
         return vanish;
+    }
+
+    private static void scheduleVanishTargetingReconciliation(
+            JavaPlugin plugin,
+            VanishTargetingGuard targeting,
+            UUID playerId
+    ) {
+        try {
+            plugin.getServer().getGlobalRegionScheduler().execute(
+                    plugin,
+                    () -> scheduleVanishTargetingForPlayer(plugin, targeting, playerId)
+            );
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(Level.WARNING, "Vanish targeting reconciliation could not be scheduled", exception);
+        }
+    }
+
+    private static void scheduleVanishTargetingForPlayer(
+            JavaPlugin plugin,
+            VanishTargetingGuard targeting,
+            UUID playerId
+    ) {
+        var player = plugin.getServer().getPlayer(playerId);
+        if (player == null) {
+            return;
+        }
+        try {
+            if (!player.getScheduler().execute(plugin, () -> targeting.reconcile(player), null, 1L)) {
+                plugin.getLogger().fine("Vanish targeting reconciliation retired before execution");
+            }
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(Level.WARNING, "Vanish targeting reconciliation scheduling failed", exception);
+        }
     }
 
     private static void registerOperationalListeners(Dependencies dependencies, VanishManager vanish) {
@@ -268,6 +300,7 @@ record PaperRuntimeComponents(
                 dependencies.environment().workers()
         ));
         registerListener(plugin, new VanishBroadcastListener(vanish));
+        registerListener(plugin, new PrivateMessagePresenceListener(plugin, vanish));
     }
 
     private static FakeBaseManager createFakeBaseManager(

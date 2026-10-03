@@ -49,6 +49,18 @@ Entry should fail closed when combat safety, storage, worker capacity, or durabl
 
 Staff mode must never be used to escape combat, travel for normal play, protect ordinary items, find bases, or gain gameplay information.
 
+### Game mode while Staff Mode is active
+
+Staff Mode and game mode are separate states. The entry profile still starts Admin
+and Founder in Creative and lower staff in Spectator. After activation, Admin and
+Founder may freely select Survival, Creative, or Spectator without entering or
+leaving Staff Mode and without changing vanish. Lower staff remain Spectator-only.
+
+The selected mode is the real Bukkit/Paper game mode. Spectator block phasing comes
+from actual Spectator mode; vanish does not provide block no-clip in Survival or
+Creative. When Staff Mode exits, the exact pre-Staff game mode from the durable
+snapshot is restored with the rest of the saved state.
+
 ## Staff hotbar
 
 The operational hotbar routes into existing commands/services; possessing the item does not grant authority.
@@ -91,7 +103,9 @@ Random-teleport/cooldown settings under `staff-tools` are restart-owned; `/estaf
 
 `/stafftools spectate <player>` and the hotbar action share one path. The target must be an eligible player on the current backend and the target location is captured on the target's owning scheduler before the staff teleport.
 
-Do not weaken the staff member's required profile/game mode merely to force spectating. A safe refusal is preferable to cross-thread or state-ownership shortcuts.
+Follow / Spectate does not own the staff member's game mode. It must not silently
+toggle Staff Mode or vanish, and lower-rank game-mode restrictions still apply. A
+safe refusal is preferable to cross-thread or state-ownership shortcuts.
 
 ## Cheat Tester
 
@@ -156,6 +170,16 @@ Stop the workflow and escalate when:
 Record the backend, player UUID, session/operation ID where available, time, exact error and what already happened. Do not clear durable rows or locks manually.
 
 ## Permissions and authority
+
+### Snapshot recovery
+
+Quitting does not discard the original snapshot. Rejoin the owning backend and use `/staff recover` when recovery remains pending. A stranded session may return only to its owning backend, including while its durable state still reads ACTIVE during reconnect processing; it cannot leave that backend until restoration is verified.
+
+The owning backend's console can request `staff recover <online-player>`. Targeted recovery is console-only and does not delete a snapshot or bypass verification. Invalid command arguments do not toggle staff mode.
+
+Restoration first verifies the original snapshot's SHA-256 integrity. It then compares every decoded saved field with freshly captured runtime state, including ordered inventory slots and item amounts/metadata, effects, location, experience, health and interaction flags. Equivalent serializer ordering and complete yaw rotations do not require identical serialized bytes. An actual mismatch retains recovery and logs only the differing field names; never clear the lock manually.
+
+The invulnerability value is the stored entity flag paired with Bukkit's setter. Paper's computed damage-immunity getter also treats removed entities as immune, which can produce a false restoration mismatch during teleport processing. The reader is isolated to the verified Mojang-mapped Paper runtime methods and fails closed if those methods are unavailable. A failed restore remains available for a subsequent `/staff recover` attempt.
 
 The relevant command/tool permissions are listed in [[Commands and Permissions]]. Rank semantics are explained in [[Roles and Permissions|Rank-Authority]].
 

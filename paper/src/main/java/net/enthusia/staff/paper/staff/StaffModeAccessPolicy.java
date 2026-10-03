@@ -44,12 +44,27 @@ final class StaffModeAccessPolicy {
         };
     }
 
-    static boolean usesCreativeMode(StaffRank rank) {
-        return rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER;
+    static GameMode initialGameMode(StaffRank rank) {
+        return rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER
+                ? GameMode.CREATIVE
+                : GameMode.SPECTATOR;
     }
 
-    static GameMode requiredGameMode(StaffRank rank) {
-        return usesCreativeMode(rank) ? GameMode.CREATIVE : GameMode.SPECTATOR;
+    static boolean allowsGameMode(StaffRank rank, GameMode gameMode) {
+        Objects.requireNonNull(gameMode, "gameMode");
+        if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
+            return gameMode == GameMode.SURVIVAL
+                    || gameMode == GameMode.CREATIVE
+                    || gameMode == GameMode.SPECTATOR;
+        }
+        return rank != null && gameMode == GameMode.SPECTATOR;
+    }
+
+    static GameMode reconciledGameMode(StaffRank rank, GameMode currentGameMode) {
+        Objects.requireNonNull(currentGameMode, "currentGameMode");
+        return allowsGameMode(rank, currentGameMode)
+                ? currentGameMode
+                : initialGameMode(rank);
     }
 
     static boolean hasAdvancedStaffTools(StaffRank rank) {

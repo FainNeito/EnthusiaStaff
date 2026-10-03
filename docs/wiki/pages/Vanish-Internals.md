@@ -155,17 +155,26 @@ Registered at `EventPriority.HIGHEST`.
 
 ### `PlayerGameModeChangeEvent`
 
-Registered at `EventPriority.MONITOR` with cancelled changes ignored.
+Registered at `EventPriority.HIGHEST` with cancelled changes ignored.
 
-- Re-resolves live viewer rank.
-- Re-evaluates spectator-tab policy from the event's new game mode.
-- Updates the coordinator's cached game mode.
-- Refreshes the changed viewer when rank authority changed.
-- Refreshes the changed player as a target.
+- While full vanish is active, the player's authoritative server-side game mode
+  remains `SPECTATOR`.
+- Admin and Founder requests for Survival, Creative, or Spectator update the
+  independent logical gameplay mode that will be restored when vanish is
+  disabled; non-Spectator transitions are cancelled before they can replace the
+  authoritative Spectator state.
+- Lower ranks keep Spectator as their only selectable Staff Mode game mode.
+- The bounded Staff Mode snapshot-restoration phase releases the vanish game-mode
+  guard before #280 restores the pre-Staff state.
+- Re-resolves live viewer rank, re-evaluates spectator-tab policy, updates the
+  coordinator's cached game mode, and refreshes affected audience state.
 
-The current manager does not directly listen for chat, command completion,
-teleport, entity-tracking, sound, particle, inventory, damage, pickup,
-advancement, scoreboard, or voice events.
+Vanish therefore uses vanilla/Paper Spectator behavior for block phasing instead
+of `noPhysics`, NMS/reflection, or a client-only fake game mode. The logical mode
+to restore is tracked separately from the authoritative Spectator mode and is
+persisted with durable vanish state. The manager does not directly listen for
+chat, command completion, sound, particle, inventory, pickup, advancement,
+scoreboard, or voice events.
 
 ## Visibility decisions
 
@@ -188,9 +197,9 @@ A non-staff viewer has no viewer entry and therefore cannot see a vanished targe
 
 | Viewer | Vanished ranks visible to that viewer |
 | --- | --- |
-| Helper | Helper |
+| Helper | Helper, Mod, Developer |
 | Mod | Helper, Mod, Developer |
-| Developer | Helper, Mod, Developer |
+| Developer | Helper, Mod, Developer, Admin |
 | Admin | Helper, Mod, Developer, Admin |
 | Founder | Helper, Mod, Developer, Admin, Founder |
 
@@ -235,14 +244,17 @@ fail-closed on owning entity threads. Without a healthy adapter, affected
 spectator staff remain unlisted.
 
 Do not extend that claim to entity-destroy, spawn-player, metadata, equipment, or
-other packets. Direct packet handling is limited to player-info and still requires
-live compatibility testing on supported Paper and ProtocolLib versions.
+other visibility packets. ProtocolLib is limited to observer-facing player-info
+masking; EnthusiaStaff does not send a self-only fake game-mode packet. During
+full vanish, the player's authoritative Bukkit/Paper game mode is real
+`SPECTATOR`; the selected gameplay mode is separate state restored when vanish
+ends.
 
 ## What is not currently intercepted
 
 The current vanish manager does not itself guarantee hiding from:
 
-- custom tab-list plugins or cached player-count displays;
+- custom tab-list plugins other than the optional Velocitab integration, or cached player-count displays;
 - `/seen`, `/list`, message, teleport, pay, or other command completions;
 - RoseChat recipient selection or private-message lookup;
 - voice-chat recipient discovery;
@@ -296,8 +308,14 @@ provider integrations that trigger additional scans.
   reconciliation state where applicable.
 - Failed durable session verification leaves current visibility unchanged and
   retries after backoff.
-- A persisted vanish record can be restored after restart, but complete visual and
-  integration coverage still requires staging.
+- A persisted vanish record restores visibility/privacy state and its selected
+  gameplay mode on startup/reconnect, then re-enforces authoritative Spectator
+  while vanish remains active.
+- Vanish-off restores the independently selected gameplay mode; Staff Mode exit
+  instead gives #280's pre-Staff snapshot restoration precedence.
+- Full vanish always uses real Spectator, so vanilla/Paper supplies block phasing
+  without a version-specific noclip layer.
+- Complete visual and integration coverage still requires staging.
 
 ## Review and staging checklist
 
@@ -313,6 +331,10 @@ Reviewers should verify:
 - normal players never seeing vanished staff;
 - self-visibility;
 - tab list and entity visibility on each supported Paper version;
+- real server-side Spectator throughout full vanish on every supported runtime;
+- independent Admin/Founder Survival/Creative selection while vanished and exact
+  restoration of that selected mode when vanish is disabled;
+- wall, floor, and ceiling phasing while vanished through real Spectator behavior;
 - ProtocolLib present, absent, incompatible, and runtime failure paths;
 - RoseChat, voice, `/seen`, commands, player counts, and public APIs;
 - sounds, particles, containers, damage, pickup, and other observable effects;
@@ -325,3 +347,27 @@ Reviewers should verify:
 
 Related staff instructions are in
 [[Staff Mode, Vanish, and Freeze|Staff-Mode-Vanish-and-Freeze]].
+
+## Velocitab integration
+
+Velocity optionally connects to Velocitab's public vanish and custom-name APIs.
+It reads durable vanish and active staff-session state on a worker once per
+second; packet visibility callbacks use only the verified immutable cache and
+current permissions. Staff-mode and vanish add `[STAFF]` and `[V]` markers without
+changing LuckPerms rank prefixes or permissions. Existing custom names are
+preserved and restored only while the integration still owns the value.
+
+The proxy uses the default rank matrix above. Keep the backend
+`visibility.matrix` configuration aligned with it. Helper/Mod/Developer see each
+other, Developer additionally sees Admin, Admin sees Admin and lower ranks, and
+Founder sees every staff rank. Ordinary players see no vanished staff. Existing
+Velocitab server-group boundaries still apply.
+
+If storage cannot verify presence for five seconds, proxy tab visibility fails
+closed until verification recovers. Other players' entries may temporarily
+disappear during that outage. Recovery refreshes both visibility and names.
+The Paper packet hook relists authorized vanished staff even when spectator
+entries were originally unlisted; unrelated spectator tab choices remain intact.
+
+Restart Paper and Velocity to apply this integration and visibility configuration.
+Use the network restart queue and its player warnings for production rollout.

@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class StaffBotFileBackedStartupTest {
+    private static final String PRODUCTION_ARGUMENT = "--environment=production";
+
     @TempDir
     Path tempDir;
 
@@ -22,7 +24,7 @@ class StaffBotFileBackedStartupTest {
         StaffBotCommandLine commandLine = fileBackedCommandLine(Path.of("t"), Path.of("m"));
 
         assertFalse(commandLine.stagingUiPreview());
-        assertTrue(commandLine.fileBackedStaging());
+        assertTrue(commandLine.fileBackedStartup());
         assertEquals(Path.of("t"), commandLine.tokenFile().orElseThrow());
         assertEquals(Path.of("m"), commandLine.moderationConfigFile().orElseThrow());
         assertTrue(commandLine.tunnelFiles().isEmpty());
@@ -73,6 +75,53 @@ class StaffBotFileBackedStartupTest {
     }
 
     @Test
+    void explicitProductionFileStartupUsesProductionIdentity() throws IOException {
+        String token = UUID.randomUUID().toString();
+        Path tokenFile = tempDir.resolve("production-token");
+        Files.writeString(tokenFile, token);
+        StaffBotCommandLine commandLine = StaffBotCommandLine.parse(new String[] {
+                "--token-file=" + tokenFile,
+                "--moderation-config-file=" + tempDir.resolve("m"),
+                PRODUCTION_ARGUMENT
+        });
+
+        StaffBotConfiguration configuration = StaffBotConfiguration.fromStartup(commandLine, Map.of());
+
+        assertEquals(StaffBotEnvironment.PRODUCTION, configuration.environment());
+        assertEquals(token, configuration.discordToken());
+        assertFalse(configuration.uiPreviewEnabled());
+        assertFalse(configuration.toString().contains(token));
+    }
+
+    @Test
+    void productionFileStartupRejectsStagingProcessConflict() throws IOException {
+        Path tokenFile = tempDir.resolve("production-token");
+        Files.writeString(tokenFile, "production-token");
+        StaffBotCommandLine commandLine = StaffBotCommandLine.parse(new String[] {
+                "--token-file=" + tokenFile,
+                "--moderation-config-file=" + tempDir.resolve("m"),
+                PRODUCTION_ARGUMENT
+        });
+
+        assertThrows(IllegalArgumentException.class, () -> StaffBotConfiguration.fromStartup(
+                commandLine, Map.of(StaffBotConfiguration.ENVIRONMENT_KEY, "staging")));
+    }
+
+    @Test
+    void productionSelectionRequiresCompleteFilesAndRejectsPreview() {
+        assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
+                PRODUCTION_ARGUMENT
+        }));
+        assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
+                PRODUCTION_ARGUMENT, "--token-file=t"
+        }));
+        assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
+                PRODUCTION_ARGUMENT, "--token-file=t", "--moderation-config-file=m",
+                "--staging-ui-preview"
+        }));
+    }
+
+    @Test
     void fileBackedStartupRejectsIncompletePair() {
         assertThrows(IllegalArgumentException.class, () -> StaffBotCommandLine.parse(new String[] {
                 "--token-file=t"
@@ -106,7 +155,7 @@ class StaffBotFileBackedStartupTest {
         assertFalse(rendered.contains("private"));
         assertFalse(rendered.contains("token-file"));
         assertFalse(rendered.contains("moderation-file"));
-        assertTrue(rendered.contains("fileBackedStaging=true"));
+        assertTrue(rendered.contains("fileBackedStartup=true"));
         assertTrue(rendered.contains("tokenFile=<configured>"));
         assertTrue(rendered.contains("moderationConfigFile=<configured>"));
     }

@@ -1,6 +1,8 @@
 package net.enthusia.staff.paper.enforcement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.List;
@@ -10,6 +12,24 @@ import net.enthusia.staff.domain.sanction.SanctionType;
 import org.junit.jupiter.api.Test;
 
 class PaperPunishmentCommitEffectsTest {
+    @Test
+    void localCommitAndNetworkDeliveryShareOneOnlineEffectClaim() {
+        var claims = new PaperPunishmentCommitEffects.DeliveryClaims();
+        var now = java.time.Instant.parse("2026-10-01T03:00:00Z");
+        var caseId = new net.enthusia.staff.common.CaseId("TESTCASE00000001");
+        assertTrue(claims.claim(caseId, now));
+        assertFalse(claims.claim(caseId, now.plusSeconds(1)));
+        assertFalse(claims.claim(caseId, now.plusSeconds(120)));
+        assertTrue(claims.claim(caseId, now.plusSeconds(301)));
+    }
+    @Test
+    void delayedAndFutureNetworkEventsCannotReplayOnlineEffects() {
+        var now = java.time.Instant.parse("2026-10-01T03:00:00Z");
+        assertTrue(PaperPunishmentCommitEffects.recent(now, now));
+        assertTrue(PaperPunishmentCommitEffects.recent(now.minusSeconds(120), now));
+        assertFalse(PaperPunishmentCommitEffects.recent(now.minusSeconds(121), now));
+        assertFalse(PaperPunishmentCommitEffects.recent(now.plusSeconds(31), now));
+    }
     @Test
     void banTakesPrecedenceOverKickAndWarning() {
         assertEquals(

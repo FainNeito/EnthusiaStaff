@@ -17,6 +17,36 @@ class PlayerInfoTabMaskerTest {
     private static final UUID TARGET_ID = UUID.fromString("20000000-0000-0000-0000-000000000001");
 
     @Test
+    void authorizedVanishedStaffAreRelistedButUnauthorizedEntriesStayRemoved() {
+        PlayerInfoData source = entry(false, EnumWrappers.NativeGameMode.SPECTATOR);
+        PlayerInfoTabMasker allowed = new PlayerInfoTabMasker(
+                (viewer, target) -> true, target -> StaffRank.MOD, target -> false, target -> true);
+        assertTrue(allowed.rewrite(VIEWER_ID, List.of(source)).getFirst().isListed());
+        PlayerInfoTabMasker denied = new PlayerInfoTabMasker(
+                (viewer, target) -> false, target -> StaffRank.FOUNDER, target -> false, target -> true);
+        assertTrue(denied.rewrite(VIEWER_ID, List.of(source)).isEmpty());
+    }
+
+    @Test
+    void nullProtocolEntryDoesNotDisableMaskingForValidStaffEntries() {
+        PlayerInfoData source = entry(true, EnumWrappers.NativeGameMode.SPECTATOR);
+        PlayerInfoTabMasker masker = new PlayerInfoTabMasker(
+                (viewer, target) -> true,
+                target -> StaffRank.ADMIN,
+                target -> false
+        );
+
+        PlayerInfoTabMasker.RewriteResult result = masker.rewriteResult(
+                VIEWER_ID, java.util.Arrays.asList(null, source)
+        );
+
+        assertTrue(result.changed());
+        assertEquals(1, result.entries().size());
+        assertEquals(TARGET_ID, result.entries().getFirst().getProfileId());
+        assertEquals(EnumWrappers.NativeGameMode.CREATIVE, result.entries().getFirst().getGameMode());
+    }
+
+    @Test
     void visibleStaffSpectatorIsPresentedAsCreativeWithoutLosingTabFields() {
         PlayerInfoData source = entry(true, EnumWrappers.NativeGameMode.SPECTATOR);
         PlayerInfoTabMasker masker = new PlayerInfoTabMasker(

@@ -1,0 +1,57 @@
+name: Dump Codacy annotations
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/dump-codacy-annotations.yml"
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read exact-head Codacy annotations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          check_run_id=""
+          for attempt in $(seq 1 180); do
+            check_run_id="$(
+              curl --fail --silent --show-error \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs?per_page=100" \
+                | jq -r '
+                    [.check_runs[]
+                      | select(.app.slug == "codacy-production")
+                      | select(.head_sha == env.HEAD_SHA)]
+                    | sort_by(.id)
+                    | last
+                    | select(.status == "completed")
+                    | .id // empty
+                  '
+            )"
+            if [ -n "$check_run_id" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$check_run_id" ]; then
+            echo "::error::Exact-head Codacy check did not complete in the bounded wait"
+            exit 1
+          fi
+          echo "CODACY_CHECK_RUN_ID=$check_run_id"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/check-runs/$check_run_id/annotations?per_page=100" \
+            | jq -c '.[] | {path,start_line,end_line,annotation_level,title,message,raw_details}'

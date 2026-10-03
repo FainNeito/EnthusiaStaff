@@ -23,7 +23,7 @@ For building, deploying, configuring, or recovering the Java/JDA runtime, use [[
 
 ## StaffBot owns the Discord gateway
 
-The `staff-bot` Gradle module is a separate Java 21 application using JDA. It is the intended privileged Discord Gateway owner for EnthusiaStaff.
+The `staff-bot` Gradle module is a separate Java 25 application using JDA. It is the intended privileged Discord Gateway owner for EnthusiaStaff.
 
 Primary entry points:
 

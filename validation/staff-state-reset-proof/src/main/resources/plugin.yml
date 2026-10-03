@@ -1,0 +1,7 @@
+name: StaffStateResetProof
+version: '1.0.0'
+main: proof.reset.StaffStateResetProof
+api-version: '1.21'
+load: POSTWORLD
+depend:
+  - EnthusiaStaff
