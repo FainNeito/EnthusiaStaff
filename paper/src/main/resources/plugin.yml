@@ -50,6 +50,10 @@ commands:
     description: Open a kick-filtered central punishment workflow
     usage: /kick <player> [reason-id]
     permission: enthusiastaff.punish
+  staffapi:
+    description: Console-friendly API for automated systems (anticheat) to issue punishments
+    usage: /staffapi punish <player> <ban|kick|mute|warn> [reason...] [--checks=<detail>]
+    permission: enthusiastaff.api.punish
   ipban:
     description: Open a network-ban-filtered central punishment workflow
     usage: /ipban <player> [reason-id]
@@ -145,6 +149,9 @@ commands:
     usage: /unlink CONFIRM
 permissions:
   enthusiastaff.status:
+    default: false
+  enthusiastaff.api.punish:
+    description: Use the /staffapi console API for automated punishments
     default: false
   enthusiastaff.verify:
     default: false
