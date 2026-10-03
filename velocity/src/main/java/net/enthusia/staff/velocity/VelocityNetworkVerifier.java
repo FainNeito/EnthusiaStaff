@@ -61,7 +61,7 @@ final class VelocityNetworkVerifier {
     List<Component> verify() {
         NetworkVerificationState.Snapshot snapshot = snapshot();
         Map<String, BackendVerificationReport> backendReports = collectBackendReports(snapshot, clock.instant());
-        return renderer.render(snapshot, backendReports, cutoverView(snapshot.runtime()));
+        return renderer.render(snapshot, backendReports, cutoverView(snapshot.runtime(), snapshot.mode()));
     }
 
     private NetworkVerificationState.Snapshot snapshot() {
@@ -146,12 +146,15 @@ final class VelocityNetworkVerifier {
         return report != null && !report.receivedAt().isBefore(started);
     }
 
-    private static NetworkVerificationState.Cutover cutoverView(MariaDbRuntime runtime) {
+    private static NetworkVerificationState.Cutover cutoverView(MariaDbRuntime runtime, OperationalMode mode) {
         if (runtime == null) {
             return new NetworkVerificationState.Cutover(false, false, List.of("MariaDB runtime is unavailable"));
         }
         try {
             var coordinator = runtime.cutoverCoordinator();
+            if (mode == OperationalMode.ACTIVE && coordinator.committedCutoverId().isPresent()) {
+                return new NetworkVerificationState.Cutover(true, true, List.of(), true);
+            }
             CutoverAssessment assessment = coordinator.assess(Optional.empty());
             return new NetworkVerificationState.Cutover(
                     assessment.allowed(),

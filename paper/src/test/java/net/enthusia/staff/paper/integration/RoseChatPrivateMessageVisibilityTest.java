@@ -32,10 +32,12 @@ class RoseChatPrivateMessageVisibilityTest {
     }
 
     @Test
-    void unresolvedRecipientContinuesThroughProviderHandling() {
+    void unresolvedRemoteRecipientFailsClosedIncludingReplyRoutes() {
         RoseChatPrivateMessageVisibility policy = new RoseChatPrivateMessageVisibility(visibility(false));
 
-        assertTrue(policy.evaluate(context(Optional.empty())).isEmpty());
+        ModerationDecision decision = policy.evaluate(context(Optional.empty())).orElseThrow();
+        assertEquals(ModerationDecision.Action.BLOCK, decision.action());
+        assertEquals("Invalid Player: 'HiddenPlayer'", decision.feedback());
     }
 
     private static PrivateMessageContext context(Optional<UUID> recipientId) {

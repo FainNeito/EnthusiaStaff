@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -168,6 +169,8 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         }
         resources.close("mute enforcement", muteEnforcement);
         resources.close("inventory coordinator", runtimeComponents == null ? null : runtimeComponents.inventory());
+        resources.close("staff action audit logger",
+                runtimeComponents == null ? null : runtimeComponents.staffActionLogger());
         if (integrations != null) {
             integrations.closeEconomyResources();
         }
@@ -832,7 +835,8 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                         () -> storageValue(PaperStorageBindings::staffSessionStore),
                         () -> storageValue(PaperStorageBindings::vanishStore),
                         () -> storageValue(PaperStorageBindings::inventoryJournalStore),
-                        () -> storageValue(PaperStorageBindings::playerDirectory)
+                        () -> storageValue(PaperStorageBindings::playerDirectory),
+                        () -> storageValue(bindings -> bindings.runtime().dataSource())
                 ),
                 featureIssues
         ));
@@ -844,10 +848,14 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                         this, Clock.systemUTC(), networkServerId(), workers, json
                 ),
                 new PaperIntegrationManager.Policy(
-                        mode::get, this::effectiveWriteMode, authorizationPolicy, reasonPolicies
+                        mode::get, this::effectiveWriteMode,
+                        new net.enthusia.staff.paper.auth.ActiveDutyAuthorizationPolicy(
+                                authorizationPolicy, runtimeComponents.staffMode()::authorityActive), reasonPolicies
                 ),
                 new PaperIntegrationManager.Stores(
                         () -> storageValue(PaperStorageBindings::punishmentService),
+                        () -> storageValue(PaperStorageBindings::punishmentDraftWorkflow),
+                        () -> storageValue(PaperStorageBindings::playerDirectory),
                         () -> storageValue(PaperStorageBindings::economyJournalStore),
                         () -> storageValue(PaperStorageBindings::inventoryJournalStore)
                 ),
@@ -888,7 +896,30 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                     if (enforcement != null) {
                         enforcement.invalidate(playerId);
                     }
-                }
+                },
+                playerId -> {
+                    var reconciler = getServer().getServicesManager().load(
+                            net.enthusia.staff.paper.freeze.FreezeNetworkReconciler.class);
+                    return reconciler != null && reconciler.reconcile(playerId);
+                },
+                integrations::deliverNetworkPunishment,
+                PaperStaffModeHandoffHandler.forManager(
+                        json,
+                        runtimeComponents.staffMode(),
+                        new PaperStaffModeHandoffHandler.TransferSnapshotHook() {
+                            @Override
+                            public void captureAndUpload(UUID playerId, UUID transferId) {
+                                runtimeComponents.transferSnapshots().captureAndUpload(playerId, transferId);
+                            }
+
+                            @Override
+                            public void stashReceived(
+                                    net.enthusia.staff.domain.staff.StaffTransferSnapshot snapshot) {
+                                runtimeComponents.transferSnapshots().stash(snapshot);
+                            }
+                        },
+                        getLogger()
+                )
         );
         PaperPersistentChannelFactory.Settings channel = PaperPersistentChannelFactory.snapshot(
                 configurationSnapshot.restartRequired(),
@@ -904,7 +935,18 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         ).ifPresent(started -> {
             if (!lifecycle.publishChannel(started)) {
                 resources.close("persistent Velocity channel opened during shutdown", started);
+                return;
             }
+            // Bind the cross-server transfer snapshot sender (overnight/cross-server): the
+            // source backend uploads its in-memory vanish/staff-mode snapshot to the proxy
+            // over this channel without ever blocking the transfer on it.
+            runtimeComponents.transferSnapshots().bindSender(started::send);
+            runtimeComponents.staffMode().setActiveSessionListener(session -> started.send(
+                    UUID.randomUUID(),
+                    PaperStaffModeHandoffHandler.READY,
+                    PaperStaffModeHandoffHandler.readyPayload(session.staffId(), session.sessionId()),
+                    Duration.ofSeconds(2)
+            ));
         });
     }
 

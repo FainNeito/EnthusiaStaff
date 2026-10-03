@@ -1,5 +1,6 @@
 package net.enthusia.staff.paper.alert;
 
+import net.enthusia.staff.paper.testsupport.ClickEventTestValues;
 import java.util.UUID;
 import net.enthusia.staff.domain.application.PunishmentApprovalRequest;
 import net.enthusia.staff.domain.application.PunishmentRequestAlertAudience;
@@ -66,8 +67,7 @@ class PunishmentRequestAlertRendererTest {
 
         assertNotNull(event);
         assertEquals(ClickEvent.Action.RUN_COMMAND, event.action());
-        ClickEvent.Payload.Text payload = (ClickEvent.Payload.Text) event.payload();
-        assertEquals("/punish review " + request.requestId(), payload.value());
+                assertEquals("/punish review " + request.requestId(), ClickEventTestValues.textValue(event));
         assertTrue(plain(message).contains(PunishmentRequestAlertTestFixtures.TARGET_ID.toString()));
     }
 

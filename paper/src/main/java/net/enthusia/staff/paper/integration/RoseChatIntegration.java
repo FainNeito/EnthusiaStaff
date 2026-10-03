@@ -18,6 +18,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.application.PunishmentService;
 import net.enthusia.staff.domain.ports.AtomicReasonPolicyRepository;
@@ -25,6 +27,8 @@ import net.enthusia.staff.paper.api.StaffVisibilityService;
 import net.enthusia.staff.paper.enforcement.MuteEnforcementListener;
 import net.enthusia.staff.paper.freeze.FreezeManager;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.ServicesManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -305,6 +309,7 @@ public final class RoseChatIntegration implements AutoCloseable {
     }
 
     private static final class StaffBridge implements RoseChatModerationBridge {
+        private static final Logger log = Logger.getLogger(StaffBridge.class.getName());
         private final StaffChannelConfiguration channels;
         private final Supplier<OperationalMode> mode;
         private final Supplier<MuteEnforcementListener> mutes;
@@ -337,9 +342,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             }
             MuteEnforcementListener enforcement = mutes.get();
             if (enforcement == null) {
-                return ModerationDecision.block(
-                        "Your moderation status is still being verified. Please try again shortly."
-                );
+                return unverifiedDecision(context);
             }
             return switch (enforcement.cachedStatus(context.senderId())) {
                 case CLEAR -> ModerationDecision.allow();
@@ -402,7 +405,65 @@ public final class RoseChatIntegration implements AutoCloseable {
 
         @Override
         public boolean canRenderPresence(PresenceContext context) {
-            return visibility.canSee(context.viewerId(), context.subjectId());
+            return checkVisibility("presence", context.viewerId(), context.subjectId());
+        }
+
+        /**
+         * H1: presence/channel rendering is decoupled from vanish-map inconsistencies. A subject
+         * that is not vanished never consults the matrix; every suppression is logged; and a
+         * failing visibility check fails open (renders) instead of silently swallowing
+         * join/leave and channel chat.
+         */
+        private boolean checkVisibility(String surface, UUID viewerId, UUID subjectId) {
+            if (subjectId == null || viewerId.equals(subjectId)) {
+                return true;
+            }
+            boolean vanished;
+            try {
+                vanished = visibility.isVanished(subjectId);
+            } catch (RuntimeException exception) {
+                log.log(Level.WARNING, exception,
+                        () -> "Vanish visibility check failed for RoseChat " + surface + "; rendering anyway");
+                return true;
+            }
+            if (!vanished) {
+                return true;
+            }
+            boolean canSee;
+            try {
+                canSee = visibility.canSee(viewerId, subjectId);
+            } catch (RuntimeException exception) {
+                log.log(Level.WARNING, exception,
+                        () -> "Vanish visibility check failed for RoseChat " + surface + "; rendering anyway");
+                return true;
+            }
+            if (!canSee) {
+                log.log(Level.FINE,
+                        "Suppressing RoseChat {0} for vanished subject {1} (viewer {2})",
+                        new Object[]{surface, subjectId, viewerId});
+            }
+            return canSee;
+        }
+
+        /**
+         * M1: fail-closed mute verification, with the operator override. A sender holding
+         * {@code enthusiastaff.override.mute-verification} may chat while unverified so a
+         * sanction-storage outage does not silence the whole server.
+         */
+        private ModerationDecision unverifiedDecision(TransmissionContext context) {
+            UUID senderId = context.senderId();
+            Player sender = senderId == null ? null : Bukkit.getPlayer(senderId);
+            if (sender != null
+                    && sender.hasPermission(MuteEnforcementListener.VERIFICATION_OVERRIDE_PERMISSION)) {
+                String senderName = sender.getName();
+                log.log(Level.INFO,
+                        "Mute-verification override used by {0}; RoseChat message allowed while unverified",
+                        senderName);
+                return ModerationDecision.allow();
+            }
+            return ModerationDecision.block(
+                    "Your moderation status is still being verified. Please try again shortly."
+            );
         }
     }
 }

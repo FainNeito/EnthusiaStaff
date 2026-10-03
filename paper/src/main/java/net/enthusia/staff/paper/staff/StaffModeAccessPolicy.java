@@ -44,25 +44,42 @@ final class StaffModeAccessPolicy {
         };
     }
 
-    static boolean usesCreativeMode(StaffRank rank) {
-        return rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER;
+    static GameMode initialGameMode(StaffRank rank) {
+        if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
+            return GameMode.CREATIVE;
+        }
+        if (rank == StaffRank.MOD || rank == StaffRank.DEVELOPER) {
+            // Mods (and Developer, which rides the Mod tier) must work in Survival while on
+            // duty: Spectator cannot interact with containers or items.
+            return GameMode.SURVIVAL;
+        }
+        return GameMode.SPECTATOR;
     }
 
-    /** Default game mode applied on Staff Mode entry/profile refresh. */
-    static GameMode requiredGameMode(StaffRank rank) {
-        return usesCreativeMode(rank) ? GameMode.CREATIVE : GameMode.SPECTATOR;
-    }
-
-    /** Runtime modes a rank may deliberately switch to while Staff Mode remains active. */
     static boolean allowsGameMode(StaffRank rank, GameMode gameMode) {
         Objects.requireNonNull(gameMode, "gameMode");
+        if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
+            return gameMode == GameMode.SURVIVAL
+                    || gameMode == GameMode.CREATIVE
+                    || gameMode == GameMode.SPECTATOR;
+        }
         if (rank == StaffRank.HELPER) {
+            // Helpers choose between Survival and Spectator while on duty.
             return gameMode == GameMode.SURVIVAL || gameMode == GameMode.SPECTATOR;
         }
-        if (rank == null || rank == StaffRank.SYSTEM) {
-            return false;
+        if (rank == StaffRank.MOD || rank == StaffRank.DEVELOPER) {
+            // Mods must stay in Survival while on duty so container/item interactions work.
+            return gameMode == GameMode.SURVIVAL;
         }
-        return gameMode == requiredGameMode(rank);
+        // SYSTEM and any other non-player rank keep the historical spectator-only grant.
+        return rank == StaffRank.SYSTEM && gameMode == GameMode.SPECTATOR;
+    }
+
+    static GameMode reconciledGameMode(StaffRank rank, GameMode currentGameMode) {
+        Objects.requireNonNull(currentGameMode, "currentGameMode");
+        return allowsGameMode(rank, currentGameMode)
+                ? currentGameMode
+                : initialGameMode(rank);
     }
 
     static boolean hasAdvancedStaffTools(StaffRank rank) {

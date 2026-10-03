@@ -4,7 +4,7 @@ import org.gradle.testing.jacoco.tasks.JacocoReport
 plugins {
     base
     jacoco
-    id("com.gradleup.shadow") version "8.3.6" apply false
+    id("com.gradleup.shadow") version "8.3.11" apply false
 }
 
 group = "net.enthusia.staff"
@@ -24,7 +24,7 @@ subprojects {
     apply(plugin = "jacoco")
 
     extensions.configure<JavaPluginExtension> {
-        toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+        toolchain.languageVersion.set(JavaLanguageVersion.of(25))
         withSourcesJar()
     }
 

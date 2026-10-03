@@ -69,7 +69,7 @@ Workers must inspect and extend those real behavioral tests when product behavio
 
 Follow `docs/development.md` and the repository's AI-agent rules. At minimum:
 
-- JDK 21;
+- JDK 25;
 - checked-in Gradle wrapper;
 - Docker available for MariaDB/Testcontainers portions of the full suite;
 - Python 3 for Wiki validation when documentation changes require it.
@@ -112,7 +112,7 @@ or:
 
 ## Full repository validation
 
-The canonical complete validation remains the repository's existing Java 21 gate, not merely the focused contract test.
+The canonical complete validation remains the repository's existing Java 25 gate, not merely the focused contract test.
 
 Windows:
 

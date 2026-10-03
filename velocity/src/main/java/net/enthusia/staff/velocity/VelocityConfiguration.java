@@ -68,7 +68,8 @@ public record VelocityConfiguration(
 ) {
     private static final String ROUTE_CLASS_VARIABLE = discordVariable("ROUTE_ENVIRONMENT");
     private static final String STAGING_HOSTS_VARIABLE = discordVariable("STAGING_ALLOWED_HOSTS");
-    private static final long MAX_PRIVATE_DATABASE_PROPERTIES_BYTES = 16_384L;
+    private static final String PRIVATE_PREFIX = "Private ";
+    private static final long MAX_PRIVATE_FILE_BYTES = 16_384L;
 
     public VelocityConfiguration {
         backendSecretEnvironments = Map.copyOf(backendSecretEnvironments);
@@ -169,7 +170,15 @@ public record VelocityConfiguration(
     }
 
     public Map<String, DiscordWebhookRoute> discordWebhooksFromEnvironment() {
-        String routeClass = System.getenv(ROUTE_CLASS_VARIABLE);
+        return discordWebhooks(System::getenv);
+    }
+
+    public Map<String, DiscordWebhookRoute> discordWebhooks(Path dataDirectory) {
+        return discordWebhooks(name -> runtimeSecret(dataDirectory, name));
+    }
+
+    private Map<String, DiscordWebhookRoute> discordWebhooks(java.util.function.Function<String, String> values) {
+        String routeClass = values.apply(ROUTE_CLASS_VARIABLE);
         final DiscordRouteEnvironment routeEnvironment;
         try {
             routeEnvironment = DiscordRouteEnvironment.parse(routeClass);
@@ -177,11 +186,11 @@ public record VelocityConfiguration(
             throw new IllegalStateException("The Discord route environment is missing or invalid", exception);
         }
         Set<String> stagingHosts = routeEnvironment == DiscordRouteEnvironment.STAGING
-                ? discordStagingHostsFromEnvironment()
+                ? discordStagingHosts(values)
                 : Set.of();
         Map<String, DiscordWebhookRoute> routes = new LinkedHashMap<>();
         discordWebhookEnvironments.forEach((destination, environmentName) -> {
-            String raw = System.getenv(environmentName);
+            String raw = values.apply(environmentName);
             URI uri = DiscordWebhookUriParser.parse(raw);
             final DiscordWebhookRoute route;
             try {
@@ -196,8 +205,8 @@ public record VelocityConfiguration(
         return Map.copyOf(routes);
     }
 
-    private static Set<String> discordStagingHostsFromEnvironment() {
-        String raw = System.getenv(STAGING_HOSTS_VARIABLE);
+    private static Set<String> discordStagingHosts(java.util.function.Function<String, String> values) {
+        String raw = values.apply(STAGING_HOSTS_VARIABLE);
         if (raw == null || raw.isBlank()) {
             throw new IllegalStateException("The Discord staging approved-host environment variable is missing");
         }
@@ -226,17 +235,11 @@ public record VelocityConfiguration(
     }
 
     public DatabaseConfig database(Path dataDirectory) {
-        DatabaseCredentialSource source = new DatabaseCredentialSource(
-                jdbcUrlEnvironment,
-                usernameEnvironment,
-                passwordEnvironment,
-                "db.jdbc-url",
-                "db.username",
-                "db.password"
-        );
         return databaseFromPrivateFileOrEnvironment(
-                dataDirectory, source, maximumPoolSize, connectionTimeoutMillis, "MariaDB"
-        );
+                dataDirectory,
+                new DatabaseSecretSource(jdbcUrlEnvironment, usernameEnvironment, passwordEnvironment,
+                        "db.jdbc-url", "db.username", "db.password", "MariaDB"),
+                maximumPoolSize, connectionTimeoutMillis);
     }
 
     public DatabaseConfig liteBansDatabaseFromEnvironment() {
@@ -257,121 +260,104 @@ public record VelocityConfiguration(
     }
 
     public DatabaseConfig liteBansDatabase(Path dataDirectory) {
-        DatabaseCredentialSource source = new DatabaseCredentialSource(
-                liteBansJdbcUrlEnvironment,
-                liteBansUsernameEnvironment,
-                liteBansPasswordEnvironment,
-                "litebans.jdbc-url",
-                "litebans.username",
-                "litebans.password"
-        );
         return databaseFromPrivateFileOrEnvironment(
-                dataDirectory, source, liteBansMaximumPoolSize, liteBansConnectionTimeoutMillis, "LiteBans database"
-        );
+                dataDirectory,
+                new DatabaseSecretSource(liteBansJdbcUrlEnvironment, liteBansUsernameEnvironment,
+                        liteBansPasswordEnvironment, "litebans.jdbc-url", "litebans.username",
+                        "litebans.password", "LiteBans database"),
+                liteBansMaximumPoolSize, liteBansConnectionTimeoutMillis);
     }
 
     private static DatabaseConfig databaseFromPrivateFileOrEnvironment(
-            Path dataDirectory,
-            DatabaseCredentialSource source,
-            int poolSize,
-            long timeoutMillis,
-            String label
-    ) {
-        DatabaseCredentials environment = environmentCredentials(source);
-        if (environment.anyPresent()) {
-            return environmentDatabaseConfig(environment, poolSize, timeoutMillis, label);
-        }
-        return privateFileDatabaseConfig(dataDirectory, source, poolSize, timeoutMillis, label);
-    }
-
-    private static DatabaseCredentials environmentCredentials(DatabaseCredentialSource source) {
-        return new DatabaseCredentials(
-                System.getenv(source.urlEnvironment()),
-                System.getenv(source.usernameEnvironment()),
-                System.getenv(source.passwordEnvironment())
-        );
-    }
-
-    private static DatabaseConfig environmentDatabaseConfig(
-            DatabaseCredentials credentials,
-            int poolSize,
-            long timeoutMillis,
-            String label
-    ) {
-        if (!credentials.complete()) {
-            throw new IllegalStateException("Incomplete " + label + " environment configuration");
-        }
-        return new DatabaseConfig(
-                credentials.url(), credentials.username(), credentials.password(), poolSize, timeoutMillis
-        );
-    }
-
-    private static DatabaseConfig privateFileDatabaseConfig(
-            Path dataDirectory,
-            DatabaseCredentialSource source,
-            int poolSize,
-            long timeoutMillis,
-            String label
-    ) {
-        Properties secrets = privateDatabaseProperties(dataDirectory, label);
-        DatabaseCredentials credentials = new DatabaseCredentials(
-                secrets.getProperty(source.urlKey()),
-                secrets.getProperty(source.usernameKey()),
-                secrets.getProperty(source.passwordKey())
-        );
-        if (!credentials.complete()) {
-            throw new IllegalStateException("Private " + label + " database.properties entries are incomplete");
-        }
-        return new DatabaseConfig(
-                credentials.url().trim(), credentials.username().trim(), credentials.password(), poolSize, timeoutMillis
-        );
-    }
-
-    private static Properties privateDatabaseProperties(Path dataDirectory, String label) {
-        Path file = dataDirectory.resolve("database.properties");
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IllegalStateException("Private " + label + " database.properties file is missing");
-        }
-        try {
-            if (Files.size(file) > MAX_PRIVATE_DATABASE_PROPERTIES_BYTES) {
-                throw new IllegalStateException("Private database.properties file is too large");
+            Path dataDirectory, DatabaseSecretSource source, int poolSize, long timeoutMillis) {
+        String url = System.getenv(source.urlEnvironment());
+        String username = System.getenv(source.usernameEnvironment());
+        String password = System.getenv(source.passwordEnvironment());
+        if (present(url) || present(username) || present(password)) {
+            if (!present(url) || !present(username) || !present(password)) {
+                throw new IllegalStateException("Incomplete " + source.label() + " environment configuration");
             }
-            Properties secrets = new Properties();
+            return new DatabaseConfig(url, username, password, poolSize, timeoutMillis);
+        }
+        Properties secrets = privateProperties(dataDirectory, "database.properties");
+        return databaseFromProperties(secrets, source, poolSize, timeoutMillis);
+    }
+
+    private static DatabaseConfig databaseFromProperties(
+            Properties secrets, DatabaseSecretSource source, int poolSize, long timeoutMillis) {
+        String url = secrets.getProperty(source.urlKey());
+        String username = secrets.getProperty(source.usernameKey());
+        String password = secrets.getProperty(source.passwordKey());
+        if (!present(url) || !present(username) || !present(password)) {
+            throw new IllegalStateException(PRIVATE_PREFIX + source.label()
+                    + " database.properties entries are incomplete");
+        }
+        return new DatabaseConfig(url.trim(), username.trim(), password, poolSize, timeoutMillis);
+    }
+
+    public String networkIdentitySecret(Path dataDirectory, String environmentName) {
+        if (!environmentName.equals(networkIdentityHmacSecretEnvironment)
+                && !environmentName.equals(networkIdentityEncryptionSecretEnvironment)) {
+            throw new IllegalArgumentException("Unknown network identity secret name");
+        }
+        String environmentValue = System.getenv(environmentName);
+        if (present(environmentValue)) {
+            return environmentValue;
+        }
+        String privateValue = privateProperties(dataDirectory, "secrets.properties").getProperty(environmentName);
+        if (!present(privateValue)) {
+            throw new IllegalStateException(PRIVATE_PREFIX + "network identity secret is missing");
+        }
+        return privateValue.trim();
+    }
+
+    private static Properties privateProperties(Path dataDirectory, String fileName) {
+        Path file = dataDirectory.resolve(fileName);
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException(PRIVATE_PREFIX + fileName + " file is missing");
+        }
+        Properties secrets = new Properties();
+        try {
+            if (Files.size(file) > MAX_PRIVATE_FILE_BYTES) {
+                throw new IllegalStateException(PRIVATE_PREFIX + fileName + " file is too large");
+            }
             try (InputStream input = Files.newInputStream(file)) {
                 secrets.load(input);
             }
-            return secrets;
         } catch (IOException exception) {
-            throw new IllegalStateException("Private database.properties file cannot be read", exception);
+            throw new IllegalStateException(PRIVATE_PREFIX + fileName + " file cannot be read", exception);
         }
+        return secrets;
+    }
+
+    private record DatabaseSecretSource(
+            String urlEnvironment, String usernameEnvironment, String passwordEnvironment,
+            String urlKey, String usernameKey, String passwordKey, String label) {
     }
 
     private static boolean present(String value) {
         return value != null && !value.isBlank();
     }
 
-    private record DatabaseCredentials(String url, String username, String password) {
-        private boolean anyPresent() {
-            return present(url) || present(username) || present(password);
-        }
-
-        private boolean complete() {
-            return present(url) && present(username) && present(password);
-        }
-    }
-
-    private record DatabaseCredentialSource(
-            String urlEnvironment,
-            String usernameEnvironment,
-            String passwordEnvironment,
-            String urlKey,
-            String usernameKey,
-            String passwordKey
-    ) {
-    }
-
     public String websiteApiBearerTokenFromEnvironment() {
         return websiteSecret(websiteApiBearerTokenEnvironment, "bearer token");
+    }
+
+    public String websiteApiBearerToken(Path dataDirectory) {
+        return checkedWebsiteSecret(runtimeSecret(dataDirectory, websiteApiBearerTokenEnvironment), "bearer token");
+    }
+
+    public String websiteApiHmacSecret(Path dataDirectory) {
+        return checkedWebsiteSecret(runtimeSecret(dataDirectory, websiteApiHmacSecretEnvironment), "HMAC secret");
+    }
+
+    public PunishmentCodeProtector punishmentCodeProtector(Path dataDirectory) {
+        return new PunishmentCodeProtector(punishmentCodeKeyVersion,
+                SecretKeyMaterial.hmacSha256FromBase64(runtimeSecret(dataDirectory, punishmentCodeSecretEnvironment)));
+    }
+
+    private static String runtimeSecret(Path dataDirectory, String environment) {
+        return net.enthusia.staff.common.security.PrivateRuntimeSecrets.required(dataDirectory, environment, System::getenv);
     }
 
     public String websiteApiHmacSecretFromEnvironment() {
@@ -387,7 +373,10 @@ public record VelocityConfiguration(
     }
 
     private static String websiteSecret(String environment, String label) {
-        String value = System.getenv(environment);
+        return checkedWebsiteSecret(System.getenv(environment), label);
+    }
+
+    private static String checkedWebsiteSecret(String value, String label) {
         if (value == null || value.isBlank()
                 || value.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalStateException("The website API " + label + " must contain at least 32 bytes");

@@ -157,6 +157,10 @@ final class VelocityVerificationRenderer {
 
     private static void appendCutover(List<Component> lines, NetworkVerificationState.Cutover cutover) {
         lines.add(VelocityMessageStyle.section("Migration / Cutover"));
+        if (cutover.committed()) {
+            lines.add(pass("Authority cutover", "Committed", "durable activation receipt verified"));
+            return;
+        }
         lines.add(cutover.evidencePresent()
                 ? pass("Shadow evidence", "Ready", "Durable comparison evidence found")
                 : warning("Shadow evidence", "Pending", "No complete evidence available"));
@@ -172,16 +176,16 @@ final class VelocityVerificationRenderer {
             NetworkVerificationState.Cutover cutover
     ) {
         List<String> blockers = blockers(snapshot, reports, cutover);
-        appendBlockers(lines, blockers);
+        appendBlockers(lines, blockers, snapshot.mode());
         lines.add(Component.text("────────────────────────", NamedTextColor.DARK_GRAY));
         lines.add(verdict(snapshot.mode(), blockers));
     }
 
-    private static void appendBlockers(List<Component> lines, List<String> blockers) {
+    private static void appendBlockers(List<Component> lines, List<String> blockers, OperationalMode mode) {
         if (blockers.isEmpty()) {
             return;
         }
-        lines.add(VelocityMessageStyle.section("Why not ACTIVE"));
+        lines.add(VelocityMessageStyle.section(mode == OperationalMode.ACTIVE ? "Outstanding checks" : "Why not ACTIVE"));
         int shown = Math.min(MAX_BLOCKERS_SHOWN, blockers.size());
         for (int index = 0; index < shown; index++) {
             lines.add(Component.text("  " + (index + 1) + ". ", NamedTextColor.RED)
@@ -198,6 +202,9 @@ final class VelocityVerificationRenderer {
     private static Component verdict(OperationalMode mode, List<String> blockers) {
         if (mode == OperationalMode.ACTIVE && blockers.isEmpty()) {
             return Component.text("✔ ACTIVE • NETWORK HEALTHY", NamedTextColor.GREEN, TextDecoration.BOLD);
+        }
+        if (mode == OperationalMode.ACTIVE) {
+            return Component.text("⚠ ACTIVE • FOLLOW-UP REQUIRED", NamedTextColor.YELLOW, TextDecoration.BOLD);
         }
         if (blockers.isEmpty()) {
             return Component.text("✔ READY FOR ACTIVE TESTING", NamedTextColor.GREEN, TextDecoration.BOLD);

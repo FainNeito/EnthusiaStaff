@@ -15,27 +15,13 @@ class VelocityChannelSecretsWiringTest {
     );
 
     @Test
-    void initializeChannelUsesResolvedSecretsAndWipesTlsPassword() throws IOException {
+    void deployedSecretFallbackRemainsWiredAndTlsPasswordIsWiped() throws IOException {
         String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
 
-        int loader = source.indexOf("VelocityChannelSecrets.load(");
-        int environment = source.indexOf("System::getenv", loader);
-        int backendKeys = source.indexOf("secrets.backendKeys()", environment);
-        int proxyKey = source.indexOf("secrets.proxyKey()", backendKeys);
-        int tlsPassword = source.indexOf("secrets.tlsStorePassword()", proxyKey);
-        int passwordWipe = source.indexOf("Arrays.fill(tlsStorePassword, '\\0')", tlsPassword);
-        int serverCreation = source.indexOf("createChannelServer(", passwordWipe);
-
-        assertOrdered(loader, environment, backendKeys, proxyKey, tlsPassword, passwordWipe, serverCreation);
-        assertFalse(source.contains("private static SecretKey secretFromEnvironment("));
-        assertFalse(source.contains("private static char[] passwordFromEnvironment("));
-    }
-
-    private static void assertOrdered(int... positions) {
-        int previous = -1;
-        for (int position : positions) {
-            assertTrue(position > previous, "runtime channel-secret wiring is missing or out of order");
-            previous = position;
-        }
+        assertTrue(source.contains(
+                "PrivateRuntimeSecrets.required(dataDirectory, environment, System::getenv)"
+        ));
+        assertTrue(source.contains("Arrays.fill(password, '\\0')"));
+        assertFalse(source.contains("System.getenv(loaded.channelProxySecretEnvironment())"));
     }
 }

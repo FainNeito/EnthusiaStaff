@@ -42,11 +42,13 @@ final class NetworkVerificationState {
         }
     }
 
-    record Cutover(boolean allowed, boolean evidencePresent, List<String> blockers) {
+    record Cutover(boolean allowed, boolean evidencePresent, List<String> blockers, boolean committed) {
         Cutover(boolean allowed, boolean evidencePresent, List<String> blockers) {
-            this.allowed = allowed;
-            this.evidencePresent = evidencePresent;
-            this.blockers = blockers == null ? List.of() : List.copyOf(blockers);
+            this(allowed, evidencePresent, blockers, false);
+        }
+
+        Cutover {
+            blockers = blockers == null ? List.of() : List.copyOf(blockers);
         }
     }
 }

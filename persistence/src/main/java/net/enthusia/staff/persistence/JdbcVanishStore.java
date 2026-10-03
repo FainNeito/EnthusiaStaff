@@ -8,13 +8,17 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.sql.DataSource;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.domain.staff.VanishRecord;
 
 public final class JdbcVanishStore implements VanishStore {
+    private static final Logger LOGGER = Logger.getLogger(JdbcVanishStore.class.getName());
     private static final int SINGLE_ROW_UPDATE = 1;
 
     private final DataSource dataSource;
@@ -33,7 +37,7 @@ public final class JdbcVanishStore implements VanishStore {
         }
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT staff_id, staff_rank, updated_at, revision
+                     SELECT staff_id, staff_rank, selected_game_mode, updated_at, revision
                      FROM staff_vanish_states WHERE active = TRUE ORDER BY updated_at LIMIT ?
                      """)) {
             statement.setInt(1, limit);
@@ -43,6 +47,7 @@ public final class JdbcVanishStore implements VanishStore {
                     records.add(new VanishRecord(
                             UuidBytes.fromBytes(result.getBytes("staff_id")),
                             StaffRank.valueOf(result.getString("staff_rank")),
+                            result.getString("selected_game_mode"),
                             result.getTimestamp("updated_at").toInstant(),
                             result.getLong("revision")
                     ));
@@ -55,6 +60,40 @@ public final class JdbcVanishStore implements VanishStore {
     }
 
     @Override
+    public Optional<VanishRecord> active(UUID staffId) {
+        if (staffId == null) {
+            throw new IllegalArgumentException("staffId must be present");
+        }
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT staff_id, staff_rank, selected_game_mode, updated_at, revision
+                     FROM staff_vanish_states
+                     WHERE staff_id = ? AND active = TRUE
+                     """)) {
+            statement.setBytes(1, UuidBytes.toBytes(staffId));
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                VanishRecord record = new VanishRecord(
+                        UuidBytes.fromBytes(result.getBytes("staff_id")),
+                        StaffRank.valueOf(result.getString("staff_rank")),
+                        result.getString("selected_game_mode"),
+                        result.getTimestamp("updated_at").toInstant(),
+                        result.getLong("revision")
+                );
+                if (result.next()) {
+                    throw new SQLException("duplicate canonical vanish state exists for staff member");
+                }
+                return Optional.of(record);
+            }
+        } catch (SQLException | IllegalArgumentException exception) {
+            throw new ModerationPersistenceException("Unable to load staff vanish state", exception);
+        }
+    }
+
+
+    @Override
     public WriteResult set(
             UUID staffId,
             StaffRank rank,
@@ -63,18 +102,34 @@ public final class JdbcVanishStore implements VanishStore {
             Instant now,
             boolean requireActiveStaffSession
     ) {
+        return set(staffId, rank, vanished, actorId, now, requireActiveStaffSession, null);
+    }
+
+    @Override
+    public WriteResult set(
+            UUID staffId,
+            StaffRank rank,
+            boolean vanished,
+            UUID actorId,
+            Instant now,
+            boolean requireActiveStaffSession,
+            String selectedGameMode
+    ) {
         validateWrite(staffId, rank, actorId, now);
+        validateSelectedGameMode(selectedGameMode);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 return setTransaction(
                         connection,
+                        dataSource,
                         staffId,
                         rank,
                         vanished,
                         actorId,
                         now,
-                        requireActiveStaffSession
+                        requireActiveStaffSession,
+                        selectedGameMode
                 );
             } catch (SQLException exception) {
                 rollback(connection, exception);
@@ -89,12 +144,14 @@ public final class JdbcVanishStore implements VanishStore {
 
     private static WriteResult setTransaction(
             Connection connection,
+            DataSource dataSource,
             UUID staffId,
             StaffRank rank,
             boolean vanished,
             UUID actorId,
             Instant now,
-            boolean requireActiveStaffSession
+            boolean requireActiveStaffSession,
+            String selectedGameMode
     ) throws SQLException {
         VanishState current = lockVanishState(connection, staffId);
         SessionMirror session = lockActiveSession(connection, staffId);
@@ -102,13 +159,19 @@ public final class JdbcVanishStore implements VanishStore {
             connection.rollback();
             return WriteResult.STAFF_SESSION_NOT_ACTIVE;
         }
-        ChangeSet changes = changes(current, session, rank, vanished);
+        ChangeSet changes = changes(current, session, rank, vanished, selectedGameMode);
         if (!changes.changed()) {
             connection.rollback();
             return WriteResult.UNCHANGED;
         }
-        persistChanges(connection, staffId, actorId, rank, vanished, now, session, changes);
+        persistChanges(
+                connection,
+                new VanishWrite(staffId, actorId, rank, vanished, now, selectedGameMode),
+                session,
+                changes);
         connection.commit();
+        writeAuditAndOutboxBestEffort(
+                dataSource, staffId, actorId, rank, vanished, now, changes.stateChanged());
         return WriteResult.COMMITTED;
     }
 
@@ -116,32 +179,50 @@ public final class JdbcVanishStore implements VanishStore {
             VanishState current,
             SessionMirror session,
             StaffRank rank,
-            boolean vanished
+            boolean vanished,
+            String selectedGameMode
     ) {
         return new ChangeSet(
-                !matches(current, rank, vanished),
+                !matches(current, rank, vanished, selectedGameMode),
                 session != null && session.vanished() != vanished
         );
     }
 
     private static void persistChanges(
             Connection connection,
+            VanishWrite write,
+            SessionMirror session,
+            ChangeSet changes
+    ) throws SQLException {
+        if (!changes.stateChanged()) {
+            updateSessionMirror(connection, session.sessionId(), write.vanished());
+            return;
+        }
+        writeState(connection, write.staffId(), write.actorId(), write.rank(), write.vanished(), write.now(),
+                write.selectedGameMode());
+        updateSessionMirrorIfChanged(connection, session, write.vanished());
+    }
+
+    private static void writeAuditAndOutboxBestEffort(
+            DataSource dataSource,
             UUID staffId,
             UUID actorId,
             StaffRank rank,
             boolean vanished,
             Instant now,
-            SessionMirror session,
-            ChangeSet changes
-    ) throws SQLException {
-        if (!changes.stateChanged()) {
-            updateSessionMirror(connection, session.sessionId(), vanished);
+            boolean stateChanged
+    ) {
+        if (!stateChanged) {
             return;
         }
-        writeState(connection, staffId, actorId, rank, vanished, now);
-        updateSessionMirrorIfChanged(connection, session, vanished);
-        insertAudit(connection, staffId, actorId, rank, vanished, now);
-        insertDiscord(connection, staffId, actorId, rank, vanished, now);
+        try (Connection connection = dataSource.getConnection()) {
+            insertAudit(connection, staffId, actorId, rank, vanished, now);
+            insertDiscord(connection, staffId, actorId, rank, vanished, now);
+        } catch (SQLException | RuntimeException exception) {
+            LOGGER.log(Level.WARNING,
+                    "Vanish audit/discord-outbox follow-up failed; the core vanish state was committed",
+                    exception);
+        }
     }
 
     private static void updateSessionMirrorIfChanged(
@@ -154,6 +235,17 @@ public final class JdbcVanishStore implements VanishStore {
         }
     }
 
+    private static void validateSelectedGameMode(String selectedGameMode) {
+        if (selectedGameMode == null) {
+            return;
+        }
+        if (!selectedGameMode.equals("SURVIVAL")
+                && !selectedGameMode.equals("CREATIVE")
+                && !selectedGameMode.equals("SPECTATOR")) {
+            throw new IllegalArgumentException("selected vanish game mode is invalid");
+        }
+    }
+
     private static void validateWrite(UUID staffId, StaffRank rank, UUID actorId, Instant now) {
         if (staffId == null || rank == null || rank == StaffRank.SYSTEM || actorId == null || now == null) {
             throw new IllegalArgumentException("valid vanish state fields are required");
@@ -162,7 +254,7 @@ public final class JdbcVanishStore implements VanishStore {
 
     private static VanishState lockVanishState(Connection connection, UUID staffId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT active, staff_rank
+                SELECT active, staff_rank, selected_game_mode
                 FROM staff_vanish_states
                 WHERE staff_id = ?
                 FOR UPDATE
@@ -170,7 +262,11 @@ public final class JdbcVanishStore implements VanishStore {
             statement.setBytes(1, UuidBytes.toBytes(staffId));
             try (ResultSet result = statement.executeQuery()) {
                 return result.next()
-                        ? new VanishState(result.getBoolean("active"), StaffRank.valueOf(result.getString("staff_rank")))
+                        ? new VanishState(
+                                result.getBoolean("active"),
+                                StaffRank.valueOf(result.getString("staff_rank")),
+                                result.getString("selected_game_mode")
+                        )
                         : null;
             }
         }
@@ -200,8 +296,16 @@ public final class JdbcVanishStore implements VanishStore {
         }
     }
 
-    private static boolean matches(VanishState current, StaffRank rank, boolean vanished) {
-        return current != null && current.vanished() == vanished && current.rank() == rank;
+    private static boolean matches(
+            VanishState current,
+            StaffRank rank,
+            boolean vanished,
+            String selectedGameMode
+    ) {
+        return current != null
+                && current.vanished() == vanished
+                && current.rank() == rank
+                && java.util.Objects.equals(current.selectedGameMode(), selectedGameMode);
     }
 
     private static void writeState(
@@ -210,19 +314,24 @@ public final class JdbcVanishStore implements VanishStore {
             UUID actorId,
             StaffRank rank,
             boolean vanished,
-            Instant now
+            Instant now,
+            String selectedGameMode
     ) throws SQLException {
         try (PreparedStatement state = connection.prepareStatement("""
-                INSERT INTO staff_vanish_states(staff_id, active, staff_rank, updated_by, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO staff_vanish_states(
+                    staff_id, active, staff_rank, selected_game_mode, updated_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE active = VALUES(active), staff_rank = VALUES(staff_rank),
+                    selected_game_mode = VALUES(selected_game_mode),
                     updated_by = VALUES(updated_by), updated_at = VALUES(updated_at), revision = revision + 1
                 """)) {
             state.setBytes(1, UuidBytes.toBytes(staffId));
             state.setBoolean(2, vanished);
             state.setString(3, rank.name());
-            state.setBytes(4, UuidBytes.toBytes(actorId));
-            state.setTimestamp(5, Timestamp.from(now));
+            state.setString(4, selectedGameMode);
+            state.setBytes(5, UuidBytes.toBytes(actorId));
+            state.setTimestamp(6, Timestamp.from(now));
             state.executeUpdate();
         }
     }
@@ -304,7 +413,7 @@ public final class JdbcVanishStore implements VanishStore {
         }
     }
 
-    private record VanishState(boolean vanished, StaffRank rank) {
+    private record VanishState(boolean vanished, StaffRank rank, String selectedGameMode) {
     }
 
     private record SessionMirror(UUID sessionId, boolean vanished) {
@@ -314,5 +423,18 @@ public final class JdbcVanishStore implements VanishStore {
         private boolean changed() {
             return stateChanged || sessionChanged;
         }
+    }
+
+    /**
+     * The new vanish state being written, grouped so persistence helpers stay under the
+     * parameter-count limit.
+     */
+    private record VanishWrite(
+            UUID staffId,
+            UUID actorId,
+            StaffRank rank,
+            boolean vanished,
+            Instant now,
+            String selectedGameMode) {
     }
 }

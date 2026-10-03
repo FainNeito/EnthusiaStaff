@@ -1,5 +1,7 @@
 package net.enthusia.staff.velocity;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.inject.Inject;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
@@ -13,6 +15,7 @@ import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -48,6 +51,7 @@ import net.enthusia.staff.common.CaseId;
 import net.enthusia.staff.common.security.HmacTokenService;
 import net.enthusia.staff.common.security.NetworkIdentityProtector;
 import net.enthusia.staff.common.security.SecretKeyMaterial;
+import net.enthusia.staff.common.security.PrivateRuntimeSecrets;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.alt.AltRelationshipState;
 import net.enthusia.staff.domain.alt.AltRelationshipSummary;
@@ -82,7 +86,9 @@ import net.enthusia.staff.persistence.migration.CutoverOutcome;
 import net.enthusia.staff.persistence.migration.LiteBansMigrationService;
 import net.enthusia.staff.persistence.migration.MigrationExecutionReport;
 import net.enthusia.staff.protocol.PersistentChannelServer;
+import net.enthusia.staff.protocol.ProtocolEnvelope;
 import net.enthusia.staff.protocol.TlsContextLoader;
+import net.enthusia.staff.protocol.TransferSnapshotMessages;
 import net.kyori.adventure.text.Component;
 import org.slf4j.Logger;
 
@@ -92,7 +98,8 @@ import org.slf4j.Logger;
         name = "EnthusiaStaff",
         version = "0.1.0-SNAPSHOT",
         description = "Enthusia Network staff and moderation runtime for Velocity",
-        authors = {"P2wn"}
+        authors = {"P2wn"},
+        dependencies = {@Dependency(id = "velocitab", optional = true)}
 )
 public final class EnthusiaStaffVelocityPlugin {
     private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ISO_OFFSET_DATE_TIME.withZone(ZoneOffset.UTC);
@@ -123,6 +130,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private static final Set<String> DISCORD_DESTINATIONS =
             Set.of("punishments", "reports", "logs-staffmode", "alerts");
     private static final UUID CONSOLE_ACTOR_ID = new UUID(0L, 0L);
+    private static final String STAFF_MODE_READY = "STAFF_MODE_READY";
 
     private final ProxyServer proxy;
     private final Logger logger;
@@ -134,12 +142,18 @@ public final class EnthusiaStaffVelocityPlugin {
     private final AtomicBoolean migrationRunning = new AtomicBoolean();
     private final VelocitySecurityEventDispatcher securityEventDispatcher;
     private final VelocityNetworkVerifier networkVerifier;
+    private final ObjectMapper json = new ObjectMapper();
     private final java.util.concurrent.ConcurrentHashMap<UUID, CompletableFuture<Void>> presenceUpdates =
             new java.util.concurrent.ConcurrentHashMap<>();
+    private final StaffModeReconnectCoordinator staffReconnects = new StaffModeReconnectCoordinator();
+    private final StaffModeHandoffTracker staffHandoffs = new StaffModeHandoffTracker();
+    private final StaffTransferSnapshotCache transferSnapshots =
+            new StaffTransferSnapshotCache(Clock.systemUTC());
 
     private volatile ExecutorService workers;
     private volatile VelocityConfiguration configuration;
     private volatile MariaDbRuntime databaseRuntime;
+    private VelocitabStaffBridge staffTabBridge;
     private volatile SanctionLookup sanctionLookup;
     private volatile PlayerDirectory playerDirectory;
     private volatile FreezeStore freezeStore;
@@ -156,6 +170,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile DiscordOutboxWorker discordOutboxWorker;
     private volatile WebsiteModerationStore websiteModerationStore;
     private volatile WebsiteApiServer websiteApiServer;
+    private volatile WebsiteTunnelConnector websiteTunnel;
+    private volatile boolean websiteTunnelInstalled;
     private volatile ScheduledTask websiteMaintenanceTask;
     private volatile ScheduledTask shadowMigrationTask;
     private volatile VelocityBootstrapCoordinator bootstrapCoordinator;
@@ -174,13 +190,14 @@ public final class EnthusiaStaffVelocityPlugin {
                 () -> channelServer,
                 () -> networkIdentityStore != null && networkIdentityProtector != null,
                 () -> discordOutboxWorker != null,
-                () -> websiteApiServer != null && websiteModerationStore != null
+                this::websiteBridgeReady
         ));
     }
 
     @Subscribe
     public void onProxyInitialization(ProxyInitializeEvent ignored) {
         workers = createWorkers();
+        staffTabBridge = VelocitabStaffBridge.start(this, proxy, logger, () -> databaseRuntime, workers).orElse(null);
         registerCommands();
         health.update(OperationalMode.BOOTSTRAP, Map.of("bootstrap", "MariaDB initialization is in progress"));
         VelocityBootstrapCoordinator coordinator = new VelocityBootstrapCoordinator(
@@ -295,6 +312,9 @@ public final class EnthusiaStaffVelocityPlugin {
         shadowMigrationTask = null;
         closeWebsiteServer();
         closeChannelServer();
+        if (staffTabBridge != null) {
+            staffTabBridge.close();
+        }
         workers.shutdown();
         try {
             if (!workers.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -349,6 +369,10 @@ public final class EnthusiaStaffVelocityPlugin {
 
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
+        staffReconnects.disconnected(event.getPlayer().getUniqueId());
+        // Drop any cached transfer snapshot: a disconnect mid-transfer must not leak state
+        // into a later, unrelated transfer.
+        transferSnapshots.evict(event.getPlayer().getUniqueId());
         PlayerDirectory directory = playerDirectory;
         VelocityConfiguration loaded = configuration;
         if (directory == null || loaded == null) {
@@ -456,6 +480,7 @@ public final class EnthusiaStaffVelocityPlugin {
         logger.info("MariaDB verified; Velocity moderation authority is {}", state.mode());
     }
 
+    @SuppressWarnings("PMD.CloseResource") // Borrows the plugin-owned worker pool; shutdown owns its lifecycle.
     private boolean submitWorker(Runnable operation) {
         ExecutorService executor = workers;
         if (executor == null || executor.isShutdown() || shuttingDown.get()) {
@@ -571,6 +596,9 @@ public final class EnthusiaStaffVelocityPlugin {
     @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
     // Clear the published reference before closing; SLF4J placeholders defer formatting.
     private void closeWebsiteServer() {
+        WebsiteTunnelConnector connector = websiteTunnel;
+        websiteTunnel = null;
+        if (connector != null) connector.close();
         WebsiteApiServer server = websiteApiServer;
         websiteApiServer = null;
         if (server != null) {
@@ -680,20 +708,11 @@ public final class EnthusiaStaffVelocityPlugin {
         if (loaded.backendSecretEnvironments().isEmpty()) {
             throw new IllegalStateException("No required backend channel secrets are configured");
         }
-        VelocityChannelSecrets.Loaded secrets = VelocityChannelSecrets.load(
-        loaded,
-        dataDirectory,
-        System::getenv
-);
-Map<String, SecretKey> backendKeys = secrets.backendKeys();
-SecretKey proxyKey = secrets.proxyKey();
-char[] tlsStorePassword = secrets.tlsStorePassword();
-SSLContext tlsContext;
-try {
-    tlsContext = serverTlsContext(loaded, tlsStorePassword);
-} finally {
-    Arrays.fill(tlsStorePassword, '\0');
-}
+        Map<String, SecretKey> backendKeys = new LinkedHashMap<>();
+        loaded.backendSecretEnvironments().forEach((serverId, environment) ->
+                backendKeys.put(serverId, secretFromEnvironment(environment)));
+        SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
+        SSLContext tlsContext = serverTlsContext(loaded);
         try {
             PersistentChannelServer server = createChannelServer(
                     loaded, outbox, backendKeys, proxyKey, tlsContext
@@ -735,7 +754,10 @@ try {
                 ),
                 Clock.systemUTC(),
                 envelope -> {
-                    if (networkVerifier.acceptReport(envelope)) {
+                    if (acceptTransferSnapshot(envelope)) {
+                        return true;
+                    }
+                    if (networkVerifier.acceptReport(envelope) || acceptStaffModeReady(envelope)) {
                         return true;
                     }
                     outbox.recordInboxOnce(
@@ -758,10 +780,10 @@ try {
             return;
         }
         SecretKey equalityKey = SecretKeyMaterial.hmacSha256FromBase64(
-                System.getenv(loaded.networkIdentityHmacSecretEnvironment())
+                loaded.networkIdentitySecret(dataDirectory, loaded.networkIdentityHmacSecretEnvironment())
         );
         SecretKey encryptionKey = SecretKeyMaterial.aesFromBase64(
-                System.getenv(loaded.networkIdentityEncryptionSecretEnvironment())
+                loaded.networkIdentitySecret(dataDirectory, loaded.networkIdentityEncryptionSecretEnvironment())
         );
         networkIdentityProtector = new NetworkIdentityProtector(
                 new HmacTokenService(loaded.networkIdentityHmacKeyVersion(), equalityKey),
@@ -783,7 +805,7 @@ try {
                 Clock.systemUTC(),
                 workers,
                 store,
-                loaded.discordWebhooksFromEnvironment(),
+                loaded.discordWebhooks(dataDirectory),
                 loaded.discordMaximumAttempts(),
                 loaded.discordFailureThreshold(),
                 Duration.ofSeconds(loaded.discordCircuitOpenSeconds()),
@@ -803,6 +825,10 @@ try {
             websiteModerationStore = website.store();
             websiteApiServer = website.server();
             websiteMaintenanceTask = website.maintenance();
+            websiteTunnelInstalled = java.nio.file.Files.exists(dataDirectory.resolve("website-tunnel/connector-token"));
+            websiteTunnel = WebsiteTunnelConnector.startIfInstalled(dataDirectory,
+                    () -> logger.error("Website tunnel connector stopped; the loopback API remains protected"))
+                    .orElse(null);
             if (logger.isInfoEnabled()) {
                 logger.info(
                         "Restricted website API started on loopback; {} eligible punishment codes were backfilled",
@@ -822,7 +848,7 @@ try {
             MariaDbRuntime runtime
     ) throws java.io.IOException {
         WebsiteModerationStore store = runtime.websiteModerationStore(
-                loaded.punishmentCodeProtectorFromEnvironment()
+                loaded.punishmentCodeProtector(dataDirectory)
         );
         AuthorizationPolicy authorization = new DefaultAuthorizationPolicy();
         Clock apiClock = Clock.systemUTC();
@@ -840,8 +866,8 @@ try {
                         loaded.websiteApiQueueCapacity()
                 ),
                 new WebsiteApiAuthenticator(
-                        loaded.websiteApiBearerTokenFromEnvironment(),
-                        loaded.websiteApiHmacSecretFromEnvironment(),
+                        loaded.websiteApiBearerToken(dataDirectory),
+                        loaded.websiteApiHmacSecret(dataDirectory),
                         Duration.ofSeconds(loaded.websiteApiTimestampSkewSeconds()),
                         store
                 ),
@@ -876,12 +902,27 @@ try {
         }
     }
 
-    private static SSLContext serverTlsContext(
-        VelocityConfiguration configuration,
-        char[] password
-) {
-    return TlsContextLoader.server(configuration.channelTlsKeyStorePath(), password);
-}
+    private SecretKey secretFromEnvironment(String environment) {
+        String encoded = PrivateRuntimeSecrets.required(dataDirectory, environment, System::getenv);
+        return SecretKeyMaterial.hmacSha256FromBase64(encoded);
+    }
+
+    private SSLContext serverTlsContext(VelocityConfiguration configuration) {
+        char[] password = passwordFromEnvironment(configuration.channelTlsKeyStorePasswordEnvironment());
+        try {
+            return TlsContextLoader.server(configuration.channelTlsKeyStorePath(), password);
+        } finally {
+            Arrays.fill(password, '\0');
+        }
+    }
+
+    private char[] passwordFromEnvironment(String environment) {
+        String value = PrivateRuntimeSecrets.required(dataDirectory, environment, System::getenv);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("A required channel TLS store password environment variable is missing");
+        }
+        return value.toCharArray();
+    }
 
     @SuppressWarnings("PMD.GuardLogStatement") // SLF4J placeholders defer formatting; arguments are enums.
     private void refreshOperationalState() {
@@ -918,7 +959,7 @@ try {
             return;
         }
         if (current != OperationalMode.ACTIVE) {
-            enforceInactiveLoginPolicy(event);
+            enforceInactiveLoginPolicy(event, current);
             return;
         }
         enforceActiveLoginPolicy(event);
@@ -942,8 +983,8 @@ try {
         }
     }
 
-    private void enforceInactiveLoginPolicy(LoginEvent event) {
-        if (activeAuthorityObserved && failClosedConfigured()) {
+    private void enforceInactiveLoginPolicy(LoginEvent event, OperationalMode current) {
+        if (VelocityLoginAdmissionPolicy.blocksInactiveLogin(current, activeAuthorityObserved, failClosedConfigured())) {
             denyUnavailable(event);
         }
     }
@@ -1038,11 +1079,20 @@ try {
             issues.put("website-api", "The private punishment and appeal bridge is disabled");
         } else if (websiteApiServer == null || websiteModerationStore == null) {
             issues.put("website-api", "The configured private punishment and appeal bridge failed to start");
+        } else if (!websiteBridgeReady()) {
+            issues.put("website-api", "The installed website tunnel connector is unavailable");
         }
     }
 
+    private boolean websiteBridgeReady() {
+        WebsiteTunnelConnector connector = websiteTunnel;
+        return websiteApiServer != null && websiteModerationStore != null
+                && (!websiteTunnelInstalled || connector != null && connector.running());
+    }
+
     private void denyUnavailable(LoginEvent event) {
-        if (failClosedConfigured()) {
+        if (failClosedConfigured()
+                || VelocityLoginAdmissionPolicy.blocksInactiveLogin(authorityMode.get(), false, false)) {
             event.setResult(ResultedEvent.ComponentResult.denied(Component.text(
                     "The moderation service cannot safely verify network access. Please try again shortly."
             )));
@@ -1050,16 +1100,56 @@ try {
     }
 
     private void enforceSafeServerSwitch(ServerPreConnectEvent event) {
+        if (staffHandoffs.inProgress(event.getPlayer().getUniqueId())) {
+            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
+            return;
+        }
         InventoryJournalStore inventories = inventoryJournalStore;
         EconomyJournalStore economies = economyJournalStore;
         if (inventories == null || economies == null) {
             denyServerSwitchWhenActive(event, "Asset safety status is temporarily unavailable.");
             return;
         }
-        if (!assetFencesAllowSwitch(event, inventories, economies) || event.getPreviousServer() == null) {
+        if (!assetFencesAllowSwitch(event, inventories, economies)) {
+            return;
+        }
+        if (event.getPreviousServer() == null) {
+            enforceStaffReconnectOwnership(event);
             return;
         }
         enforceModerationSwitchSafety(event);
+    }
+
+    private void enforceStaffReconnectOwnership(ServerPreConnectEvent event) {
+        StaffSessionStore sessions = staffSessionStore;
+        if (sessions == null) {
+            denyServerSwitchWhenActive(event, "Staff recovery status is temporarily unavailable. Please retry shortly.");
+            return;
+        }
+        try {
+            var session = sessions.active(event.getPlayer().getUniqueId());
+            if (session.isEmpty()) {
+                staffReconnects.disconnected(event.getPlayer().getUniqueId());
+                return;
+            }
+            var snapshot = session.orElseThrow();
+            String requested = event.getOriginalServer().getServerInfo().getName();
+            staffReconnects.remember(
+                    event.getPlayer().getUniqueId(),
+                    snapshot,
+                    requested,
+                    Clock.systemUTC().instant()
+            );
+            var backend = proxy.getServer(snapshot.serverId());
+            if (backend.isEmpty()) {
+                denyServerSwitch(event, "Your staff snapshot belongs to an unavailable backend. Contact an administrator for recovery.");
+                return;
+            }
+            event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+        } catch (RuntimeException exception) {
+            logger.error("Staff snapshot ownership lookup failed during reconnect", exception);
+            denyServerSwitch(event, "Staff recovery status could not be verified. Please retry shortly.");
+        }
     }
 
     private boolean assetFencesAllowSwitch(
@@ -1101,24 +1191,298 @@ try {
     }
 
     private void enforceModerationSwitchSafety(ServerPreConnectEvent event) {
-        FreezeStore store = freezeStore;
-        if (store == null) {
+        FreezeStore freezes = freezeStore;
+        StaffSessionStore sessions = staffSessionStore;
+        if (freezes == null || sessions == null) {
             denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
             return;
         }
         try {
-            if (store.active(event.getPlayer().getUniqueId(), Clock.systemUTC().instant()).isPresent()) {
+            UUID playerId = event.getPlayer().getUniqueId();
+            if (freezes.active(playerId, Clock.systemUTC().instant()).isPresent()) {
                 denyServerSwitch(event, "You cannot switch servers while frozen by staff.");
                 return;
             }
-            StaffSessionStore sessions = staffSessionStore;
-            if (sessions != null && sessions.active(event.getPlayer().getUniqueId()).isPresent()) {
-                denyServerSwitch(event, "You cannot switch backends while a staff-mode snapshot is active.");
+            var session = sessions.active(playerId);
+            if (session.isPresent()) {
+                enforceStaffSessionSwitch(event, sessions, session.orElseThrow());
             }
         } catch (RuntimeException exception) {
             logger.error("Moderation safety lookup failed during server switch", exception);
             denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
         }
+    }
+
+    private void enforceStaffSessionSwitch(
+            ServerPreConnectEvent event,
+            StaffSessionStore sessions,
+            net.enthusia.staff.domain.staff.StaffSessionSnapshot session
+    ) {
+        String current = event.getPreviousServer().getServerInfo().getName();
+        String requested = event.getResult().getServer()
+                .orElse(event.getOriginalServer()).getServerInfo().getName();
+        if (StaffSessionTransferPolicy.recoveryReturnAllowed(
+                session.serverId(), session.state(), current, requested)) {
+            return;
+        }
+        if (!StaffSessionTransferPolicy.activeHandoffAllowed(
+                session.serverId(), session.state(), current, requested)) {
+            denyServerSwitch(event, "You cannot switch backends while this Staff Mode snapshot requires recovery.");
+            return;
+        }
+        UUID playerId = event.getPlayer().getUniqueId();
+        UUID transferId = UUID.randomUUID();
+        if (!staffHandoffs.begin(playerId, current, requested, transferId, Clock.systemUTC().instant())) {
+            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
+            return;
+        }
+        StaffModeBackendHandoffCoordinator coordinator = handoffCoordinator(sessions);
+        var decision = coordinator.transfer(
+                playerId, session, current, requested, transferId, transferSnapshots::take);
+        if (!decision.allowed()) {
+            if (decision.reconcile()) {
+                scheduleStaffHandoffTimeout(playerId, transferId);
+            } else {
+                staffHandoffs.clear(playerId, transferId);
+            }
+            denyServerSwitch(event, decision.message());
+            return;
+        }
+        scheduleStaffHandoffTimeout(playerId, transferId);
+    }
+
+    /**
+     * Caches a cross-server transfer snapshot uploaded by a source backend
+     * (overnight/cross-server). The upload arrives before any database write on the source;
+     * the proxy holds it just long enough to forward it to the destination backend inside
+     * the handoff prepare message, so transfers never wait on persistence.
+     */
+    private boolean acceptTransferSnapshot(ProtocolEnvelope envelope) {
+        if (!TransferSnapshotMessages.UPLOAD.equals(envelope.messageType())) {
+            return false;
+        }
+        try {
+            net.enthusia.staff.domain.staff.StaffTransferSnapshot snapshot =
+                    TransferSnapshotMessages.decode(envelope.payloadJson());
+            if (snapshot == null) {
+                if (logger.isWarnEnabled()) {
+                    logger.warn("Rejected empty staff transfer snapshot from {}", envelope.serverId());
+                }
+                return true;
+            }
+            transferSnapshots.put(snapshot);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Cached staff transfer snapshot for {} (transfer {})",
+                        snapshot.playerId(), snapshot.transferId());
+            }
+            return true;
+        } catch (IllegalArgumentException exception) {
+            if (logger.isWarnEnabled()) {
+                logger.warn("Rejected malformed staff transfer snapshot from {}", envelope.serverId());
+            }
+            return true;
+        }
+    }
+
+    private boolean acceptStaffModeReady(ProtocolEnvelope envelope) {
+        if (!STAFF_MODE_READY.equals(envelope.messageType())) {
+            return false;
+        }
+        try {
+            JsonNode payload = json.readTree(envelope.payloadJson());
+            UUID playerId = UUID.fromString(payload.path("playerId").asText());
+            UUID sessionId = UUID.fromString(payload.path("sessionId").asText());
+            if (!completePendingStaffHandoff(playerId, envelope.serverId())) {
+                continuePendingReconnect(playerId, sessionId, envelope.serverId());
+            }
+            return true;
+        } catch (java.io.IOException | IllegalArgumentException exception) {
+            if (logger.isWarnEnabled()) {
+                logger.warn("Rejected malformed Staff Mode readiness message from {}", envelope.serverId());
+            }
+            return true;
+        }
+    }
+
+    private void continuePendingReconnect(UUID playerId, UUID sessionId, String owner) {
+        Player player = proxy.getPlayer(playerId).orElse(null);
+        if (player == null || player.getCurrentServer().isEmpty()) {
+            return;
+        }
+        String current = player.getCurrentServer().orElseThrow().getServerInfo().getName();
+        Optional<String> destinationName = staffReconnects.claimDestination(
+                playerId,
+                sessionId,
+                owner,
+                current,
+                Clock.systemUTC().instant()
+        );
+        if (destinationName.isEmpty()) {
+            return;
+        }
+        var destination = proxy.getServer(destinationName.orElseThrow()).orElse(null);
+        if (destination != null) {
+            proxy.getScheduler().buildTask(this, () ->
+                    player.createConnectionRequest(destination).fireAndForget()).schedule();
+        }
+    }
+
+    private StaffModeBackendHandoffCoordinator handoffCoordinator(StaffSessionStore sessions) {
+        java.util.function.Function<UUID, Optional<net.enthusia.staff.domain.staff.StaffSessionSnapshot>> lookup =
+                sessions == null ? ignored -> Optional.empty() : sessions::active;
+        return new StaffModeBackendHandoffCoordinator(
+                () -> StaffModeBackendHandoffCoordinator.channelTransport(channelServer),
+                lookup
+        );
+    }
+
+    private boolean completePendingStaffHandoff(UUID playerId, String readyBackend) {
+        Player player = proxy.getPlayer(playerId).orElse(null);
+        String current = player == null || player.getCurrentServer().isEmpty()
+                ? null
+                : player.getCurrentServer().orElseThrow().getServerInfo().getName();
+        return staffHandoffs.completeReady(playerId, readyBackend, current);
+    }
+
+    private void scheduleStaffHandoffTimeout(UUID playerId, UUID transferId) {
+        proxy.getScheduler().buildTask(
+                this,
+                () -> handleStaffHandoffTimeout(playerId, transferId)
+        ).delay(StaffModeHandoffTracker.TIMEOUT_SECONDS, TimeUnit.SECONDS).schedule();
+    }
+
+    private void handleStaffHandoffTimeout(UUID playerId, UUID transferId) {
+        var pending = staffHandoffs.claimTimedOut(playerId, transferId, Clock.systemUTC().instant());
+        if (pending.isEmpty()) {
+            return;
+        }
+        var handoff = pending.orElseThrow();
+        if (!submitWorker(() -> recoverTimedOutStaffHandoff(playerId, handoff))) {
+            staffHandoffs.restore(handoff, Clock.systemUTC().instant().plusSeconds(2));
+            proxy.getScheduler().buildTask(
+                    this,
+                    () -> handleStaffHandoffTimeout(playerId, transferId)
+            ).delay(2, TimeUnit.SECONDS).schedule();
+        }
+    }
+
+    private void recoverTimedOutStaffHandoff(UUID playerId, StaffModeHandoffTracker.Pending pending) {
+        String current = currentBackend(playerId);
+        StaffSessionStore sessions = staffSessionStore;
+        var durable = activeStaffSession(sessions, playerId);
+        if (durableStaffModeArrived(durable, pending.destination())) {
+            return;
+        }
+        StaffModeBackendHandoffCoordinator coordinator = handoffCoordinator(sessions);
+        if (sourceHandoffStillActive(current, durable, pending)) {
+            stabilizeSourceHandoff(playerId, pending, coordinator);
+            return;
+        }
+        if (retryTimedOutDestination(playerId, current, durable, pending, coordinator)) {
+            return;
+        }
+        finishTimedOutStaffHandoff(playerId, pending, current, durable, coordinator);
+    }
+
+    private String currentBackend(UUID playerId) {
+        return proxy.getPlayer(playerId)
+                .flatMap(Player::getCurrentServer)
+                .map(connection -> connection.getServerInfo().getName())
+                .orElse(null);
+    }
+
+    private static Optional<net.enthusia.staff.domain.staff.StaffSessionSnapshot> activeStaffSession(
+            StaffSessionStore sessions,
+            UUID playerId
+    ) {
+        return sessions == null
+                ? Optional.empty()
+                : sessions.active(playerId);
+    }
+
+    private static boolean sourceHandoffStillActive(
+            String current,
+            Optional<net.enthusia.staff.domain.staff.StaffSessionSnapshot> durable,
+            StaffModeHandoffTracker.Pending pending
+    ) {
+        return current != null
+                && current.equalsIgnoreCase(pending.source())
+                && durableStaffModeArrived(durable, pending.source());
+    }
+
+    private boolean retryTimedOutDestination(
+            UUID playerId,
+            String current,
+            Optional<net.enthusia.staff.domain.staff.StaffSessionSnapshot> durable,
+            StaffModeHandoffTracker.Pending pending,
+            StaffModeBackendHandoffCoordinator coordinator
+    ) {
+        if (!destinationRetryEligible(current, durable, pending)
+                || !coordinator.retryDestination(playerId, pending.destination(), pending.transferId())) {
+            return false;
+        }
+        staffHandoffs.retry(pending, Clock.systemUTC().instant());
+        scheduleStaffHandoffTimeout(playerId, pending.transferId());
+        return true;
+    }
+
+    private static boolean destinationRetryEligible(
+            String current,
+            Optional<net.enthusia.staff.domain.staff.StaffSessionSnapshot> durable,
+            StaffModeHandoffTracker.Pending pending
+    ) {
+        return current != null
+                && current.equalsIgnoreCase(pending.destination())
+                && durable.isEmpty()
+                && pending.retryCount() == 0;
+    }
+
+    private void stabilizeSourceHandoff(
+            UUID playerId,
+            StaffModeHandoffTracker.Pending pending,
+            StaffModeBackendHandoffCoordinator coordinator
+    ) {
+        if (coordinator.abortSourceHandoff(playerId, pending.source(), pending.transferId())) {
+            return;
+        }
+        if (pending.retryCount() == 0) {
+            staffHandoffs.retry(pending, Clock.systemUTC().instant());
+            scheduleStaffHandoffTimeout(playerId, pending.transferId());
+            return;
+        }
+        proxy.getPlayer(playerId).ifPresent(player -> player.sendMessage(VelocityMessageStyle.style(Component.text(
+                "Staff Mode stayed on the current backend, but the handoff abort could not be confirmed."
+        ))));
+    }
+
+    private void finishTimedOutStaffHandoff(
+            UUID playerId,
+            StaffModeHandoffTracker.Pending pending,
+            String current,
+            Optional<net.enthusia.staff.domain.staff.StaffSessionSnapshot> durable,
+            StaffModeBackendHandoffCoordinator coordinator
+    ) {
+        String message;
+        if (current != null && current.equalsIgnoreCase(pending.source()) && durable.isEmpty()) {
+            message = coordinator.recoverFailedConnection(
+                    playerId, pending.source(), pending.destination(), pending.transferId()).message();
+        } else {
+            coordinator.cancelPreparedDestination(playerId, pending.destination(), pending.transferId());
+            message = durable.isPresent()
+                    ? "Staff Mode handoff needs recovery on backend " + durable.orElseThrow().serverId() + '.'
+                    : "Staff Mode did not resume after the backend handoff; your original state remains restored.";
+        }
+        proxy.getPlayer(playerId).ifPresent(player ->
+                player.sendMessage(VelocityMessageStyle.style(Component.text(message))));
+    }
+
+    private static boolean durableStaffModeArrived(
+            Optional<net.enthusia.staff.domain.staff.StaffSessionSnapshot> session,
+            String destination
+    ) {
+        return session.isPresent()
+                && session.orElseThrow().state() == net.enthusia.staff.domain.staff.StaffSessionState.ACTIVE
+                && session.orElseThrow().serverId().equalsIgnoreCase(destination);
     }
 
     private void denyServerSwitchWhenActive(ServerPreConnectEvent event, String message) {
@@ -1132,6 +1496,7 @@ try {
         event.getPlayer().sendMessage(VelocityMessageStyle.style(Component.text(message)));
     }
 
+    @SuppressWarnings("PMD.CloseResource") // Borrows the plugin-owned worker pool; shutdown owns its lifecycle.
     private void enqueuePresence(UUID playerId, Runnable update) {
         ExecutorService executor = workers;
         if (executor == null || executor.isShutdown()) {

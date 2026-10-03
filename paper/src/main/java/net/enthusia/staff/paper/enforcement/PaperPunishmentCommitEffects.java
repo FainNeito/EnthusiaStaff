@@ -1,6 +1,5 @@
 package net.enthusia.staff.paper.enforcement;
 
-import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.util.List;
 import java.util.Objects;
@@ -29,6 +28,7 @@ public final class PaperPunishmentCommitEffects implements AutoCloseable {
     };
     private volatile ScheduledTask observerTask;
     private volatile boolean closed;
+    private final DeliveryClaims delivered = new DeliveryClaims();
 
     public PaperPunishmentCommitEffects(
             JavaPlugin plugin,
@@ -63,17 +63,42 @@ public final class PaperPunishmentCommitEffects implements AutoCloseable {
         if (effect == CommitEffect.NONE) {
             return;
         }
-        dispatchToPlayer(plan.targetId(), player -> applyOnlineEffect(player, plan, effect));
+        dispatchToPlayer(plan.targetId(), player -> applyOnlineEffect(player, plan.caseId(), plan.publicReason(), effect));
+    }
+
+    public void onNetworkPunishmentCommitted(net.enthusia.staff.domain.network.PunishmentCommitNotification notification) {
+        if (closed || !recent(notification.issuedAt(), java.time.Instant.now())) return;
+        CommitEffect effect = effectForTypes(notification.types());
+        if (effect == CommitEffect.NONE) return;
+        if (effect == CommitEffect.BAN) {
+            // A ban removed while its outbox was pending must not kick the player later.
+            PunishmentService current = punishments.get();
+            if (current == null) throw new IllegalStateException("punishment service unavailable");
+            java.util.Set<SanctionType> bans = notification.types().stream().filter(SanctionType::isBan)
+                    .collect(java.util.stream.Collectors.toSet());
+            if (current.activeSanctions(notification.targetId(), bans, java.time.Instant.now()).stream()
+                    .noneMatch(sanction -> sanction.caseId().equals(notification.caseId()))) return;
+        }
+        dispatchToPlayer(notification.targetId(), player -> applyOnlineEffect(player,
+                notification.caseId(), notification.publicReason(), effect));
+    }
+
+    static boolean recent(java.time.Instant issuedAt, java.time.Instant now) {
+        return !issuedAt.isAfter(now.plusSeconds(30)) && !issuedAt.isBefore(now.minusSeconds(120));
     }
 
     static CommitEffect effectFor(List<SanctionSpec> sanctions) {
-        if (sanctions.stream().anyMatch(spec -> spec.type().isBan())) {
+        return effectForTypes(sanctions.stream().map(SanctionSpec::type).toList());
+    }
+
+    private static CommitEffect effectForTypes(List<SanctionType> types) {
+        if (types.stream().anyMatch(SanctionType::isBan)) {
             return CommitEffect.BAN;
         }
-        if (sanctions.stream().anyMatch(spec -> spec.type() == SanctionType.KICK)) {
+        if (types.contains(SanctionType.KICK)) {
             return CommitEffect.KICK;
         }
-        if (sanctions.stream().anyMatch(spec -> spec.type() == SanctionType.WARNING)) {
+        if (types.contains(SanctionType.WARNING)) {
             return CommitEffect.WARNING;
         }
         return CommitEffect.NONE;
@@ -90,20 +115,33 @@ public final class PaperPunishmentCommitEffects implements AutoCloseable {
         }
     }
 
-    private void applyOnlineEffect(Player player, PunishmentPlan plan, CommitEffect effect) {
+    private void applyOnlineEffect(Player player, net.enthusia.staff.common.CaseId caseId, String reason, CommitEffect effect) {
+        if (!delivered.claim(caseId, java.time.Instant.now())) return;
         switch (effect) {
             case BAN -> player.kick(Component.text(
-                    "You are banned. " + plan.publicReason() + " (case " + plan.caseId() + ')'
+                    "You are banned. " + reason + " (case " + caseId + ')'
             ));
             case KICK -> player.kick(Component.text(
-                    "You were kicked. " + plan.publicReason() + " (case " + plan.caseId() + ')'
+                    "You were kicked. " + reason + " (case " + caseId + ')'
             ));
-            case WARNING -> player.sendMessage(StaffMessageStyle.style(Component.text(
-                    "Staff warning: " + plan.publicReason() + " (case " + plan.caseId() + ')'
-            )));
+            case WARNING -> StaffWarningPresentation.show(player, reason, caseId);
             case NONE -> {
             }
             default -> throw new IllegalStateException("Unhandled punishment commit effect");
+        }
+    }
+
+    static final class DeliveryClaims {
+        private final java.util.Map<net.enthusia.staff.common.CaseId, java.time.Instant> cases = new java.util.HashMap<>();
+        private final Object lock = new Object();
+
+        boolean claim(net.enthusia.staff.common.CaseId caseId, java.time.Instant now) {
+            synchronized (lock) {
+                cases.entrySet().removeIf(entry -> entry.getValue().isBefore(now.minusSeconds(300)));
+                if (cases.containsKey(caseId) || cases.size() >= 10_000) return false;
+                cases.put(caseId, now);
+                return true;
+            }
         }
     }
 
