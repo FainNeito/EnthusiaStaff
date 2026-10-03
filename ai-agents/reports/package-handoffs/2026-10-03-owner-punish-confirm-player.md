@@ -1,5 +1,16 @@
 # Confirm-player fork handoff
 
+## Current owner scope: staff bug fixes (2026-10-03)
+
+The owner expanded the same fork package to address all staff bug reports and requested a PR plus periodic commit checks. Status: `PARTIAL` / `ACTIONABLE_CONTINUATION`; implementation remains in draft [PR #1](https://github.com/FainNeito/EnthusiaStaff/pull/1) on `package/owner-punish-confirm-player`. Prior player-name and vanish shortcut changes are retained. Historical scope and evidence below describe earlier checkpoints, not current completion.
+
+Implemented this checkpoint: namespaced staff tool commands (inspector collisions); non-destructive totem preparation and restoration despite evidence/checkpoint failures; staff exit clears vanish for every rank and fences delayed game-mode recovery; guild invite command presence protection; explicit staff identity plus view permission for inspection; active staff-mode visibility privacy on Paper and Velocity, including public counts. Focused Paper/Velocity tests pass. Test artifact version: `0.1.0-staff-bugs-test.4`. Frozen product and package-record checkpoint: `a93b81ed8bec60ae7c95000d27acf824fa50173d`. Java 25.0.3 clean test/check/runtimeJars passed there: 1,576 tests, zero failures/errors, two existing Windows symlink skips; `:integration-tests:test` excluded because Docker is unavailable. Runtime ZIP integrity passed. Final exact head and artifact hashes are recorded on PR #1. Wiki line endings were repaired after its validation rejected three modified pages.
+
+Remaining acceptance: reproduce freeze movement/reconnect on the current build (new reconnect/fail-closed tests pass, no proven original cause); verify staff hotbar, wall traversal, F3+N, exit restoration, tab/count/guild surfaces and tester inventory recovery with Java/Bedrock clients; Docker/MariaDB and hosted/static/staging checks remain unverified. Older reports involving legacy staff commands, permissions, chat/note/join formatting, punishment broadcasts/hover, compass teleport, combat-log behavior, random-teleport exemptions and reward items require provider/version attribution. Existing safeguards are not claimed as live fixes. No production changes or authority cutover were performed.
+
+A thread heartbeat checks commits, CI and review findings every 30 minutes; it stays quiet without meaningful changes and continues authorized actionable repairs. Public records contain sanitized technical findings only, with no private report transcripts, player evidence or private channel links. Next action: validate and push this checkpoint, publish this partial state through a docs-only PR, then address concrete review failures or newly reproducible in-scope defects. Preserve upstream routing and the implementation PR.
+
+
 Owner-assigned work: allow `/punish confirm <player>` in `FainNeito/EnthusiaStaff`.
 Base `0aaefc4a22415f6af7778887cdab7d4b6f40468a`; branch
 `package/owner-punish-confirm-player`. No prior handoff exists for this owner request.
