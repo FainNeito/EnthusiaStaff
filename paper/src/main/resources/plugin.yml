@@ -149,9 +149,6 @@ commands:
 permissions:
   enthusiastaff.status:
     default: false
-  enthusiastaff.api.punish:
-    description: Use the /staffapi console API for automated punishments
-    default: false
   enthusiastaff.verify:
     default: false
   enthusiastaff.reload:
