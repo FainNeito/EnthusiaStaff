@@ -251,3 +251,4 @@ menus as well as named confirmation. Status remains REVIEW. Current exact head
 is recorded on the PR; the prior `b22ce00` head is historical. Updated canonical
 handoff and package record describe local test artifacts and the remaining
 unverified integration/hosted/live gates. Upstream routing is unchanged.
+`Expanded frozen product head: db067d1a656ab08a2baac2f8bccffcf39e533101 (draft fork PR #1).`

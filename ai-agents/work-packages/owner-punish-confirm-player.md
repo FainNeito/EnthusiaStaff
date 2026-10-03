@@ -78,3 +78,4 @@ unverified. CodeRabbit skipped draft review. Next action: run the applicable
 non-production acceptance and available hosted/integration gates before merge;
 do not deploy, change LiteBans authority, or touch production. Final exact head
 is recorded on PR #1, avoiding a self-referential tracked-file loop.
+`Expanded frozen product head: db067d1a656ab08a2baac2f8bccffcf39e533101 (draft fork PR #1).`
