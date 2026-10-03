@@ -109,6 +109,10 @@ public final class InspectCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(StaffMessageStyle.style("The player inspector requires an in-game staff viewer."));
             return true;
         }
+        if (!net.enthusia.staff.paper.auth.StaffInspectionAuthority.allows(viewer::hasPermission, INSPECT_PERMISSION)) {
+            viewer.sendMessage(StaffMessageStyle.error("An explicit staff identity is required to inspect players."));
+            return true;
+        }
         if (arguments.length == IDENTITY_ARGUMENT_COUNT) {
             boolean canManageFreeze = CommandPermissionGate.allows(viewer::hasPermission, FREEZE_PERMISSION);
             boolean canManageReports = CommandPermissionGate.allows(
@@ -471,7 +475,7 @@ public final class InspectCommand implements CommandExecutor, TabCompleter {
             String alias,
             String[] arguments
     ) {
-        if (!CommandPermissionGate.allows(sender::hasPermission, INSPECT_PERMISSION)) {
+        if (!net.enthusia.staff.paper.auth.StaffInspectionAuthority.allows(sender::hasPermission, INSPECT_PERMISSION)) {
             return List.of();
         }
         if (arguments.length == IDENTITY_ARGUMENT_COUNT) {
@@ -560,7 +564,11 @@ public final class InspectCommand implements CommandExecutor, TabCompleter {
     }
 
     private void onViewer(Player viewer, Runnable operation) {
-        viewer.getScheduler().execute(plugin, operation, null, 1L);
+        viewer.getScheduler().execute(plugin, () -> {
+            if (net.enthusia.staff.paper.auth.StaffInspectionAuthority.allows(viewer::hasPermission, INSPECT_PERMISSION)) {
+                operation.run();
+            }
+        }, null, 1L);
     }
 
     private void message(Player viewer, String body) {

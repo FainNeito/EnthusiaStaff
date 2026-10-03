@@ -9,6 +9,17 @@ import org.junit.jupiter.api.Test;
 
 class VanishRankReconciliationPolicyTest {
     @Test
+    void explicitStaffExitClearsEvenAdminAndFounderVanishInsteadOfReapplyingCreative() {
+        for (StaffRank rank : playerRanks()) {
+            assertEquals(VanishRankReconciliationPolicy.VanishAction.DISABLE,
+                    VanishRankReconciliationPolicy.vanishAction(true, rank, rank,
+                            VanishRankReconciliationPolicy.StaffModeState.EXITED));
+        }
+        assertEquals(VanishRankReconciliationPolicy.VanishAction.NONE,
+                VanishRankReconciliationPolicy.vanishAction(false, null, StaffRank.FOUNDER,
+                        VanishRankReconciliationPolicy.StaffModeState.EXITED));
+    }
+    @Test
     void trackedPlayersAreCheckedBetweenFullDiscoveryPasses() {
         assertTrue(VanishRankReconciliationPolicy.shouldCheckRank(false, true, false, false, false));
         assertTrue(VanishRankReconciliationPolicy.shouldCheckRank(false, false, true, false, false));
@@ -125,12 +136,14 @@ class VanishRankReconciliationPolicyTest {
     }
 
     @Test
-    void independentRanksIgnoreStaffSessionState() {
+    void independentRanksIgnoreOrdinarySessionStateButHonorExplicitExit() {
         for (StaffRank rank : new StaffRank[]{StaffRank.ADMIN, StaffRank.FOUNDER}) {
             for (VanishRankReconciliationPolicy.StaffModeState state
                     : VanishRankReconciliationPolicy.StaffModeState.values()) {
                 assertEquals(
-                        VanishRankReconciliationPolicy.VanishAction.NONE,
+                        state == VanishRankReconciliationPolicy.StaffModeState.EXITED
+                                ? VanishRankReconciliationPolicy.VanishAction.DISABLE
+                                : VanishRankReconciliationPolicy.VanishAction.NONE,
                         VanishRankReconciliationPolicy.vanishAction(true, rank, rank, state)
                 );
             }

@@ -74,6 +74,7 @@ public final class StaffModeManager implements Listener {
     private final AtomicBoolean rankReconciliationStarted = new AtomicBoolean();
     private volatile Consumer<UUID> exitListener = ignored -> {
     };
+    private volatile Consumer<UUID> presenceListener = ignored -> { };
     private volatile Consumer<StaffSessionSnapshot> activeSessionListener = ignored -> {
     };
 
@@ -109,6 +110,10 @@ public final class StaffModeManager implements Listener {
         return active.containsKey(playerId) || handoffGaps.contains(playerId);
     }
 
+    public StaffRank activeRank(UUID playerId) {
+        return ranks.get(playerId);
+    }
+
     public boolean authorityActive(UUID playerId) {
         return playerId != null
                 && active.containsKey(playerId)
@@ -125,6 +130,10 @@ public final class StaffModeManager implements Listener {
 
     public void setExitListener(Consumer<UUID> exitListener) {
         this.exitListener = java.util.Objects.requireNonNull(exitListener);
+    }
+
+    public void setPresenceListener(Consumer<UUID> listener) {
+        presenceListener = java.util.Objects.requireNonNull(listener);
     }
 
     public void setActiveSessionListener(Consumer<StaffSessionSnapshot> listener) {
@@ -466,6 +475,7 @@ public final class StaffModeManager implements Listener {
         }
         handoffGaps.remove(playerId);
         try {
+            presenceListener.accept(playerId);
             activeSessionListener.accept(session);
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.WARNING, "Staff active-session callback failed", exception);

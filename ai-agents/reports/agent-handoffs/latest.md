@@ -1,5 +1,16 @@
 # Latest agent handoff
 
+## Current owner scope: staff bug fixes (2026-10-03)
+
+The owner expanded the same fork package to address all staff bug reports and requested a PR plus periodic commit checks. Status: `PARTIAL` / `ACTIONABLE_CONTINUATION`; implementation remains in draft [PR #1](https://github.com/FainNeito/EnthusiaStaff/pull/1) on `package/owner-punish-confirm-player`. Prior player-name and vanish shortcut changes are retained. Historical scope and evidence below describe earlier checkpoints, not current completion.
+
+Implemented this checkpoint: namespaced staff tool commands (inspector collisions); non-destructive totem preparation and restoration despite evidence/checkpoint failures; staff exit clears vanish for every rank and fences delayed game-mode recovery; guild invite command presence protection; explicit staff identity plus view permission for inspection; active staff-mode visibility privacy on Paper and Velocity, including public counts. Focused Paper/Velocity tests pass. Test artifact version: `0.1.0-staff-bugs-test.4`. Full exact-head verification and artifact hashes are recorded on the PR after freezing this checkpoint.
+
+Remaining acceptance: reproduce freeze movement/reconnect on the current build (new reconnect/fail-closed tests pass, no proven original cause); verify staff hotbar, wall traversal, F3+N, exit restoration, tab/count/guild surfaces and tester inventory recovery with Java/Bedrock clients; Docker/MariaDB and hosted/static/staging checks remain unverified. Older reports involving legacy staff commands, permissions, chat/note/join formatting, punishment broadcasts/hover, compass teleport, combat-log behavior, random-teleport exemptions and reward items require provider/version attribution. Existing safeguards are not claimed as live fixes. No production changes or authority cutover were performed.
+
+A thread heartbeat checks commits, CI and review findings every 30 minutes; it stays quiet without meaningful changes and continues authorized actionable repairs. Public records contain sanitized technical findings only, with no private report transcripts, player evidence or private channel links. Next action: validate and push this checkpoint, publish this partial state through a docs-only PR, then address concrete review failures or newly reproducible in-scope defects. Preserve upstream routing and the implementation PR.
+
+
 Fork-local owner request, 2026-10-03: player-name punishment confirmation is
 `REVIEW` in draft [fork PR #1](https://github.com/FainNeito/EnthusiaStaff/pull/1),
 product head `b22ce0077f4059a73de847dd09ecc84862c88a44`. Canonical fork handoff:
