@@ -35,3 +35,46 @@ Paper artifact: `EnthusiaStaff-Paper-0.1.0-confirm-player-test.1.jar`, SHA-256
 Remaining gates: Docker/MariaDB integration,
 hosted static/review, and applicable staging/live acceptance remain unverified.
 No merge-readiness or production acceptance is claimed.
+
+## Owner scope expansion, 2026-10-03
+
+The owner expanded this same fork work item to show names for player identities
+throughout staff-facing Minecraft output, including the reported Velocity alt
+review. Starting continuation head: `fba6b0ed09ce6b50e8c534488a820f6c13282e98`;
+current target `main`: `6374a5c9e97ad5b8e6d15f80b13c77da1511423f`.
+Status remains `REVIEW`; draft fork PR #1 and its implementation branch are preserved.
+
+Completed: network alt identities and unnamed verified links; report targets,
+reporters and assignees in text and menus; case subjects and missing actor-name
+snapshots; history subjects and page prompts; freeze staff identities and inspector
+status; punishment and sanction target menus. Known names no longer carry redundant
+UUIDs. Unknown identities explicitly retain their IDs, and ambiguous historical
+name matches keep exact selection. Moderation-record IDs and internal UUID keys
+remain authoritative. No user-authored evidence text is rewritten.
+
+Directory reads run on existing storage workers. The per-response lookup is bounded
+to 512 distinct identities and memoizes repeated players, without a long-lived stale
+name cache. Report menus receive immutable name snapshots on the entity scheduler,
+with the existing current-load token and permission gates. No persistence migration,
+provider API, production permission, deployment, database access, or upstream change.
+
+Validation: Java 25.0.3 clean unit build/check/runtimeJars passed, followed by the
+final all-module unit/check/runtime JAR build after inspector/linked-name refinements.
+1556 tests pass; 2 existing Windows symlink tests skip; zero failures/errors.
+Both JAR ZIPs are intact; Wiki validates 41 pages. The full scoped diff was reviewed
+for worker ownership, bounds, missing directory behavior, identity selection,
+historical-name preservation, report stale-load rejection, and permission isolation.
+Name/rename/Bedrock/missing/bounded-query regressions and alt/freeze presentation tests pass.
+
+Artifacts: `EnthusiaStaff-Paper-0.1.0-player-names-test.2.jar`, SHA-256
+`06f2ee1812c9355627e034d39f0741861914fcd5309ba92792989bf858ddb899`;
+`EnthusiaStaff-Velocity-0.1.0-player-names-test.2.jar`, SHA-256
+`bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f`.
+The proxy JAR is required for `/alts`; a backend-only update cannot change that output.
+
+Remaining: Docker/MariaDB integration is explicitly excluded because Docker is
+unavailable; hosted/static review and live Paper/Velocity/client acceptance remain
+unverified. CodeRabbit skipped draft review. Next action: run the applicable
+non-production acceptance and available hosted/integration gates before merge;
+do not deploy, change LiteBans authority, or touch production. Final exact head
+is recorded on PR #1, avoiding a self-referential tracked-file loop.
