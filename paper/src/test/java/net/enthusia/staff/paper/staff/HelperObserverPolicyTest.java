@@ -17,7 +17,9 @@ class HelperObserverPolicyTest {
         assertFalse(HelperObserverPolicy.applies(true, StaffRank.ADMIN));
         assertFalse(HelperObserverPolicy.applies(true, StaffRank.FOUNDER));
         assertFalse(HelperObserverPolicy.applies(true, StaffRank.DEVELOPER));
-        assertFalse(HelperObserverPolicy.applies(true, null));
+        // Fail-closed: unresolvable rank during Staff Mode transition still applies protections.
+        assertTrue(HelperObserverPolicy.applies(true, null));
+        assertFalse(HelperObserverPolicy.applies(false, null));
     }
 
     @Test

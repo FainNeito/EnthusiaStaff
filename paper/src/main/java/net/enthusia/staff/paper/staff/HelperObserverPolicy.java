@@ -10,7 +10,10 @@ final class HelperObserverPolicy {
     }
 
     static boolean applies(boolean activeStaffMode, StaffRank rank) {
-        return activeStaffMode && rank == StaffRank.HELPER;
+        // Fail-closed: if Staff Mode is active but the rank is unresolvable
+        // (transition window), apply protections until reconciliation finishes.
+        // Matches StaffModeWorldInteractionPolicy fail-closed on null tier.
+        return activeStaffMode && (rank == null || rank == StaffRank.HELPER);
     }
 
     static boolean blocksAirItemUse(
