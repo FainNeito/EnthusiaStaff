@@ -55,6 +55,24 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
     private static final Logger LOGGER = Logger.getLogger(StaffApiCommand.class.getName());
 
     private static final String PUNISH_OPERATION = "punish";
+    private static final String CHECKS_FLAG = "--checks=";
+    private static final String CHECKS_PREFIX = "--checks";
+    private static final String DEFAULT_REASON = "Cheating";
+
+    /** Minimum args for punish: operation, player, type. */
+    private static final int MIN_PUNISH_ARGS = 3;
+    /** Arg index for operation name. */
+    private static final int ARG_OPERATION = 0;
+    /** Arg index for target player name. */
+    private static final int ARG_TARGET = 1;
+    /** Arg index for punishment type. */
+    private static final int ARG_TYPE = 2;
+    /** Arg index where reason/flags start. */
+    private static final int ARG_REASON_START = 3;
+    /** Tab-completion: single arg (operation). */
+    private static final int TAB_SINGLE_ARG = 1;
+    /** Tab-completion: three args (operation, player, type). */
+    private static final int TAB_TYPE_ARG = 3;
 
     /** Reason ID for Polar anticheat detections (escalating ban ladder). */
     private static final String POLAR_REASON_ID = "cheating.polar.template";
@@ -96,7 +114,7 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
             sendUsage(sender, label);
             return true;
         }
-        String operation = args[0].toLowerCase(Locale.ROOT);
+        String operation = args[ARG_OPERATION].toLowerCase(Locale.ROOT);
         if (!PUNISH_OPERATION.equals(operation)) {
             sendUsage(sender, label);
             return true;
@@ -105,8 +123,10 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
         // This prevents fake "Polar" punishments from player-executed commands.
         if (!(sender instanceof ConsoleCommandSender)) {
             sender.sendMessage("This command can only be run from the server console.");
-            LOGGER.warning("[StaffAPI] Blocked non-console sender '" + sender.getName()
-                    + "' attempting to use /staffapi punish");
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning("[StaffAPI] Blocked non-console sender '" + sender.getName()
+                        + "' attempting to use /staffapi punish");
+            }
             return true;
         }
         return onPunish(sender, label, args);
@@ -114,95 +134,136 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
 
     private boolean onPunish(CommandSender sender, String label, String[] args) {
         // punish <player> <type> [reason...] [--checks=<detail>]
-        if (args.length < 3) {
-            sender.sendMessage("Usage: /" + label + " punish <player> <ban|kick|mute|warn> [reason...] [--checks=<detail>]");
+        if (args.length < MIN_PUNISH_ARGS) {
+            sendUsage(sender, label);
             return true;
         }
-        String targetName = args[1];
-        String typeName = args[2].toLowerCase(Locale.ROOT);
+        PunishArgs parsed = parsePunishArgs(args);
+        if (parsed == null) {
+            sender.sendMessage("Unknown punishment type '" + args[ARG_TYPE]
+                    + "'. Use: ban, kick, mute, warn.");
+            return true;
+        }
+        return executePunishment(sender, parsed);
+    }
 
-        SanctionType sanctionType = parseSanctionType(typeName);
+    /** Parsed and validated punish arguments. Null if the type is unknown. */
+    private PunishArgs parsePunishArgs(String[] args) {
+        String targetName = args[ARG_TARGET];
+        SanctionType sanctionType = parseSanctionType(args[ARG_TYPE].toLowerCase(Locale.ROOT));
         if (sanctionType == null) {
-            sender.sendMessage("Unknown punishment type '" + args[2] + "'. Use: ban, kick, mute, warn.");
-            return true;
+            return null;
         }
+        ParsedReason parsedReason = parseReasonAndChecks(args);
+        return new PunishArgs(targetName, sanctionType, parsedReason.reason(), parsedReason.checksDetail());
+    }
 
-        // Split remaining args into reason words and --checks flag
+    /** Splits trailing args into reason words and the --checks flag value. */
+    private ParsedReason parseReasonAndChecks(String[] args) {
         List<String> reasonWords = new ArrayList<>();
         String checksDetail = null;
-        for (int i = 3; i < args.length; i++) {
-            if (args[i].startsWith("--checks=")) {
-                checksDetail = args[i].substring("--checks=".length());
-            } else if (args[i].startsWith("--checks") && i + 1 < args.length) {
+        for (int i = ARG_REASON_START; i < args.length; i++) {
+            String arg = args[i];
+            if (arg.startsWith(CHECKS_FLAG)) {
+                checksDetail = arg.substring(CHECKS_FLAG.length());
+            } else if (arg.startsWith(CHECKS_PREFIX) && i + 1 < args.length) {
                 checksDetail = args[++i];
             } else {
-                reasonWords.add(args[i]);
+                reasonWords.add(arg);
             }
         }
-        String reason = reasonWords.isEmpty() ? "Cheating" : String.join(" ", reasonWords);
+        String reason = reasonWords.isEmpty() ? DEFAULT_REASON : String.join(" ", reasonWords);
+        return new ParsedReason(reason, checksDetail);
+    }
 
-        // Resolve target
-        PlayerDirectory directory = players.get();
-        if (directory == null) {
-            sender.sendMessage("Player directory is not ready; punishment not issued.");
+    private boolean executePunishment(CommandSender sender, PunishArgs parsed) {
+        Optional<UUID> targetId = resolveTargetId(sender, parsed.targetName());
+        if (targetId.isEmpty()) {
             return true;
         }
-        Optional<PlayerIdentity> identity = directory.find(targetName);
-        if (identity.isEmpty()) {
-            sender.sendMessage("Player '" + targetName + "' not found; punishment not issued.");
-            return true;
-        }
-        UUID targetId = identity.get().playerId();
-
         PunishmentService service = punishments.get();
         OperationalMode currentMode = mode.get();
         if (service == null || currentMode == null) {
             sender.sendMessage("Punishment service is not ready; punishment not issued.");
             return true;
         }
+        CreatePunishmentRequest request = buildRequest(sender, parsed, targetId.get());
+        return submitPunishment(sender, service, currentMode, parsed, request);
+    }
 
-        // Build the request
-        String internalExplanation = buildExplanation(reason, checksDetail, sender.getName());
-        List<SanctionSpec> overrides = buildOverrideSanctions(sanctionType);
-        String reasonId = POLAR_REASON_ID;
+    private Optional<UUID> resolveTargetId(CommandSender sender, String targetName) {
+        PlayerDirectory directory = players.get();
+        if (directory == null) {
+            sender.sendMessage("Player directory is not ready; punishment not issued.");
+            return Optional.empty();
+        }
+        Optional<PlayerIdentity> identity = directory.find(targetName);
+        if (identity.isEmpty()) {
+            sender.sendMessage("Player '" + targetName + "' not found; punishment not issued.");
+            return Optional.empty();
+        }
+        return Optional.of(identity.get().playerId());
+    }
 
+    private CreatePunishmentRequest buildRequest(
+            CommandSender sender, PunishArgs parsed, UUID targetId) {
+        String internalExplanation =
+                buildExplanation(parsed.reason(), parsed.checksDetail(), sender.getName());
+        List<SanctionSpec> overrides = buildOverrideSanctions(parsed.sanctionType());
         IdempotencyKey key = new IdempotencyKey(
-                "staffapi:" + targetId + ":" + sanctionType.name().toLowerCase(Locale.ROOT)
+                "staffapi:" + targetId + ":" + parsed.sanctionType().name().toLowerCase(Locale.ROOT)
                         + ":" + clock.instant().toEpochMilli()
         );
-        CreatePunishmentRequest request = new CreatePunishmentRequest(
+        return new CreatePunishmentRequest(
                 key,
                 targetId,
                 SYSTEM_ACTOR,
-                reasonId,
+                POLAR_REASON_ID,
                 internalExplanation,
                 CaseVisibility.PUBLIC,
                 overrides
         );
+    }
 
+    private boolean submitPunishment(
+            CommandSender sender,
+            PunishmentService service,
+            OperationalMode currentMode,
+            PunishArgs parsed,
+            CreatePunishmentRequest request
+    ) {
         try {
             PunishmentResult result = service.create(request, currentMode);
-            if (result instanceof PunishmentResult.Accepted accepted) {
-                String message = "Punishment issued: " + sanctionType.name().toLowerCase(Locale.ROOT)
-                        + " for " + targetName + " (case " + accepted.caseId() + ")";
-                sender.sendMessage(message);
-                if (LOGGER.isLoggable(Level.INFO)) {
-                    LOGGER.info("[StaffAPI] " + message + " by " + sender.getName());
-                }
-            } else if (result instanceof PunishmentResult.Rejected rejected) {
-                String message = "Punishment rejected: " + rejected.code() + " - " + rejected.message();
-                sender.sendMessage(message);
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("[StaffAPI] " + message + " (target=" + targetName + ")");
-                }
-            } else {
-                sender.sendMessage("Unexpected punishment result; check logs.");
-            }
+            handlePunishmentResult(sender, parsed, result);
         } catch (RuntimeException exception) {
             sender.sendMessage("Punishment failed with an error; check logs.");
-            LOGGER.log(Level.SEVERE, "[StaffAPI] Punishment failed for " + targetName, exception);
+            if (LOGGER.isLoggable(Level.SEVERE)) {
+                LOGGER.log(Level.SEVERE,
+                        "[StaffAPI] Punishment failed for " + parsed.targetName(), exception);
+            }
         }
         return true;
+    }
+
+    private void handlePunishmentResult(
+            CommandSender sender, PunishArgs parsed, PunishmentResult result) {
+        if (result instanceof PunishmentResult.Accepted accepted) {
+            String message = "Punishment issued: "
+                    + parsed.sanctionType().name().toLowerCase(Locale.ROOT)
+                    + " for " + parsed.targetName() + " (case " + accepted.caseId() + ")";
+            sender.sendMessage(message);
+            if (LOGGER.isLoggable(Level.INFO)) {
+                LOGGER.info("[StaffAPI] " + message + " by " + sender.getName());
+            }
+        } else if (result instanceof PunishmentResult.Rejected rejected) {
+            String message = "Punishment rejected: " + rejected.code() + " - " + rejected.message();
+            sender.sendMessage(message);
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning("[StaffAPI] " + message + " (target=" + parsed.targetName() + ")");
+            }
+        } else {
+            sender.sendMessage("Unexpected punishment result; check logs.");
+        }
     }
 
     private SanctionType parseSanctionType(String typeName) {
@@ -230,10 +291,10 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
     }
 
     private String buildExplanation(String reason, String checksDetail, String issuer) {
-        StringBuilder explanation = new StringBuilder();
+        StringBuilder explanation = new StringBuilder(128);
         explanation.append("Automated punishment via StaffAPI");
         if (issuer != null && !issuer.isBlank()) {
-            explanation.append(" (triggered by ").append(issuer).append(")");
+            explanation.append(" (triggered by ").append(issuer).append(')');
         }
         explanation.append(". Reason: ").append(reason);
         if (checksDetail != null && !checksDetail.isBlank()) {
@@ -243,7 +304,8 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendUsage(CommandSender sender, String label) {
-        sender.sendMessage("Usage: /" + label + " punish <player> <ban|kick|mute|warn> [reason...] [--checks=<detail>]");
+        sender.sendMessage("Usage: /" + label
+                + " punish <player> <ban|kick|mute|warn> [reason...] [--checks=<detail>]");
     }
 
     @Override
@@ -253,20 +315,33 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
             @NotNull String label,
             @NotNull String[] args
     ) {
-        if (args.length == 1) {
+        if (args.length == TAB_SINGLE_ARG) {
             return List.of(PUNISH_OPERATION);
         }
-        if (args.length == 3 && PUNISH_OPERATION.equalsIgnoreCase(args[0])) {
-            String prefix = args[2].toLowerCase(Locale.ROOT);
-            List<String> types = List.of("ban", "kick", "mute", "warn");
-            List<String> matches = new ArrayList<>();
-            for (String type : types) {
-                if (type.startsWith(prefix)) {
-                    matches.add(type);
-                }
-            }
-            return matches;
+        if (args.length == TAB_TYPE_ARG && PUNISH_OPERATION.equalsIgnoreCase(args[ARG_OPERATION])) {
+            return completePunishmentType(args[ARG_TYPE]);
         }
         return List.of();
+    }
+
+    private List<String> completePunishmentType(String prefix) {
+        String lowerPrefix = prefix.toLowerCase(Locale.ROOT);
+        List<String> types = List.of("ban", "kick", "mute", "warn");
+        List<String> matches = new ArrayList<>();
+        for (String type : types) {
+            if (type.startsWith(lowerPrefix)) {
+                matches.add(type);
+            }
+        }
+        return matches;
+    }
+
+    /** Validated punish command arguments. */
+    private record PunishArgs(String targetName, SanctionType sanctionType,
+                              String reason, String checksDetail) {
+    }
+
+    /** Reason text plus optional anticheat check detail. */
+    private record ParsedReason(String reason, String checksDetail) {
     }
 }
