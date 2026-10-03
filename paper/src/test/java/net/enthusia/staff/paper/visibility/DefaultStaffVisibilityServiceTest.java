@@ -32,6 +32,20 @@ class DefaultStaffVisibilityServiceTest {
     }
 
     @Test
+    void removingViewerAuthorityDoesNotClearVanishedTargetState() {
+        DefaultStaffVisibilityService visibility = new DefaultStaffVisibilityService(
+                DefaultStaffVisibilityService.defaultMatrix()
+        );
+        UUID vanishedPlayer = UUID.randomUUID();
+
+        visibility.setViewerRank(vanishedPlayer, StaffRank.MOD);
+        visibility.setVanished(vanishedPlayer, StaffRank.MOD, true);
+        visibility.removeViewer(vanishedPlayer);
+
+        assertTrue(visibility.isVanished(vanishedPlayer));
+    }
+
+    @Test
     void legacyMatrixCannotHideHelperFromSupervisingRanks() {
         DefaultStaffVisibilityService visibility = new DefaultStaffVisibilityService(Map.of(
                 StaffRank.MOD, Set.of(StaffRank.MOD, StaffRank.DEVELOPER),

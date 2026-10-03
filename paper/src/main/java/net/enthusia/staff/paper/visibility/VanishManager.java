@@ -62,9 +62,12 @@ public final class VanishManager implements Listener {
     private final Set<UUID> staffSessionCheckFailureNotified = ConcurrentHashMap.newKeySet();
     private final Set<UUID> pendingStaffModeExitDisables = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean rankReconciliationStarted = new AtomicBoolean();
+    private final AtomicBoolean durableVanishLoaded = new AtomicBoolean();
     private final AtomicInteger rankReconciliationPass = new AtomicInteger();
     private final VanishAudienceCoordinator<Player> audiences;
     private final SpectatorTabPacketAdapter spectatorTabPackets;
+    private volatile PresenceTransitionSink presenceTransitionSink = (subjectId, viewerId, vanished) -> {
+    };
 
     public VanishManager(
             JavaPlugin plugin,
@@ -87,6 +90,7 @@ public final class VanishManager implements Listener {
     }
 
     public void initialize() {
+        durableVanishLoaded.set(false);
         submit(() -> {
             VanishStore loaded = store.get();
             if (loaded == null) {
@@ -98,6 +102,7 @@ public final class VanishManager implements Listener {
                     rememberPersistedGameMode(record);
                     visibility.setVanished(record.staffId(), record.rank(), true);
                 }
+                durableVanishLoaded.set(true);
                 recoverOnlinePlayers();
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.SEVERE, "Vanish-state initialization failed", exception);
@@ -162,6 +167,25 @@ public final class VanishManager implements Listener {
 
     public boolean isVanished(UUID playerId) {
         return visibility.isVanished(playerId);
+    }
+
+    /**
+     * Returns whether RoseChat may safely decide a real login/logout presence message for this player.
+     * A currently vanished player is always known immediately; otherwise the initial durable vanish
+     * scan must have completed so a cold-start login cannot leak a persisted vanish state.
+     */
+    public boolean presenceStateReady(UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return visibility.isVanished(playerId) || durableVanishLoaded.get();
+    }
+
+    public void setPresenceTransitionSink(PresenceTransitionSink sink) {
+        presenceTransitionSink = Objects.requireNonNull(sink, "sink");
+    }
+
+    public void clearPresenceTransitionSink() {
+        presenceTransitionSink = (subjectId, viewerId, vanished) -> {
+        };
     }
 
     /**
@@ -358,7 +382,9 @@ public final class VanishManager implements Listener {
             persistState(loaded, playerId, rank, vanished, selectedGameMode);
             rememberCommittedState(playerId, rank, vanished, restoreSelectedMode, selectedGameMode);
             boolean viewerChanged = publishViewerRank(playerId, rank);
+            Set<UUID> hiddenBefore = vanished ? Set.of() : hiddenPresenceViewers(playerId);
             visibility.setVanished(playerId, rank, vanished);
+            Set<UUID> presenceViewers = vanished ? hiddenPresenceViewers(playerId) : hiddenBefore;
             if (vanished) {
                 hiddenSpectators.remove(playerId);
             }
@@ -366,7 +392,13 @@ public final class VanishManager implements Listener {
             reconciliationFailureNotified.remove(playerId);
             audiences.onOwner(
                     playerId,
-                    current -> finishSet(current, vanished, viewerChanged, restoreSelectedMode)
+                    current -> finishSet(
+                            current,
+                            vanished,
+                            viewerChanged,
+                            restoreSelectedMode,
+                            presenceViewers
+                    )
             );
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.SEVERE, "Vanish state change failed", exception);
@@ -421,7 +453,8 @@ public final class VanishManager implements Listener {
             Player player,
             boolean vanished,
             boolean viewerChanged,
-            boolean restoreSelectedMode
+            boolean restoreSelectedMode,
+            Set<UUID> presenceViewers
     ) {
         UUID playerId = player.getUniqueId();
         if (vanished) {
@@ -437,7 +470,32 @@ public final class VanishManager implements Listener {
             audiences.refreshViewer(playerId);
         }
         audiences.refreshTarget(playerId);
+        publishPresenceTransition(playerId, vanished, presenceViewers);
         player.sendMessage(StaffMessageStyle.style(Component.text(vanished ? "Vanish enabled." : "Vanish disabled.")));
+    }
+
+    private Set<UUID> hiddenPresenceViewers(UUID subjectId) {
+        return Set.copyOf(audiences.playerIds().stream()
+                .filter(viewerId -> !viewerId.equals(subjectId))
+                .filter(viewerId -> !visibility.canSee(viewerId, subjectId))
+                .toList());
+    }
+
+    private void publishPresenceTransition(UUID subjectId, boolean vanished, Set<UUID> viewerIds) {
+        PresenceTransitionSink sink = presenceTransitionSink;
+        for (UUID viewerId : viewerIds) {
+            audiences.onOwner(viewerId, ignored -> {
+                try {
+                    sink.publish(subjectId, viewerId, vanished);
+                } catch (RuntimeException | LinkageError exception) {
+                    plugin.getLogger().log(
+                            Level.WARNING,
+                            "RoseChat vanish presence transition failed for viewer " + viewerId,
+                            exception
+                    );
+                }
+            });
+        }
     }
 
     private void reconcileLiveRank(Player player) {
@@ -1153,6 +1211,11 @@ public final class VanishManager implements Listener {
         })) {
             selectedModeWrites.remove(playerId);
         }
+    }
+
+    @FunctionalInterface
+    public interface PresenceTransitionSink {
+        void publish(UUID subjectId, UUID viewerId, boolean vanished);
     }
 
     private boolean submit(Runnable operation) {

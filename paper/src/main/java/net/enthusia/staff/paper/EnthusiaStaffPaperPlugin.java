@@ -862,6 +862,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                 new PaperIntegrationManager.PlayerComponents(
                         runtimeComponents.freeze(),
                         runtimeComponents.visibility(),
+                        runtimeComponents.vanish(),
                         runtimeComponents.inventoryContext(),
                         runtimeComponents.inventory()
                 ),
