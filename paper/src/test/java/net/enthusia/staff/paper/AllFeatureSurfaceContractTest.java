@@ -58,6 +58,7 @@ final class AllFeatureSurfaceContractTest {
             "fakebase",
             "vanish",
             "staffchat",
+            "staffapi",
             "staffwho",
             "client",
             "invsee",
@@ -74,7 +75,8 @@ final class AllFeatureSurfaceContractTest {
             "case",
             "link",
             "unlink",
-            "staffchat"
+            "staffchat",
+            "staffapi"
     );
 
     private static final Map<String, List<String>> FEATURE_TEST_MARKERS = featureTestMarkers();
