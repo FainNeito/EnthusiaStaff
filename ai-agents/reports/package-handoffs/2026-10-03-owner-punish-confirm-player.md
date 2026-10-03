@@ -21,6 +21,12 @@ MariaDB/Testcontainers integration and live Paper/Bedrock/multi-backend acceptan
 have not run. Wiki validation passes all 41 pages. No hosted/static/staging pass is
 claimed. No production state or upstream branches were changed.
 
-Next: commit and push to the fork, create the
-fork draft PR, and keep missing hosted/integration acceptance explicit. Do not merge
+Draft fork PR [#1](https://github.com/FainNeito/EnthusiaStaff/pull/1) is open at
+product head `b22ce0077f4059a73de847dd09ecc84862c88a44`. Its branch is pushed and
+preserved. GitHub reports zero check runs at inspection; hosted validation has not
+executed. The connected GitHub integration cannot write to this fork (HTTP 403),
+so the authenticated owner browser was used to create the PR.
+
+Next: run the applicable hosted/integration acceptance once the fork's validation
+environment is available, keeping missing evidence explicit. Do not merge
 the implementation before the applicable gates pass or deploy it to production.

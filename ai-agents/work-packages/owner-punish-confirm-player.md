@@ -7,7 +7,8 @@ its scope. No upstream package is renumbered or reassigned.
 
 - Base: `0aaefc4a22415f6af7778887cdab7d4b6f40468a`.
 - Branch: `package/owner-punish-confirm-player`.
-- Status: local implementation verified; fork PR delivery in progress. Merge acceptance is pending.
+- Status: `REVIEW`; local implementation verified, draft fork PR [#1](https://github.com/FainNeito/EnthusiaStaff/pull/1) open. Merge acceptance is pending.
+- Product head: `b22ce0077f4059a73de847dd09ecc84862c88a44`.
 - Change: `/punish confirm <player>` resolves the current directory name and the
   sender's single unexpired stored draft for that target. Original draft IDs work.
 - Persistence: existing V9 unique actor/target constraint already replaces older
@@ -31,6 +32,6 @@ entrypoint and test version were verified in the JAR.
 Paper artifact: `EnthusiaStaff-Paper-0.1.0-confirm-player-test.1.jar`, SHA-256
 `702b4b1857949aa1a023f5adb5132e5432fe434c301dd17995bac44e1a82d1b2`.
 
-Remaining gates: push the branch and open the fork PR; Docker/MariaDB integration,
+Remaining gates: Docker/MariaDB integration,
 hosted static/review, and applicable staging/live acceptance remain unverified.
 No merge-readiness or production acceptance is claimed.

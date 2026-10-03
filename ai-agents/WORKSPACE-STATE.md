@@ -9,7 +9,9 @@ Live GitHub overrides stale records. Detailed package evidence remains in the re
 Owner override, 2026-10-03: this fork session is assigned only to player-name
 punishment confirmation in `FainNeito/EnthusiaStaff`, on
 `package/owner-punish-confirm-player`. See `work-packages/owner-punish-confirm-player.md`
-and its 2026-10-03 handoff. The upstream routing table below is preserved.
+and its 2026-10-03 handoff. Draft fork PR #1 is `REVIEW` at product head
+`b22ce0077f4059a73de847dd09ecc84862c88a44`; local unit/build verification passed
+and hosted/integration acceptance remains unverified. The upstream routing table below is preserved.
 
 | Field | Value |
 | --- | --- |

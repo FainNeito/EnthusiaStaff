@@ -1,5 +1,12 @@
 # Latest agent handoff
 
+Fork-local owner request, 2026-10-03: player-name punishment confirmation is
+`REVIEW` in draft [fork PR #1](https://github.com/FainNeito/EnthusiaStaff/pull/1),
+product head `b22ce0077f4059a73de847dd09ecc84862c88a44`. Canonical fork handoff:
+`ai-agents/reports/package-handoffs/2026-10-03-owner-punish-confirm-player.md`.
+Local unit/build verification passed; hosted/integration acceptance remains
+unverified. The upstream handoff below is retained as historical upstream routing.
+
 Current handoff: **ES-X03 — EnthusiaMarket destructive provider** — **PARTIAL / ACTIONABLE_CONTINUATION**.
 
 Canonical package handoff:

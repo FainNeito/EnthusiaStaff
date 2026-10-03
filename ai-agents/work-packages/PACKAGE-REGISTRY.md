@@ -22,7 +22,10 @@ The owner assigned player-name punishment confirmation specifically in
 `FainNeito/EnthusiaStaff`. The active fork work item is
 [owner-punish-confirm-player](owner-punish-confirm-player.md) on
 `package/owner-punish-confirm-player`, based on `0aaefc4`. Implementation is complete
-and local unit/build validation passed; fork PR delivery and merge acceptance are pending. This explicit fork assignment
+and local unit/build validation passed. Status is `REVIEW`: draft fork
+[PR #1](https://github.com/FainNeito/EnthusiaStaff/pull/1) is open at product head
+`b22ce0077f4059a73de847dd09ecc84862c88a44`; hosted/integration merge acceptance
+remains unverified. This explicit fork assignment
 does not change upstream package scope or statuses. Canonical handoff:
 `ai-agents/reports/package-handoffs/2026-10-03-owner-punish-confirm-player.md`.
 
