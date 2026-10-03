@@ -123,6 +123,15 @@ public final class StaffModeManager implements Listener {
                 && !transitions.contains(playerId);
     }
 
+    /**
+     * Returns the authoritative Staff Mode session rank, or null if the player
+     * has no active session or the rank is currently being reconciled.
+     * Callers must treat null as fail-closed while Staff Mode is active.
+     */
+    public StaffRank sessionRank(UUID playerId) {
+        return playerId == null ? null : ranks.get(playerId);
+    }
+
     public CombatStatusAdapter combat() {
         return combat;
     }
