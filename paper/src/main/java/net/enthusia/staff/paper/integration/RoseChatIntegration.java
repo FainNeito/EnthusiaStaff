@@ -6,6 +6,7 @@ import dev.rosewood.rosechat.api.staff.ChannelRecipientContext;
 import dev.rosewood.rosechat.api.staff.MessageSurface;
 import dev.rosewood.rosechat.api.staff.ModerationDecision;
 import dev.rosewood.rosechat.api.staff.PresenceContext;
+import dev.rosewood.rosechat.api.staff.PresenceType;
 import dev.rosewood.rosechat.api.staff.PrivateMessageContext;
 import dev.rosewood.rosechat.api.staff.RoseChatModerationBridge;
 import dev.rosewood.rosechat.api.staff.RoseChatStaffService;
@@ -272,6 +273,19 @@ public final class RoseChatIntegration implements AutoCloseable {
 
     public boolean bridgeActive() {
         return registration.isActive();
+    }
+
+    public boolean renderPresenceTransition(UUID subjectId, UUID viewerId, boolean vanished) {
+        Objects.requireNonNull(subjectId, "subjectId");
+        Objects.requireNonNull(viewerId, "viewerId");
+        if (!registration.isActive()) {
+            return false;
+        }
+        return registration.renderPresence(new PresenceContext(
+                subjectId,
+                viewerId,
+                vanished ? PresenceType.QUIT : PresenceType.JOIN
+        ));
     }
 
     @Override
