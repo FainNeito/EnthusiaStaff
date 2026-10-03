@@ -10,12 +10,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.sql.DataSource;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.domain.staff.VanishRecord;
 
 public final class JdbcVanishStore implements VanishStore {
+    private static final Logger LOGGER = Logger.getLogger(JdbcVanishStore.class.getName());
     private static final int SINGLE_ROW_UPDATE = 1;
 
     private final DataSource dataSource;
@@ -159,7 +162,7 @@ public final class JdbcVanishStore implements VanishStore {
             connection.rollback();
             return WriteResult.UNCHANGED;
         }
-        persistCoreState(
+        persistChanges(
                 connection,
                 new VanishWrite(staffId, actorId, rank, vanished, now, selectedGameMode),
                 session,
@@ -211,7 +214,7 @@ public final class JdbcVanishStore implements VanishStore {
             insertAudit(connection, staffId, actorId, rank, vanished, now);
             insertDiscord(connection, staffId, actorId, rank, vanished, now);
         } catch (SQLException | RuntimeException exception) {
-            auditLog.log(Level.WARNING,
+            LOGGER.log(Level.WARNING,
                     "Vanish audit/discord-outbox follow-up failed; the core vanish state was committed",
                     exception);
         }
