@@ -402,7 +402,65 @@ public final class RoseChatIntegration implements AutoCloseable {
 
         @Override
         public boolean canRenderPresence(PresenceContext context) {
-            return visibility.canSee(context.viewerId(), context.subjectId());
+            return checkVisibility("presence", context.viewerId(), context.subjectId());
+        }
+
+        /**
+         * H1: presence/channel rendering is decoupled from vanish-map inconsistencies. A subject
+         * that is not vanished never consults the matrix; every suppression is logged; and a
+         * failing visibility check fails open (renders) instead of silently swallowing
+         * join/leave and channel chat.
+         */
+        private boolean checkVisibility(String surface, UUID viewerId, UUID subjectId) {
+            if (subjectId == null || viewerId.equals(subjectId)) {
+                return true;
+            }
+            boolean vanished;
+            try {
+                vanished = visibility.isVanished(subjectId);
+            } catch (RuntimeException exception) {
+                log.log(Level.WARNING, exception,
+                        () -> "Vanish visibility check failed for RoseChat " + surface + "; rendering anyway");
+                return true;
+            }
+            if (!vanished) {
+                return true;
+            }
+            boolean canSee;
+            try {
+                canSee = visibility.canSee(viewerId, subjectId);
+            } catch (RuntimeException exception) {
+                log.log(Level.WARNING, exception,
+                        () -> "Vanish visibility check failed for RoseChat " + surface + "; rendering anyway");
+                return true;
+            }
+            if (!canSee) {
+                log.log(Level.FINE,
+                        "Suppressing RoseChat {0} for vanished subject {1} (viewer {2})",
+                        new Object[]{surface, subjectId, viewerId});
+            }
+            return canSee;
+        }
+
+        /**
+         * M1: fail-closed mute verification, with the operator override. A sender holding
+         * {@code enthusiastaff.override.mute-verification} may chat while unverified so a
+         * sanction-storage outage does not silence the whole server.
+         */
+        private ModerationDecision unverifiedDecision(TransmissionContext context) {
+            UUID senderId = context.senderId();
+            Player sender = senderId == null ? null : playerLookup.apply(senderId);
+            if (sender != null
+                    && sender.hasPermission(MuteEnforcementListener.VERIFICATION_OVERRIDE_PERMISSION)) {
+                String senderName = sender.getName();
+                log.log(Level.INFO,
+                        "Mute-verification override used by {0}; RoseChat message allowed while unverified",
+                        senderName);
+                return ModerationDecision.allow();
+            }
+            return ModerationDecision.block(
+                    "Your moderation status is still being verified. Please try again shortly."
+            );
         }
     }
 }

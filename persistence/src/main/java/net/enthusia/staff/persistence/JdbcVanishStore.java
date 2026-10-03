@@ -159,7 +159,11 @@ public final class JdbcVanishStore implements VanishStore {
             connection.rollback();
             return WriteResult.UNCHANGED;
         }
-        persistChanges(connection, staffId, actorId, rank, vanished, now, session, changes, selectedGameMode);
+        persistCoreState(
+                connection,
+                new VanishWrite(staffId, actorId, rank, vanished, now, selectedGameMode),
+                session,
+                changes);
         connection.commit();
         return WriteResult.COMMITTED;
     }
@@ -179,23 +183,38 @@ public final class JdbcVanishStore implements VanishStore {
 
     private static void persistChanges(
             Connection connection,
+            VanishWrite write,
+            SessionMirror session,
+            ChangeSet changes
+    ) throws SQLException {
+        if (!changes.stateChanged()) {
+            updateSessionMirror(connection, session.sessionId(), write.vanished());
+            return;
+        }
+        writeState(connection, write.staffId(), write.actorId(), write.rank(), write.vanished(), write.now(),
+                write.selectedGameMode());
+        updateSessionMirrorIfChanged(connection, session, write.vanished());
+    }
+
+    private void writeAuditAndOutboxBestEffort(
             UUID staffId,
             UUID actorId,
             StaffRank rank,
             boolean vanished,
             Instant now,
-            SessionMirror session,
-            ChangeSet changes,
-            String selectedGameMode
-    ) throws SQLException {
-        if (!changes.stateChanged()) {
-            updateSessionMirror(connection, session.sessionId(), vanished);
+            boolean stateChanged
+    ) {
+        if (!stateChanged) {
             return;
         }
-        writeState(connection, staffId, actorId, rank, vanished, now, selectedGameMode);
-        updateSessionMirrorIfChanged(connection, session, vanished);
-        insertAudit(connection, staffId, actorId, rank, vanished, now);
-        insertDiscord(connection, staffId, actorId, rank, vanished, now);
+        try (Connection connection = dataSource.getConnection()) {
+            insertAudit(connection, staffId, actorId, rank, vanished, now);
+            insertDiscord(connection, staffId, actorId, rank, vanished, now);
+        } catch (SQLException | RuntimeException exception) {
+            auditLog.log(Level.WARNING,
+                    "Vanish audit/discord-outbox follow-up failed; the core vanish state was committed",
+                    exception);
+        }
     }
 
     private static void updateSessionMirrorIfChanged(
@@ -396,5 +415,18 @@ public final class JdbcVanishStore implements VanishStore {
         private boolean changed() {
             return stateChanged || sessionChanged;
         }
+    }
+
+    /**
+     * The new vanish state being written, grouped so persistence helpers stay under the
+     * parameter-count limit.
+     */
+    private record VanishWrite(
+            UUID staffId,
+            UUID actorId,
+            StaffRank rank,
+            boolean vanished,
+            Instant now,
+            String selectedGameMode) {
     }
 }

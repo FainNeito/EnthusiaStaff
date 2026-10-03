@@ -133,6 +133,51 @@ public final class StaffModeManager implements Listener {
         activeSessionListener = java.util.Objects.requireNonNull(listener);
     }
 
+    /**
+     * Registers the vanish game-mode guard so staff-mode profile transitions are recognized as
+     * plugin-initiated instead of being cancelled (C1: entering staff mode while vanished as
+     * ADMIN/FOUNDER previously deadlocked on the vanish listener's gamemode cancellation).
+     */
+    public void setGameModeTransitionGuard(Consumer<UUID> begin, Consumer<UUID> end) {
+        this.gameModeTransitionGuardBegin = java.util.Objects.requireNonNull(begin, "begin");
+        this.gameModeTransitionGuardEnd = java.util.Objects.requireNonNull(end, "end");
+    }
+
+    /** Installs the staff-action audit logger (overnight permission model: tiered allow+log). */
+    public void setActionLogger(net.enthusia.staff.paper.audit.StaffActionLogger actionLogger) {
+        this.actionLogger = actionLogger;
+    }
+
+    /** Lets the manager read vanish state for audit lines without depending on VanishManager. */
+    public void setVanishedLookup(java.util.function.Function<UUID, Boolean> vanishedLookup) {
+        this.vanishedLookup = java.util.Objects.requireNonNull(vanishedLookup, "vanishedLookup");
+    }
+
+    /**
+     * Resolves the caller's on-duty tier, or {@code null} while a transition is in progress or
+     * the rank cannot be resolved (fail-closed callers must block).
+     */
+    public StaffDutyTier dutyTier(Player player) {
+        return StaffDutyTier.of(rankForAction(player));
+    }
+
+    private void audit(Player player, StaffRank rank, String action, String detail) {
+        net.enthusia.staff.paper.audit.StaffActionLogger logger = actionLogger;
+        if (logger == null) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        String playerName = player.getName();
+        boolean vanished;
+        try {
+            vanished = vanishedLookup.apply(playerId);
+        } catch (RuntimeException exception) {
+            vanished = false;
+        }
+        boolean onDuty = authorityActive(playerId);
+        logger.log(playerId, playerName, rank, vanished, onDuty, action, detail);
+    }
+
     public boolean prepareBackendHandoffResume(UUID playerId, UUID transferId) {
         if (!handoffResumes.prepare(playerId, transferId)) {
             return false;
