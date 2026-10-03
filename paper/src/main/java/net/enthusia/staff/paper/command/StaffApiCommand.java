@@ -164,7 +164,7 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
         // Build the request
         String internalExplanation = buildExplanation(reason, checksDetail, sender.getName());
         List<SanctionSpec> overrides = buildOverrideSanctions(sanctionType);
-        String reasonId = overrides.isEmpty() ? POLAR_REASON_ID : "cheating.polar.template";
+        String reasonId = POLAR_REASON_ID;
 
         IdempotencyKey key = new IdempotencyKey(
                 "staffapi:" + targetId + ":" + sanctionType.name().toLowerCase(Locale.ROOT)
