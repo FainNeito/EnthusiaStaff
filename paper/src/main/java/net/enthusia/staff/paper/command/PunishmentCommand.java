@@ -5,10 +5,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.staff.domain.OperationalMode;
@@ -241,14 +243,40 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
 
     private void confirm(CommandSender sender, Actor actor, String[] args) {
         if (args.length != SUBCOMMAND_ARGUMENT_COUNT) {
-            sender.sendMessage(StaffMessageStyle.style(Component.text("Usage: /punish confirm <draft-id>", NamedTextColor.RED)));
+            sender.sendMessage(StaffMessageStyle.style(Component.text("Usage: /punish confirm <player>", NamedTextColor.RED)));
             return;
         }
-        UUID draftId = parseUuid(sender, args[1]);
-        if (draftId == null) {
-            return;
+        submit(sender, () -> confirmationDraftId(args[1], input -> targetDraftId(sender, actor, input))
+                .ifPresent(draftId -> confirmStoredDraft(sender, actor, draftId)));
+    }
+
+    static Optional<UUID> confirmationDraftId(String input, Function<String, Optional<UUID>> targetDraftLookup) {
+        try {
+            return Optional.of(UUID.fromString(input));
+        } catch (IllegalArgumentException exception) {
+            return targetDraftLookup.apply(input);
         }
-        submit(sender, () -> confirmStoredDraft(sender, actor, draftId));
+    }
+
+    private Optional<UUID> targetDraftId(CommandSender sender, Actor actor, String input) {
+        if (!permitsPunishmentDraft(actor)) {
+            send(sender, Component.text("Your active staff authority expired before confirmation.", NamedTextColor.RED));
+            return Optional.empty();
+        }
+        PlayerIdentity target = findTarget(sender, input);
+        if (target == null) {
+            return Optional.empty();
+        }
+        PunishmentDraftWorkflow workflow = workflows.get();
+        if (workflow == null) {
+            send(sender, Component.text("Moderation storage is not ready; no action was taken.", NamedTextColor.RED));
+            return Optional.empty();
+        }
+        Optional<UUID> draftId = workflow.resume(actor.id(), target.playerId()).map(PunishmentDraft::draftId);
+        if (draftId.isEmpty()) {
+            send(sender, Component.text("You have no unexpired punishment draft for " + input + ".", NamedTextColor.RED));
+        }
+        return draftId;
     }
 
     private void confirmStoredDraft(CommandSender sender, Actor actor, UUID draftId) {
@@ -412,7 +440,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
         ));
         send(sender, Component.text("Draft expires: " + draft.expiresAt(), NamedTextColor.GRAY));
         send(sender, Component.text(
-                "Review the frozen outcome, then run /punish confirm " + draft.draftId()
+                "Review the frozen outcome, then run /punish confirm " + confirmationTarget(target, draft)
                         + ". Required approvals are submitted durably instead of applied directly.",
                 NamedTextColor.AQUA
         ));
@@ -432,7 +460,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
                 "Policy version: " + draft.expectation().configurationVersion() + " | expires: " + draft.expiresAt(),
                 NamedTextColor.GRAY
         ));
-        send(sender, Component.text("Confirm with /punish confirm " + draft.draftId(), NamedTextColor.AQUA));
+        send(sender, Component.text("Confirm with /punish confirm " + confirmationTarget(target, draft), NamedTextColor.AQUA));
     }
 
     private void sendConfirmation(CommandSender sender, PunishmentDraftConfirmation result) {
@@ -460,15 +488,6 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
     private boolean permitsPunishmentDraft(Actor actor) {
         return actor != null && (authorization.permits(actor, ModerationAction.ISSUE_POLICY_SANCTION)
                 || authorization.permits(actor, ModerationAction.REQUEST_POLICY_SANCTION));
-    }
-
-    private static UUID parseUuid(CommandSender sender, String input) {
-        try {
-            return UUID.fromString(input);
-        } catch (IllegalArgumentException exception) {
-            sender.sendMessage(StaffMessageStyle.style(Component.text("Invalid draft ID.", NamedTextColor.RED)));
-            return null;
-        }
     }
 
     static boolean isLegacyTimedMute(String route, String[] args) {
@@ -516,13 +535,17 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
         return target.currentUsername().orElse("offline target");
     }
 
+    private static String confirmationTarget(PlayerIdentity target, PunishmentDraft draft) {
+        return target.currentUsername().orElseGet(() -> draft.draftId().toString());
+    }
+
     private static void usage(CommandSender sender, String label, String route) {
         sender.sendMessage(StaffMessageStyle.style(Component.text(
                 "Usage: /" + label + " <target> [reason-id] [--private] [internal explanation]",
                 NamedTextColor.YELLOW
         )));
         sender.sendMessage(StaffMessageStyle.style(Component.text(
-                "Draft controls: /punish resume <target> | /punish confirm <draft-id>",
+                "Draft controls: /punish resume <target> | /punish confirm <player>",
                 NamedTextColor.GRAY
         )));
         if (CENTRAL_COMMAND.equals(route)) {
@@ -553,7 +576,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
             return completions.stream().distinct().toList();
         }
         if (args.length == SUBCOMMAND_ARGUMENT_COUNT
-                && RESUME_SUBCOMMAND.equalsIgnoreCase(args[0])
+                && (RESUME_SUBCOMMAND.equalsIgnoreCase(args[0]) || CONFIRM_SUBCOMMAND.equalsIgnoreCase(args[0]))
                 && sender instanceof Player player) {
             String prefix = args[1].toLowerCase(Locale.ROOT);
             return player.getServer().getOnlinePlayers().stream()

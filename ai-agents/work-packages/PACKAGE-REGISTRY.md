@@ -16,6 +16,16 @@ Live GitHub overrides stale text. Detailed historical evidence remains in packag
 
 ## Canonical current state
 
+### Owner-directed fork work (2026-10-03)
+
+The owner assigned player-name punishment confirmation specifically in
+`FainNeito/EnthusiaStaff`. The active fork work item is
+[owner-punish-confirm-player](owner-punish-confirm-player.md) on
+`package/owner-punish-confirm-player`, based on `0aaefc4`. Implementation is complete
+and local unit/build validation passed; fork PR delivery and merge acceptance are pending. This explicit fork assignment
+does not change upstream package scope or statuses. Canonical handoff:
+`ai-agents/reports/package-handoffs/2026-10-03-owner-punish-confirm-player.md`.
+
 `ES-P01`, `ES-P02`, `ES-P03`, `ES-P04`, `ES-P05`, `ES-P06`, `ES-P07`, `ES-P08`, `ES-P09`, `ES-P10`, `ES-P11`, `ES-P12`, `ES-X02`, `ES-X04`, `ES-X05`, `ES-R01`, `ES-R02`, and `ES-V01` are `COMPLETE`.
 
 `ES-P12 — Staff operational hardening` is `COMPLETE`. Executable product head `b26eca2cd18bbd4148a02e9307fd81ada21a6fd3` was followed only by package-state Markdown through accepted head `e29bbab530f47473d9dbc9d7d60f57ec73dadea6`. Exact-head Coverage `35938430400`, Validate Wiki `35938430413`, Sentinel Restart Artifact `35938430464`, Sentinel simulation 5/5, Pi staging supersession, Codacy zero-annotation static analysis, and resolved review threads passed. PR #246 merged normally as `753ef35496c15abe361cad51704b610af540b0f0`; the accepted and merge trees are identical at `5471919009529ec675708d60d49de3cf2ec11bd5`. Canonical terminal handoff: `ai-agents/reports/package-handoffs/2026-09-24-es-p12-staff-operational-hardening.md`.

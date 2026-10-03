@@ -6,6 +6,11 @@ Live GitHub overrides stale records. Detailed package evidence remains in the re
 
 ## Current routing
 
+Owner override, 2026-10-03: this fork session is assigned only to player-name
+punishment confirmation in `FainNeito/EnthusiaStaff`, on
+`package/owner-punish-confirm-player`. See `work-packages/owner-punish-confirm-player.md`
+and its 2026-10-03 handoff. The upstream routing table below is preserved.
+
 | Field | Value |
 | --- | --- |
 | Universal package active state | `ES-X04 — EnthusiaCommend reputation provider` is `COMPLETE`; `ES-X01` remains `BLOCKED` / `PARKED_BLOCKED`; `ES-X03` is `PARTIAL` / `ACTIONABLE_CONTINUATION` while bounded paired static remediation and exact-head validation continue. |

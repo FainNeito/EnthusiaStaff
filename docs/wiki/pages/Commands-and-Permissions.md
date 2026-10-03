@@ -32,7 +32,7 @@ Subcommands have independent permissions. `/estaff verify full` additionally req
 
 | Command | Usage | Primary permission |
 | --- | --- | --- |
-| `/punish` | `/punish <player> [reason-id]` or `/punish resume <player>` | `enthusiastaff.punish` |
+| `/punish` | `/punish <player> [reason-id]`, `/punish resume <player>`, or `/punish confirm <player>` | `enthusiastaff.punish` |
 | `/ban` | `/ban <player> [reason-id]` | `enthusiastaff.punish` |
 | `/mute` | `/mute <player> [reason-id]` | `enthusiastaff.punish` |
 | `/warn` | `/warn <player> [reason-id]` | `enthusiastaff.punish` |
