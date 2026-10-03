@@ -48,3 +48,41 @@ is recorded on the PR; the prior `b22ce00` head is historical. Updated canonical
 handoff and package record describe local test artifacts and the remaining
 unverified integration/hosted/live gates. Upstream routing is unchanged.
 `Expanded frozen product head: db067d1a656ab08a2baac2f8bccffcf39e533101 (draft fork PR #1).`
+
+
+## Owner vanish and spectator continuation, 2026-10-03
+
+The owner confirms the hotbar, wall movement, and F3+N reports came from production
+with the original plugin. This explicitly expands the same owner package and draft
+fork PR #1; status remains REVIEW. Continuation starts at 0e603ebeabcc8f9af6cc9ded716fae039fe4d6ab,
+with fork main dfab3b3203906c497b8889d161085757062c052a. Previous name features remain included.
+
+Confirmed source defect: vanish forced even Admin/Founder into actual spectator and
+cancelled their permitted mode changes. Vanish now applies the existing rank-authorized
+selection, preserves Survival/Creative hotbars, records only committed mode changes,
+and retries the latest selected mode after an in-flight persistence write completes.
+Recovery and demotion reconcile against live rank; lower staff remain spectator-only.
+The Admin/Founder F3+N/F3+F4 capability packet requires existing minecraft.command.gamemode
+permission, grants no operator/server permissions, and revokes on rank/permission loss.
+Real operators retain their actual client status. All player calls use entity ownership.
+
+Wall movement cause remains unproven on production. The fork already preserves the
+viewer's own SPECTATOR packet for client physics; its regression tests pass. This
+build includes that safeguard, but actual wall movement requires client acceptance.
+No production access, deployment, permissions, authority cutover, or migrations changed.
+
+Java 25.0.3 clean test/check/runtimeJars passed with integration-tests:test explicitly
+excluded: 1560 passing tests, 2 existing Windows symlink skips, zero failures/errors.
+Wiki validates 41 pages; whitespace and runtime ZIP integrity checks pass. Reviewed
+mode authority, vetoed events, durable selection concurrency, packet-only permission
+hint, thread ownership, existing names scope, and recovery boundaries. Docker/MariaDB,
+hosted/static review, and live Paper/Velocity/client acceptance remain unverified.
+CodeRabbit draft review is skipped, not an acceptance pass.
+
+Latest test artifacts: EnthusiaStaff-Paper-0.1.0-staff-mode-test.3.jar SHA-256
+c1931b1e7c1b3428f5f9e437ca7fa5b8ebfded713781f4ebd8bcadccc55b506e;
+EnthusiaStaff-Velocity-0.1.0-staff-mode-test.3.jar SHA-256
+bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f.
+Next action: non-production hotbar, spectator wall movement, F3 shortcut, permission
+revocation, restart, and names acceptance plus available integration/hosted gates before
+merge. Preserve draft PR #1 and implementation branch; exact frozen heads are on the PR.
