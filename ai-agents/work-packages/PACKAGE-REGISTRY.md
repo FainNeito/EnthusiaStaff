@@ -244,3 +244,11 @@ Canonical ES-P12 terminal handoff: `ai-agents/reports/package-handoffs/2026-09-2
 ## Next sequential action
 
 X03 remains `PARTIAL` / `ACTIONABLE_CONTINUATION`: complete only bounded paired remediation while preserving Market #7, Staff #139, and exact component parity. D09 remains `BLOCKED` / `PARKED_BLOCKED`: keep PR #203 frozen/open at `a48390c50c6968e75437abd2dd05c0faeece355d` until legitimate X03 V21 reaches `main`, then reconcile D09 normally and rerun every invalidated exact-head gate. D08 remains `PLANNED`; D10 and D12 remain gated by incomplete D09; D13 remains independently parked. Do not activate a replacement D09 implementation while #203 is preserved.
+
+Owner update 2026-10-03: the same fork PR #1 now covers known player names in
+Minecraft alt reviews, reports/menus, case/history/freeze output, and punishment
+menus as well as named confirmation. Status remains REVIEW. Current exact head
+is recorded on the PR; the prior `b22ce00` head is historical. Updated canonical
+handoff and package record describe local test artifacts and the remaining
+unverified integration/hosted/live gates. Upstream routing is unchanged.
+`Expanded frozen product head: db067d1a656ab08a2baac2f8bccffcf39e533101 (draft fork PR #1).`
