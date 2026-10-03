@@ -24,7 +24,9 @@ punishment system via the `/staffapi` console command. Every Polar punishment ge
 
 **Actor:** All punishments are issued as `Polar Anticheat` (StaffRank.SYSTEM).
 
-**Permission:** `enthusiastaff.api.punish` (console bypasses permission checks).
+**Security:** Console-only. The command hardcodes a `sender instanceof ConsoleCommandSender`
+check — no permission node exists, so it cannot be granted to players. This prevents
+fake "Polar" punishments from player-executed commands.
 
 ## Punishment Mapping
 
@@ -41,21 +43,24 @@ In `plugins/Polar/polar.yml`:
 
 ```yaml
 ban_commands:
-  - "staffapi punish {player} ban Cheating --checks={check}"
+  - "staffapi punish {player} ban Cheating detected by Polar"
 soft_ban_commands:
-  - "staffapi punish {player} kick Cheating --checks={check}"
+  - "staffapi punish {player} kick Cheating detected by Polar"
 ```
 
 ### Confirmed Placeholders
 
 | Placeholder | Description | Status |
 |-------------|-------------|--------|
-| `{player}` | Player name | ✅ Confirmed (used in current config) |
-| `{check}` | Anticheat check name | ⚠️ Verify in Polar docs |
+| `{player}` | Player name | ✅ Confirmed from live polar.yml |
+| `{server}` | Server name | ✅ Confirmed from live polar.yml |
+| `{check}` | Anticheat check name | ❌ NOT supported by Polar |
 
-> **Note:** `{check}` was not confirmed from Polar's documentation (not publicly available).
-> Check your Polar version's docs or test with a harmless command first. If `{check}`
-> is not supported, omit the `--checks` flag — the punishment will still work.
+> **Limitation:** Polar only supports `{player}` and `{server}` placeholders in punishment
+> commands (confirmed from the live `polar.yml`). There is no `{check}` or `{flags}`
+> placeholder. The `--checks` parameter will usually be empty unless Polar adds
+> check-detail placeholders in a future version. Punishments still work correctly —
+> they just won't include specific flag details.
 
 ## Examples
 

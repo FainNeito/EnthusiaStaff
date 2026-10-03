@@ -32,8 +32,13 @@ import org.bukkit.command.TabCompleter;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Console-friendly API for automated systems (Polar anticheat, etc.) to issue punishments
+ * Console-only API for automated systems (Polar anticheat, etc.) to issue punishments
  * through the central {@link PunishmentService}.
+ *
+ * <p><b>SECURITY: This command is console-only.</b> No player — including staff of any
+ * rank — can execute it. The check is hardcoded ({@code sender instanceof ConsoleCommandSender}),
+ * not permission-based, so it cannot be bypassed by granting a permission node. This prevents
+ * players from issuing fake "Polar" punishments.
  *
  * <p>Unlike {@code /punish} (a GUI workflow for staff), this command requires no player
  * interaction and works from console. Every punishment goes through the full pipeline:
@@ -41,12 +46,14 @@ import org.jetbrains.annotations.NotNull;
  *
  * <p>Usage: {@code /staffapi punish <player> <ban|kick|mute|warn> [reason...] [--checks=<detail>]}
  *
- * <p>Permission: {@code enthusiastaff.api.punish} (console bypasses permission checks).
+ * <p><b>Polar placeholder limitation:</b> Polar only supports {@code {player}} and
+ * {@code {server}} placeholders in punishment commands. There is no {@code {check}} or
+ * {@code {flags}} placeholder, so {@code --checks} will usually be empty unless Polar
+ * adds check-detail placeholders in a future version.
  */
 public final class StaffApiCommand implements CommandExecutor, TabCompleter {
     private static final Logger LOGGER = Logger.getLogger(StaffApiCommand.class.getName());
 
-    private static final String PERMISSION = "enthusiastaff.api.punish";
     private static final String PUNISH_OPERATION = "punish";
 
     /** Reason ID for Polar anticheat detections (escalating ban ladder). */
@@ -94,8 +101,12 @@ public final class StaffApiCommand implements CommandExecutor, TabCompleter {
             sendUsage(sender, label);
             return true;
         }
-        if (!(sender instanceof ConsoleCommandSender) && !sender.hasPermission(PERMISSION)) {
-            sender.sendMessage("You do not have permission to use the staff API.");
+        // SECURITY: Console-only. Hardcoded check — no permission node, cannot be granted to players.
+        // This prevents fake "Polar" punishments from player-executed commands.
+        if (!(sender instanceof ConsoleCommandSender)) {
+            sender.sendMessage("This command can only be run from the server console.");
+            LOGGER.warning("[StaffAPI] Blocked non-console sender '" + sender.getName()
+                    + "' attempting to use /staffapi punish");
             return true;
         }
         return onPunish(sender, label, args);
