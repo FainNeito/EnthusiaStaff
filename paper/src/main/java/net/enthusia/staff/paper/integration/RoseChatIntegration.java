@@ -145,7 +145,6 @@ public final class RoseChatIntegration implements AutoCloseable {
         Objects.requireNonNull(mutes, "mutes");
         Objects.requireNonNull(freezes, "freezes");
         Objects.requireNonNull(visibility, "visibility");
-        Objects.requireNonNull(presenceStateReady, "presenceStateReady");
         Objects.requireNonNull(chat, "chat");
         try {
             RoseChatStaffService service = services.load(RoseChatStaffService.class);
@@ -170,7 +169,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             BridgeRegistration registration = service.installBridge(
                     BRIDGE_OWNER,
                     configuration,
-                    new StaffBridge(configuration, mode, mutes, freezes, visibility, presenceStateReady, chat)
+                    new StaffBridge(configuration, mode, mutes, freezes, visibility, ignored -> true, chat)
             );
             return new Discovery(
                     Optional.of(new RoseChatIntegration(service, registration)),
@@ -203,6 +202,7 @@ public final class RoseChatIntegration implements AutoCloseable {
         Objects.requireNonNull(mutes, "mutes");
         Objects.requireNonNull(freezes, "freezes");
         Objects.requireNonNull(visibility, "visibility");
+        Objects.requireNonNull(presenceStateReady, "presenceStateReady");
         Objects.requireNonNull(chat, "chat");
         Objects.requireNonNull(staffPlugin, "staffPlugin");
         Objects.requireNonNull(punishments, "punishments");
@@ -230,7 +230,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             BridgeRegistration registration = service.installBridge(
                     BRIDGE_OWNER,
                     configuration,
-                    new StaffBridge(configuration, mode, mutes, freezes, visibility, chat)
+                    new StaffBridge(configuration, mode, mutes, freezes, visibility, presenceStateReady, chat)
             );
             RoseChatAutomatedModerationProvider automated = null;
             try {
