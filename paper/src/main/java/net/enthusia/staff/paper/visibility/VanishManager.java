@@ -62,6 +62,7 @@ public final class VanishManager implements Listener {
     private final Set<UUID> staffSessionCheckFailureNotified = ConcurrentHashMap.newKeySet();
     private final Set<UUID> pendingStaffModeExitDisables = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean rankReconciliationStarted = new AtomicBoolean();
+    private final AtomicBoolean durableVanishLoaded = new AtomicBoolean();
     private final AtomicInteger rankReconciliationPass = new AtomicInteger();
     private final VanishAudienceCoordinator<Player> audiences;
     private final SpectatorTabPacketAdapter spectatorTabPackets;
@@ -89,6 +90,7 @@ public final class VanishManager implements Listener {
     }
 
     public void initialize() {
+        durableVanishLoaded.set(false);
         submit(() -> {
             VanishStore loaded = store.get();
             if (loaded == null) {
@@ -100,6 +102,7 @@ public final class VanishManager implements Listener {
                     rememberPersistedGameMode(record);
                     visibility.setVanished(record.staffId(), record.rank(), true);
                 }
+                durableVanishLoaded.set(true);
                 recoverOnlinePlayers();
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.SEVERE, "Vanish-state initialization failed", exception);
@@ -164,6 +167,16 @@ public final class VanishManager implements Listener {
 
     public boolean isVanished(UUID playerId) {
         return visibility.isVanished(playerId);
+    }
+
+    /**
+     * Returns whether RoseChat may safely decide a real login/logout presence message for this player.
+     * A currently vanished player is always known immediately; otherwise the initial durable vanish
+     * scan must have completed so a cold-start login cannot leak a persisted vanish state.
+     */
+    public boolean presenceStateReady(UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return visibility.isVanished(playerId) || durableVanishLoaded.get();
     }
 
     public void setPresenceTransitionSink(PresenceTransitionSink sink) {
