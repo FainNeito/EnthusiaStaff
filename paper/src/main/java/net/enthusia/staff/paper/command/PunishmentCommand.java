@@ -11,6 +11,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.staff.domain.OperationalMode;
@@ -246,16 +247,28 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(StaffMessageStyle.style(Component.text("Usage: /punish confirm <player>", NamedTextColor.RED)));
             return;
         }
-        submit(sender, () -> confirmationDraftId(args[1], input -> targetDraftId(sender, actor, input))
-                .ifPresent(draftId -> confirmStoredDraft(sender, actor, draftId)));
+        submit(sender, () -> {
+            PunishmentDraftWorkflow workflow = workflows.get();
+            confirmationDraftId(args[1],
+                    id -> actor != null && workflow != null && workflow.find(id, actor.id()).isPresent(),
+                    input -> targetDraftId(sender, actor, input))
+                    .ifPresent(draftId -> confirmStoredDraft(sender, actor, draftId));
+        });
     }
 
-    static Optional<UUID> confirmationDraftId(String input, Function<String, Optional<UUID>> targetDraftLookup) {
+    static Optional<UUID> confirmationDraftId(String input, Predicate<UUID> actorDraftLookup,
+            Function<String, Optional<UUID>> targetDraftLookup) {
+        UUID parsed;
         try {
-            return Optional.of(UUID.fromString(input));
+            parsed = UUID.fromString(input);
         } catch (IllegalArgumentException exception) {
             return targetDraftLookup.apply(input);
         }
+        // UUID.fromString also accepts shortened forms that may be literal player names.
+        if (parsed.toString().equalsIgnoreCase(input) && actorDraftLookup.test(parsed)) {
+            return Optional.of(parsed);
+        }
+        return targetDraftLookup.apply(input);
     }
 
     private Optional<UUID> targetDraftId(CommandSender sender, Actor actor, String input) {

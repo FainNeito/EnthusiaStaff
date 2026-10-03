@@ -1,5 +1,12 @@
 # Latest agent handoff
 
+## Review follow-up (2026-10-03, 08:15 UTC)
+
+Owner confirmation: the reported environment is production; no fork deployment or production verification is implied. Baseline PR head: `f1999bd144a8cddee1121a4773a97eb301c8bbbc`. CodeRabbit run `d3c2adc6-c7ea-44cd-b588-bd351600f720` completed with two valid findings, both repaired in the current checkpoint: canonical UUID confirmation first checks for an actor-owned draft and otherwise resolves the target-bound draft; loose UUID-like names are not coerced. Queued offline inventory edits now recheck view permission and staff identity alongside edit permission and an active session on the owning scheduler. Added regression coverage passes the Paper suite. Repair heads, exact full validation and artifact hashes are recorded on PR #1 after freezing. Version: `0.1.0-staff-bugs-test.5`.
+
+The package remains `PARTIAL` / `ACTIONABLE_CONTINUATION` with the same live/provider/integration acceptance limits. No GitHub Actions runs exist for the inspected baseline; a CodeRabbit review success is not runtime acceptance. Next: push verified repairs, resolve the addressed review threads, publish updated status through a docs-only PR, and monitor the subsequent review. Product merges, deployment, production permissions, data access and authority activation remain excluded.
+
+
 ## Current owner scope: staff bug fixes (2026-10-03)
 
 The owner expanded the same fork package to address all staff bug reports and requested a PR plus periodic commit checks. Status: `PARTIAL` / `ACTIONABLE_CONTINUATION`; implementation remains in draft [PR #1](https://github.com/FainNeito/EnthusiaStaff/pull/1) on `package/owner-punish-confirm-player`. Prior player-name and vanish shortcut changes are retained. Historical scope and evidence below describe earlier checkpoints, not current completion.

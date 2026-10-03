@@ -83,6 +83,23 @@ final class InventoryEditAuthorityGateTest {
                 new ImmediateQuery(true, true, false), TIMEOUT));
     }
 
+    @Test
+    void offlinePatchRequiresViewEditStaffIdentityAndActiveSession() {
+        java.util.Set<String> permissions = new java.util.HashSet<>(java.util.Set.of(
+                "enthusiastaff.inventory.view", InventoryEditAuthorityGate.EDIT_PERMISSION,
+                "enthusiastaff.identity.helper"));
+        assertTrue(InventoryEditAuthorityGate.allows(permissions::contains, true));
+        assertFalse(InventoryEditAuthorityGate.allows(permissions::contains, false));
+        permissions.remove("enthusiastaff.inventory.view");
+        assertFalse(InventoryEditAuthorityGate.allows(permissions::contains, true));
+        permissions.add("enthusiastaff.inventory.view");
+        permissions.remove("enthusiastaff.identity.helper");
+        assertFalse(InventoryEditAuthorityGate.allows(permissions::contains, true));
+        permissions.add("enthusiastaff.identity.helper");
+        permissions.remove(InventoryEditAuthorityGate.EDIT_PERMISSION);
+        assertFalse(InventoryEditAuthorityGate.allows(permissions::contains, true));
+    }
+
     private record ImmediateQuery(
             boolean online,
             boolean permitted,
