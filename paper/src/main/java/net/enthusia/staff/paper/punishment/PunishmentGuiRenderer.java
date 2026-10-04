@@ -224,7 +224,9 @@ final class PunishmentGuiRenderer {
                     historyEntryItem(entries.get(index), state.overview(), state.sensitiveHistory())
             );
         }
-        if (entries.isEmpty()) {
+        if (!state.available()) {
+            emptyState(inventory, "Punishment history unavailable", "Moderation history could not be loaded right now.");
+        } else if (entries.isEmpty()) {
             emptyState(inventory, "No punishment history", "No moderation timeline entries are recorded for this player.");
         }
         int page = state.history().page();
@@ -267,7 +269,10 @@ final class PunishmentGuiRenderer {
     private static ItemStack historyHeaderItem(PunishmentGuiState state) {
         PunishmentGuiOverview overview = state.overview();
         List<Component> lore = new ArrayList<>();
-        if (!overview.historyAvailable()) {
+        boolean historyAvailable = !(state instanceof PunishmentGuiState.History history)
+                ? overview.historyAvailable()
+                : history.available();
+        if (!historyAvailable) {
             lore.add(Component.text("Timeline: unavailable", NamedTextColor.RED));
         } else {
             lore.add(Component.text("Timeline entries: " + overview.totalHistoryEntries(), NamedTextColor.WHITE));
