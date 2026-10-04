@@ -44,6 +44,28 @@ class PunishmentGuiSecurityRegressionTest {
     }
 
     @Test
+    void historyResultRechecksSensitivePermissionBeforeRendering() throws IOException {
+        String source = Files.readString(CONTROLLER);
+        String method = method(source, "private void openState(", "private Actor authorizedActor(");
+
+        assertTrue(method.contains("history.sensitiveHistory()"));
+        assertTrue(method.contains("!viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION)"));
+        assertTrue(method.contains("openHistory(viewer, history.returnState(), history.history().page())"));
+    }
+
+    @Test
+    void resumedReviewStillShowsTheFullConfiguredLadder() throws IOException {
+        String source = Files.readString(RENDERER);
+        String method = method(source, "private void renderReview(", "private void renderHistory(");
+
+        assertTrue(method.contains("catalog.find(draft.reasonId())"));
+        assertTrue(method.contains(
+                "renderLadder(inventory, policy.steps(), draft.expectation().stepOrdinal(), true)"
+        ));
+        assertTrue(source.contains("FROZEN DRAFT STEP"));
+    }
+
+    @Test
     void historyBackButtonDoesNotClaimItAlwaysReturnsToCategories() throws IOException {
         String source = Files.readString(RENDERER);
         String method = method(source, "private void renderHistory(", "private void renderHeader(");
