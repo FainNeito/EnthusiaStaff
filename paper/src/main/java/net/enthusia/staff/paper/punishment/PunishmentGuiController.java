@@ -947,6 +947,12 @@ public final class PunishmentGuiController implements Listener {
             if (actor == null) {
                 return;
             }
+            if (state instanceof PunishmentGuiState.History history
+                    && history.sensitiveHistory()
+                    && !viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION)) {
+                openHistory(viewer, history.returnState(), history.history().page());
+                return;
+            }
             Inventory inventory = renderer.render(state, actor);
             if (viewer.getOpenInventory().getTopInventory().getHolder(false) instanceof PunishmentGuiHolder) {
                 suppressedClosures.add(viewer.getUniqueId());
