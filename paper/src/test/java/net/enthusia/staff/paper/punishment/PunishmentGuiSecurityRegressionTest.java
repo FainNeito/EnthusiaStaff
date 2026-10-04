@@ -15,6 +15,9 @@ class PunishmentGuiSecurityRegressionTest {
     private static final Path RENDERER = Path.of(
             "src/main/java/net/enthusia/staff/paper/punishment/PunishmentGuiRenderer.java"
     );
+    private static final Path OVERVIEW = Path.of(
+            "src/main/java/net/enthusia/staff/paper/punishment/PunishmentGuiOverview.java"
+    );
 
     @Test
     void historyPageRechecksCurrentSensitiveHistoryPermission() throws IOException {
@@ -25,7 +28,19 @@ class PunishmentGuiSecurityRegressionTest {
                 "viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION)"
         ));
         assertTrue(method.contains("historyOptions(active, sensitiveHistory)"));
+        assertTrue(method.contains("result,\n                        sensitiveHistory,"));
         assertFalse(method.contains("returnState.overview().sensitiveHistory()"));
+    }
+
+    @Test
+    void overviewNeverCachesSensitiveHistoryPermissionOrEntries() throws IOException {
+        String source = Files.readString(OVERVIEW);
+        String controller = Files.readString(CONTROLLER);
+
+        assertFalse(source.contains("sensitiveHistory"));
+        assertFalse(source.contains("ModerationHistoryEntry"));
+        assertTrue(controller.contains("historyOptions(active, false)"));
+        assertTrue(controller.contains("private static final int OVERVIEW_HISTORY_LIMIT = 1"));
     }
 
     @Test
