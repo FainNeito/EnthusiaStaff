@@ -26,6 +26,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
 
 final class PunishmentGuiRenderer {
     static final int CONTENT_START = 9;
@@ -274,7 +275,12 @@ final class PunishmentGuiRenderer {
         lore.add(booleanLine("Online", online));
         lore.add(Component.text("Last seen: " + formatInstant(state.target().lastSeenAt(), state.overview()),
                 NamedTextColor.GRAY));
-        return item(Material.PLAYER_HEAD, targetName(state.target()), NamedTextColor.WHITE, lore);
+        return playerHead(
+                state.target().playerId(),
+                targetName(state.target()),
+                NamedTextColor.WHITE,
+                lore
+        );
     }
 
     private static ItemStack activeSanctionsItem(PunishmentGuiOverview overview) {
@@ -588,8 +594,8 @@ final class PunishmentGuiRenderer {
         int offset = page * CONTENT_SIZE;
         for (int index = 0; index < CONTENT_SIZE && offset + index < targets.size(); index++) {
             Player target = targets.get(offset + index);
-            inventory.setItem(CONTENT_START + index, item(
-                    Material.PLAYER_HEAD,
+            inventory.setItem(CONTENT_START + index, playerHead(
+                    target.getUniqueId(),
                     target.getName(),
                     NamedTextColor.WHITE,
                     List.of(
@@ -733,6 +739,24 @@ final class PunishmentGuiRenderer {
 
     private static ItemStack button(Material material, String name, NamedTextColor color) {
         return item(material, name, color, List.of());
+    }
+
+    private static ItemStack playerHead(
+            UUID playerId,
+            String name,
+            NamedTextColor color,
+            List<Component> lore
+    ) {
+        ItemStack item = ItemStack.of(Material.PLAYER_HEAD);
+        ItemMeta rawMeta = item.getItemMeta();
+        if (rawMeta instanceof SkullMeta meta) {
+            meta.setOwningPlayer(Bukkit.getOfflinePlayer(playerId));
+            meta.displayName(Component.text(name, color));
+            meta.lore(lore);
+            item.setItemMeta(meta);
+            return item;
+        }
+        return item(Material.PLAYER_HEAD, name, color, lore);
     }
 
     private static ItemStack item(Material material, String name, NamedTextColor color, List<Component> lore) {
