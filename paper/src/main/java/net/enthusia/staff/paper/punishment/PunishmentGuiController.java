@@ -922,6 +922,7 @@ public final class PunishmentGuiController implements Listener {
             return;
         }
         List<Player> targets = plugin.getServer().getOnlinePlayers().stream()
+                .map(Player.class::cast)
                 .filter(target -> !target.getUniqueId().equals(viewer.getUniqueId()))
                 .filter(viewer::canSee)
                 .filter(target -> targetGuard.check(actor, target.getUniqueId(), false).allowed())
