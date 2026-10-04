@@ -92,38 +92,12 @@ public final class PunishmentGuiController implements Listener {
     private final Set<UUID> confirmations = ConcurrentHashMap.newKeySet();
     private final Map<UUID, NoteCapture> noteCaptures = new ConcurrentHashMap<>();
 
-    public PunishmentGuiController(
-            JavaPlugin plugin,
-            Clock clock,
-            Supplier<OperationalMode> mode,
-            Supplier<PunishmentDraftWorkflow> workflows,
-            Supplier<PlayerDirectory> players,
-            AuthorizationPolicy authorization,
-            ReasonPolicyRepository policies,
-            Supplier<ModerationHistoryStore> histories,
-            Supplier<CaseReviewStore> caseReviews,
-            Supplier<SanctionLookup> sanctions,
-            Supplier<ReportStore> reports,
-            Supplier<ModerationFeatureSettings> settings,
-            ExecutorService workers
-    ) {
+    public PunishmentGuiController(Dependencies dependencies) {
         this(
-                new Dependencies(
-                        plugin,
-                        clock,
-                        mode,
-                        workflows,
-                        players,
-                        authorization,
-                        policies,
-                        histories,
-                        caseReviews,
-                        sanctions,
-                        reports,
-                        settings,
-                        workers
-                ),
-                LuckPermsStaffTargetGuard.discover(plugin)
+                dependencies,
+                LuckPermsStaffTargetGuard.discover(
+                        java.util.Objects.requireNonNull(dependencies, "dependencies").plugin()
+                )
         );
     }
 
@@ -219,20 +193,36 @@ public final class PunishmentGuiController implements Listener {
         }
         Inventory top = event.getView().getTopInventory();
         InventoryHolder holder = top.getHolder(false);
-        if (!(holder instanceof PunishmentGuiHolder)
-                && !(holder instanceof PunishmentTargetPickerHolder)) {
+        if (!punishmentHolder(holder)) {
             return;
         }
         event.setCancelled(true);
-        int slot = event.getRawSlot();
-        if (slot < 0 || slot >= top.getSize()) {
+        int slot = topInventorySlot(event, top);
+        if (slot < 0) {
             return;
         }
+        dispatchClick(viewer, holder, slot);
+    }
+
+    private static boolean punishmentHolder(InventoryHolder holder) {
+        return holder instanceof PunishmentGuiHolder
+                || holder instanceof PunishmentTargetPickerHolder;
+    }
+
+    private static int topInventorySlot(InventoryClickEvent event, Inventory top) {
+        int slot = event.getRawSlot();
+        return slot >= 0 && slot < top.getSize() ? slot : -1;
+    }
+
+    private void dispatchClick(Player viewer, InventoryHolder holder, int slot) {
         if (holder instanceof PunishmentTargetPickerHolder picker) {
             targetPickerClick(viewer, picker, slot);
             return;
         }
-        PunishmentGuiState state = ((PunishmentGuiHolder) holder).state();
+        punishmentStateClick(viewer, ((PunishmentGuiHolder) holder).state(), slot);
+    }
+
+    private void punishmentStateClick(Player viewer, PunishmentGuiState state, int slot) {
         if (!state.viewerId().equals(viewer.getUniqueId())) {
             return;
         }
@@ -241,13 +231,23 @@ public final class PunishmentGuiController implements Listener {
             closeWithoutResume(viewer);
             return;
         }
+        dispatchStateClick(viewer, actor, state, slot);
+    }
+
+    private void dispatchStateClick(Player viewer, Actor actor, PunishmentGuiState state, int slot) {
         if (state instanceof PunishmentGuiState.Categories categories) {
             categoryClick(viewer, actor, categories, slot);
-        } else if (state instanceof PunishmentGuiState.Reasons reasons) {
+            return;
+        }
+        if (state instanceof PunishmentGuiState.Reasons reasons) {
             reasonClick(viewer, actor, reasons, slot);
-        } else if (state instanceof PunishmentGuiState.Review review) {
+            return;
+        }
+        if (state instanceof PunishmentGuiState.Review review) {
             reviewClick(viewer, actor, review, slot);
-        } else if (state instanceof PunishmentGuiState.History history) {
+            return;
+        }
+        if (state instanceof PunishmentGuiState.History history) {
             historyClick(viewer, history, slot);
         }
     }
@@ -317,34 +317,60 @@ public final class PunishmentGuiController implements Listener {
     }
 
     private void targetPickerClick(Player viewer, PunishmentTargetPickerHolder picker, int slot) {
-        if (!picker.viewerId().equals(viewer.getUniqueId()) || authorizedActor(viewer) == null) {
+        if (!targetPickerAuthorized(viewer, picker)) {
             return;
         }
-        if (slot == PunishmentGuiRenderer.TARGET_CLOSE_SLOT) {
-            viewer.closeInventory();
+        if (handleTargetPickerControl(viewer, picker, slot)) {
             return;
         }
-        if (slot == PunishmentGuiRenderer.TARGET_REFRESH_SLOT) {
-            openTargetPickerPage(viewer, picker.commandName(), picker.page());
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && picker.page() > 0) {
-            openTargetPickerPage(viewer, picker.commandName(), picker.page() - 1);
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.NEXT_SLOT) {
-            openTargetPickerPage(viewer, picker.commandName(), picker.page() + 1);
-            return;
-        }
-        int localIndex = slot - PunishmentGuiRenderer.CONTENT_START;
-        if (localIndex < 0 || localIndex >= PunishmentGuiRenderer.CONTENT_SIZE) {
-            return;
-        }
-        int index = picker.page() * PunishmentGuiRenderer.CONTENT_SIZE + localIndex;
-        if (index >= picker.targetIds().size()) {
+        int index = targetPickerIndex(picker, slot);
+        if (index < 0 || index >= picker.targetIds().size()) {
             return;
         }
         open(viewer, picker.targetIds().get(index).toString(), picker.commandName());
+    }
+
+    private boolean targetPickerAuthorized(Player viewer, PunishmentTargetPickerHolder picker) {
+        if (!picker.viewerId().equals(viewer.getUniqueId())) {
+            return false;
+        }
+        return authorizedActor(viewer) != null;
+    }
+
+    private void openTargetPickerOffset(Player viewer, PunishmentTargetPickerHolder picker, int offset) {
+        openTargetPickerPage(viewer, picker.commandName(), picker.page() + offset);
+    }
+
+    private boolean handleTargetPickerControl(
+            Player viewer,
+            PunishmentTargetPickerHolder picker,
+            int slot
+    ) {
+        if (slot == PunishmentGuiRenderer.TARGET_CLOSE_SLOT) {
+            viewer.closeInventory();
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.TARGET_REFRESH_SLOT) {
+            openTargetPickerOffset(viewer, picker, 0);
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && picker.page() > 0) {
+            openTargetPickerOffset(viewer, picker, -1);
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.NEXT_SLOT) {
+            openTargetPickerOffset(viewer, picker, 1);
+            return true;
+        }
+        return false;
+    }
+
+    private static int targetPickerIndex(PunishmentTargetPickerHolder picker, int slot) {
+        int localIndex = slot - PunishmentGuiRenderer.CONTENT_START;
+        if (localIndex < 0 || localIndex >= PunishmentGuiRenderer.CONTENT_SIZE) {
+            return -1;
+        }
+        return picker.page() * PunishmentGuiRenderer.CONTENT_SIZE + localIndex;
     }
 
     private void categoryClick(
@@ -397,44 +423,53 @@ public final class PunishmentGuiController implements Listener {
 
     private void reasonClick(Player viewer, Actor actor, PunishmentGuiState.Reasons state, int slot) {
         List<ReasonPolicy> reasons = catalog.reasons(actor, state.commandName(), state.family());
-        if (openHistoryFromControl(viewer, state, slot)) {
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.page() > 0) {
-            openState(viewer, new PunishmentGuiState.Reasons(
-                    state.viewerId(),
-                    state.target(),
-                    state.commandName(),
-                    state.overview(),
-                    state.family(),
-                    state.page() - 1
-            ));
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.NEXT_SLOT
-                && (state.page() + 1) * PunishmentGuiRenderer.CONTENT_SIZE < reasons.size()) {
-            openState(viewer, new PunishmentGuiState.Reasons(
-                    state.viewerId(),
-                    state.target(),
-                    state.commandName(),
-                    state.overview(),
-                    state.family(),
-                    state.page() + 1
-            ));
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.BACK_SLOT) {
-            openState(viewer, categoriesState(state));
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.CLOSE_SLOT) {
-            viewer.closeInventory();
+        if (handleReasonNavigation(viewer, state, reasons.size(), slot)) {
             return;
         }
         int index = contentIndex(state.page(), slot);
         if (index >= 0 && index < reasons.size()) {
             prepare(viewer, actor, state, reasons.get(index));
         }
+    }
+
+    private boolean handleReasonNavigation(
+            Player viewer,
+            PunishmentGuiState.Reasons state,
+            int reasonCount,
+            int slot
+    ) {
+        if (openHistoryFromControl(viewer, state, slot)) {
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.page() > 0) {
+            openReasonPage(viewer, state, state.page() - 1);
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.NEXT_SLOT
+                && (state.page() + 1) * PunishmentGuiRenderer.CONTENT_SIZE < reasonCount) {
+            openReasonPage(viewer, state, state.page() + 1);
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.BACK_SLOT) {
+            openState(viewer, categoriesState(state));
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.CLOSE_SLOT) {
+            viewer.closeInventory();
+            return true;
+        }
+        return false;
+    }
+
+    private void openReasonPage(Player viewer, PunishmentGuiState.Reasons state, int page) {
+        openState(viewer, new PunishmentGuiState.Reasons(
+                state.viewerId(),
+                state.target(),
+                state.commandName(),
+                state.overview(),
+                state.family(),
+                page
+        ));
     }
 
     private void reviewClick(Player viewer, Actor actor, PunishmentGuiState.Review state, int slot) {
@@ -1058,7 +1093,7 @@ public final class PunishmentGuiController implements Listener {
         return target.currentUsername().orElse(target.playerId().toString());
     }
 
-    record Dependencies(
+    public record Dependencies(
             JavaPlugin plugin,
             Clock clock,
             Supplier<OperationalMode> mode,
@@ -1073,7 +1108,7 @@ public final class PunishmentGuiController implements Listener {
             Supplier<ModerationFeatureSettings> settings,
             ExecutorService workers
     ) {
-        Dependencies {
+        public Dependencies {
             plugin = java.util.Objects.requireNonNull(plugin, "plugin");
             clock = java.util.Objects.requireNonNull(clock, "clock");
             mode = java.util.Objects.requireNonNull(mode, "mode");
