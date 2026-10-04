@@ -567,6 +567,7 @@ public final class PunishmentGuiController implements Listener {
                         returnState.overview(),
                         result,
                         sensitiveHistory,
+                        true,
                         returnState
                 ));
             } catch (IllegalArgumentException exception) {
@@ -598,6 +599,7 @@ public final class PunishmentGuiController implements Listener {
                 returnState.overview(),
                 empty,
                 sensitiveHistory,
+                false,
                 returnState
         ));
     }
