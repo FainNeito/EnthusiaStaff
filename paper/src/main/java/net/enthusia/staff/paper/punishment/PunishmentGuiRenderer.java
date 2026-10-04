@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import net.enthusia.staff.domain.application.PunishmentAssessment;
 import net.enthusia.staff.domain.application.PunishmentDraft;
 import net.enthusia.staff.domain.auth.Actor;
@@ -79,13 +80,13 @@ final class PunishmentGuiRenderer {
         return inventory;
     }
 
-    Inventory renderTargetPicker(UUIDView viewer, List<Player> targets, int page, String commandName) {
+    Inventory renderTargetPicker(UUID viewerId, List<Player> targets, int page, String commandName) {
         List<Player> sorted = targets.stream()
                 .sorted(java.util.Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
         List<java.util.UUID> ids = sorted.stream().map(Player::getUniqueId).toList();
         PunishmentTargetPickerHolder holder = new PunishmentTargetPickerHolder(
-                viewer.viewerId(), commandName, page, ids
+                viewerId, commandName, page, ids
         );
         Inventory inventory = Bukkit.createInventory(
                 holder,
@@ -460,7 +461,7 @@ final class PunishmentGuiRenderer {
     private static void renderLadder(Inventory inventory, PunishmentAssessment assessment) {
         List<PunishmentStep> steps = assessment.policy().steps();
         int selected = assessment.escalation().selectedStep().ordinal();
-        int shown = Math.min(steps.size(), MAX_LADDER_SLOTS);
+        int shown = Math.min(steps.size(), steps.size() > MAX_LADDER_SLOTS ? MAX_LADDER_SLOTS - 1 : MAX_LADDER_SLOTS);
         for (int index = 0; index < shown; index++) {
             int slot = 18 + index;
             PunishmentStep step = steps.get(index);
@@ -640,7 +641,7 @@ final class PunishmentGuiRenderer {
         }
         if (state instanceof PunishmentGuiState.History history) {
             return Component.text(
-                    "History " + target + " · " + history.history().page() + "/" + history.history().totalPages(),
+                    "History " + target + " · " + history.history().page() + "/" + Math.max(1, history.history().totalPages()),
                     NamedTextColor.DARK_AQUA
             );
         }
@@ -829,11 +830,4 @@ final class PunishmentGuiRenderer {
         return result.toString();
     }
 
-    record UUIDView(java.util.UUID viewerId) {
-        UUIDView {
-            if (viewerId == null) {
-                throw new IllegalArgumentException("viewer id must be present");
-            }
-        }
-    }
 }
