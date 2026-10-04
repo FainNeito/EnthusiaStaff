@@ -1,5 +1,41 @@
 # Workspace state
 
+## Owner reconciliation verification, 2026-10-04
+
+Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
+Frozen executable head f0ad2a7527e2960fa84ef8910a083fc77fb97094 is pushed to
+package/owner-punish-confirm-player. Canonical upstream main 93e81ca1 is
+incorporated by normal merge. Applied duty profiles now own vanished game-mode
+selection/recovery/restoration; off-duty vanish policy and earlier name, item
+safety, visibility and exit fences remain. Optional RoseChat presence rendering
+fails narrowly and once on older interface binaries without disabling the bridge.
+Focused regressions reproduced both defects before repair; nine focused tests pass.
+
+Java 25.0.3 clean test/check/runtimeJars passes at the frozen head: 1,627 tests,
+zero failures/errors, two Windows symlink skips. Docker-dependent integration
+suite was explicitly excluded, not passed. Wiki validates 41 pages; whitespace,
+Paper/Velocity ZIP integrity and RoseChat provider-class exclusion pass.
+Orchestration validation FAILS with 460 findings; isolated canonical upstream
+comparison reports the identical 460 findings, with zero new findings. Do not
+weaken the validator or invent registry entries to hide the baseline failure.
+No project EARS/state helpers exist; this requirement/task/evidence record is
+maintained instead. Hosted/static, MariaDB, staging, actual provider compatibility
+and real Java/Bedrock acceptance remain unverified. Unchanged unavailable gates
+were not retried. Test.6 artifacts are unmerged/local test artifacts only.
+
+Review inspected the synchronized source delta, duty authority composition,
+entity-scheduler callbacks, durable mode retries, optional API linkage and earlier
+repair preservation. Exact-head external review/check state is recorded in PR #1;
+local review is not hosted approval. No schema migration changed. Canonical core
+build is the root aggregate; standalone component parity/runtime acceptance is
+still required where affected.
+
+Next: inspect new exact-head review/check findings, repair confirmed owner-scope
+defects, and obtain missing provider/runtime and client acceptance evidence through
+normal reviewed delivery. Canonical product main is not updated by this fork PR.
+Do not merge product PR #1, deploy, change production permissions or activate
+authority. This section supersedes older isolated-candidate status below.
+
 ## Owner upstream reconciliation checkpoint, 2026-10-04
 
 Owner package remains `PARTIAL` / `ACTIONABLE_CONTINUATION`. Product PR #1 remains
