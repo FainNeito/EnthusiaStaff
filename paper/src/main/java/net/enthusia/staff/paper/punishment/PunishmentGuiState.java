@@ -69,6 +69,7 @@ sealed interface PunishmentGuiState {
             PunishmentGuiOverview overview,
             ModerationHistoryPage history,
             boolean sensitiveHistory,
+            boolean available,
             PunishmentGuiState returnState
     ) implements PunishmentGuiState {
         public History {
