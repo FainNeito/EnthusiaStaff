@@ -1,5 +1,44 @@
 # Latest agent handoff
 
+## Owner durable recovery fence verification, 2026-10-04
+
+Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
+Frozen executable head 923e8352753cae527b2e31dd2df1f13eb4a63208 repairs the
+confirmed per-player durable recovery race from owner head 44fe28e9. Canonical
+upstream main 18d4f4b is unchanged and incorporated; root aggregate owns the build.
+A read begun before exit was only guarded by temporary exit/restoration flags;
+its late result could reapply vanished state after exit completion. UUID-only
+pending cleanup also allowed old callbacks to interfere with a reconnect read.
+
+Recovery now carries a unique operation ticket. Exit/restoration, accepted local
+state/mode changes, transfer application, reconnect/disconnect and shutdown
+invalidate pending reads; stale callbacks cannot apply or clear replacement
+reads. Missing storage, queue rejection, exceptions and retired-owner completion
+remove only their own ticket. One ticket per player is retained, with no permanent
+generation history. Existing permissions, durable write semantics, API/runtime
+contracts and earlier name, GUI, vanish, tester and inspection fixes remain.
+
+Proof: a temporary extraction of prior UUID-only pending-set semantics failed two
+reconnect/old-completion regressions; the operation-ticket implementation passes
+all five fence tests. Two manager wiring tests verify lifecycle invalidation and
+owning-scheduler result/cleanup gates. This is local helper/wiring evidence, not
+an actual server/client delayed-read reproduction or a claim of historical TDD.
+Full Java 25.0.3 clean test/check/runtimeJars passes at the frozen executable head:
+1,642 tests, zero failures/errors, two Windows symlink skips. Wiki validates 41
+pages; whitespace, runtime ZIP integrity and RoseChat provider exclusion pass.
+Test.8 artifacts are unmerged/local tests only. No schema, dependency pin or
+production permission changed. Review checked stale callbacks, cleanup ownership,
+concurrent writes, session lifetime and preservation of prior source repairs.
+
+Existing orchestration baseline is FAILED (460 unchanged findings); affected
+inputs/validator are unchanged and it was not repeated. EARS/state helpers are
+absent; this bounded requirement/task/evidence record remains the fallback.
+Docker/MariaDB, hosted/static, staging, runtime-provider and Java/Bedrock client
+acceptance remain unverified. Next: inspect exact-head review/check findings and
+obtain missing acceptance evidence through normal reviewed delivery. No product
+merge, deployment or authority activation is authorized. Exact delivery heads and
+artifact hashes are recorded in PR #1. This section supersedes the task above.
+
 ## Owner durable recovery fence requirement, 2026-10-04
 
 Same package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
