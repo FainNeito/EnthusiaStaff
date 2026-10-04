@@ -512,6 +512,7 @@ public final class PunishmentGuiController implements Listener {
     }
 
     private void openHistory(Player viewer, PunishmentGuiState returnState, int page) {
+        boolean sensitiveHistory = viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION);
         submit(viewer, () -> {
             ModerationHistoryStore store = histories.get();
             ModerationFeatureSettings active = settings.get();
@@ -519,7 +520,7 @@ public final class PunishmentGuiController implements Listener {
                 openUnavailableHistory(viewer, returnState);
                 return;
             }
-            HistoryQueryOptions options = historyOptions(active, returnState.overview().sensitiveHistory());
+            HistoryQueryOptions options = historyOptions(active, sensitiveHistory);
             try {
                 ModerationHistoryPage result = store.page(
                         returnState.target().playerId(),
