@@ -68,6 +68,16 @@ class PunishmentGuiSecurityRegressionTest {
     }
 
     @Test
+    void unavailableHistoryIsNotRenderedAsAnEmptySuccessfulTimeline() throws IOException {
+        String source = Files.readString(RENDERER);
+        String method = method(source, "private void renderHistory(", "private void renderHeader(");
+
+        assertTrue(method.contains("if (!state.available())"));
+        assertTrue(method.contains("Punishment history unavailable"));
+        assertTrue(method.contains("else if (entries.isEmpty())"));
+    }
+
+    @Test
     void historyBackButtonDoesNotClaimItAlwaysReturnsToCategories() throws IOException {
         String source = Files.readString(RENDERER);
         String method = method(source, "private void renderHistory(", "private void renderHeader(");
