@@ -5,7 +5,6 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import net.enthusia.staff.domain.casefile.CaseReview;
-import net.enthusia.staff.domain.history.ModerationHistoryEntry;
 import net.enthusia.staff.domain.sanction.ActiveSanction;
 import net.enthusia.staff.domain.sanction.SanctionType;
 
@@ -20,7 +19,6 @@ record PunishmentGuiOverview(
         Instant loadedAt,
         ZoneId timezone,
         long totalHistoryEntries,
-        List<ModerationHistoryEntry> recentHistory,
         boolean historyAvailable,
         List<CaseReview> recentCases,
         boolean recentCasesTruncated,
@@ -29,16 +27,13 @@ record PunishmentGuiOverview(
         boolean sanctionsAvailable,
         int activeReportCount,
         boolean activeReportsTruncated,
-        boolean reportsAvailable,
-        boolean sensitiveHistory
+        boolean reportsAvailable
 ) {
     PunishmentGuiOverview {
         if (loadedAt == null || timezone == null || totalHistoryEntries < 0
-                || recentHistory == null || recentCases == null || activeSanctions == null
-                || activeReportCount < 0) {
+                || recentCases == null || activeSanctions == null || activeReportCount < 0) {
             throw new IllegalArgumentException("punishment GUI overview fields must be present");
         }
-        recentHistory = List.copyOf(recentHistory);
         recentCases = List.copyOf(recentCases);
         activeSanctions = List.copyOf(activeSanctions);
     }
@@ -66,22 +61,4 @@ record PunishmentGuiOverview(
                 .max(java.util.Comparator.comparing(CaseReview::issuedAt));
     }
 
-    static PunishmentGuiOverview unavailable(Instant now, ZoneId timezone, boolean sensitiveHistory) {
-        return new PunishmentGuiOverview(
-                now,
-                timezone,
-                0,
-                List.of(),
-                false,
-                List.of(),
-                false,
-                false,
-                List.of(),
-                false,
-                0,
-                false,
-                false,
-                sensitiveHistory
-        );
-    }
 }
