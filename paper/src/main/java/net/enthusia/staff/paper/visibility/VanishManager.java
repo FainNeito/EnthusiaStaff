@@ -802,7 +802,7 @@ public final class VanishManager implements Listener {
         }
         if (visibility.isVanished(playerId) && !vanishGameModeApplications.contains(playerId)) {
             StaffRank rank = resolveLiveRank(player);
-            if (!isSelectableGameMode(rank, event.getNewGameMode())) {
+            if (!isSelectableGameMode(playerId, rank, event.getNewGameMode())) {
                 event.setCancelled(true);
                 return;
             }
@@ -1141,22 +1141,37 @@ public final class VanishManager implements Listener {
 
     private GameMode selectedGameModeForEnable(Player player, StaffRank rank) {
         GameMode current = player.getGameMode();
-        return isSelectableGameMode(rank, current) ? current : defaultSelectedGameMode(rank);
+        UUID playerId = player.getUniqueId();
+        return isSelectableGameMode(playerId, rank, current)
+                ? current : defaultSelectedGameMode(playerId, rank);
     }
 
-    private static GameMode defaultSelectedGameMode(StaffRank rank) {
-        return VanishGameModePolicy.defaultMode(rank);
+    private GameMode defaultSelectedGameMode(UUID playerId, StaffRank rank) {
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        return VanishGameModePolicy.defaultMode(authority.rank(), authority.onDuty());
     }
 
-    private static boolean isSelectableGameMode(StaffRank rank, GameMode mode) {
-        return VanishGameModePolicy.allows(rank, mode);
+    private boolean isSelectableGameMode(UUID playerId, StaffRank rank, GameMode mode) {
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        return VanishGameModePolicy.allows(authority.rank(), mode, authority.onDuty());
+    }
+
+    private ModeAuthority modeAuthority(UUID playerId, StaffRank liveRank) {
+        // Duty profiles own their applied rank; visibility and permission refreshes
+        // must not temporarily widen or replace that profile's mode authority.
+        boolean onDuty = staffMode.active(playerId);
+        return new ModeAuthority(onDuty ? staffMode.activeRank(playerId) : liveRank, onDuty);
+    }
+
+    private record ModeAuthority(StaffRank rank, boolean onDuty) {
     }
 
     private void applyVanishGameMode(Player player) {
         UUID playerId = player.getUniqueId();
         StaffRank rank = resolveLiveRank(player);
-        GameMode selected = VanishGameModePolicy.reconcile(rank,
-                selectedGameModes.getOrDefault(playerId, player.getGameMode()));
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        GameMode selected = VanishGameModePolicy.reconcile(authority.rank(),
+                selectedGameModes.getOrDefault(playerId, player.getGameMode()), authority.onDuty());
         if (player.getGameMode() == selected) {
             return;
         }
@@ -1185,7 +1200,7 @@ public final class VanishManager implements Listener {
         player.getScheduler().execute(plugin, () -> {
             StaffRank rank = resolveLiveRank(player);
             if (visibility.isVanished(playerId) && player.getGameMode() == selected
-                    && isSelectableGameMode(rank, selected)) {
+                    && isSelectableGameMode(playerId, rank, selected)) {
                 selectedGameModes.put(playerId, selected);
                 persistSelectedGameMode(playerId, rank, selected);
             }
@@ -1195,9 +1210,9 @@ public final class VanishManager implements Listener {
     private void restoreSelectedGameMode(Player player) {
         UUID playerId = player.getUniqueId();
         StaffRank rank = resolveLiveRank(player);
-        GameMode selected = selectedGameModes.getOrDefault(playerId, defaultSelectedGameMode(rank));
-        if (!isSelectableGameMode(rank, selected)) {
-            selected = defaultSelectedGameMode(rank);
+        GameMode selected = selectedGameModes.getOrDefault(playerId, defaultSelectedGameMode(playerId, rank));
+        if (!isSelectableGameMode(playerId, rank, selected)) {
+            selected = defaultSelectedGameMode(playerId, rank);
         }
         vanishGameModeApplications.add(playerId);
         try {
@@ -1247,7 +1262,7 @@ public final class VanishManager implements Listener {
                     audiences.onOwner(playerId, player -> {
                         GameMode latest = selectedGameModes.get(playerId);
                         StaffRank liveRank = resolveLiveRank(player);
-                        if (visibility.isVanished(playerId) && isSelectableGameMode(liveRank, latest)) {
+                        if (visibility.isVanished(playerId) && isSelectableGameMode(playerId, liveRank, latest)) {
                             persistSelectedGameMode(playerId, liveRank, latest);
                         }
                     });

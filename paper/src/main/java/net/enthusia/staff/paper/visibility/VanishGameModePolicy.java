@@ -1,6 +1,7 @@
 package net.enthusia.staff.paper.visibility;
 
 import net.enthusia.staff.domain.auth.StaffRank;
+import net.enthusia.staff.paper.staff.StaffModeAccessPolicy;
 import org.bukkit.GameMode;
 
 /** Vanish changes visibility; real game-mode selection remains bounded by rank authority. */
@@ -21,5 +22,17 @@ final class VanishGameModePolicy {
 
     static GameMode reconcile(StaffRank rank, GameMode selected) {
         return allows(rank, selected) ? selected : defaultMode(rank);
+    }
+
+    static GameMode defaultMode(StaffRank rank, boolean onDuty) {
+        return onDuty ? StaffModeAccessPolicy.initialGameMode(rank) : defaultMode(rank);
+    }
+
+    static boolean allows(StaffRank rank, GameMode mode, boolean onDuty) {
+        return onDuty ? StaffModeAccessPolicy.allowsGameMode(rank, mode) : allows(rank, mode);
+    }
+
+    static GameMode reconcile(StaffRank rank, GameMode selected, boolean onDuty) {
+        return allows(rank, selected, onDuty) ? selected : defaultMode(rank, onDuty);
     }
 }

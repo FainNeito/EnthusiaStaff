@@ -2,6 +2,15 @@
 
 ## Isolated upstream reconciliation proof, 2026-10-04
 
+Continuation requirement: on-duty vanish must use the applied Staff Mode rank and
+its canonical game-mode policy; off-duty vanish keeps its existing policy.
+Helper Survival must remain selectable, Mod/Developer must remain Survival, and
+Admin/Founder permitted modes must survive both paths. Missing applied authority
+must fail closed. Older RoseChat binaries without the optional presence-render
+method must not propagate a linkage error or disable the existing bridge.
+Establish focused failing regressions before these repairs, then verify the
+synchronized exact head and retain the separate runtime/client acceptance gaps.
+
 This is an uncommitted local candidate, not the shared PR head or a release.
 Starting owner head: `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`.
 Canonical upstream: `93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
