@@ -16,10 +16,12 @@ import net.enthusia.staff.domain.application.SanctionChangeService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.ports.AtomicReasonPolicyRepository;
 import net.enthusia.staff.domain.ports.CaseLookup;
+import net.enthusia.staff.domain.ports.CaseReviewStore;
 import net.enthusia.staff.domain.ports.FreezeStore;
 import net.enthusia.staff.domain.ports.ModerationHistoryStore;
 import net.enthusia.staff.domain.ports.PlayerDirectory;
 import net.enthusia.staff.domain.ports.ReportStore;
+import net.enthusia.staff.domain.ports.SanctionLookup;
 import net.enthusia.staff.paper.account.PaperOnlinePlayerVerifier;
 import net.enthusia.staff.paper.auth.ActiveDutyAuthorizationPolicy;
 import net.enthusia.staff.paper.client.ClientEvidenceCollector;
@@ -165,9 +167,25 @@ final class PaperCommandRegistrar {
         Supplier<PunishmentDraftWorkflow> drafts = storage(PaperStorageBindings::punishmentDraftWorkflow);
         Supplier<PunishmentRequestService> requests = storage(PaperStorageBindings::punishmentRequestService);
         Supplier<PlayerDirectory> players = storage(PaperStorageBindings::playerDirectory);
+        Supplier<ModerationHistoryStore> histories = storage(PaperStorageBindings::moderationHistoryStore);
+        Supplier<CaseReviewStore> cases = storage(PaperStorageBindings::caseReviewStore);
+        Supplier<SanctionLookup> sanctions = storage(PaperStorageBindings::sanctionLookup);
+        Supplier<ReportStore> reports = storage(PaperStorageBindings::reportStore);
         AuthorizationPolicy activeAuthorization = activeAuthorization();
         PunishmentGuiController punishmentGui = new PunishmentGuiController(
-                plugin(), writeMode(), drafts, players, activeAuthorization, reasons(), workers()
+                plugin(),
+                clock(),
+                writeMode(),
+                drafts,
+                players,
+                activeAuthorization,
+                reasons(),
+                histories,
+                cases,
+                sanctions,
+                reports,
+                moderationSettings::current,
+                workers()
         );
         plugin().getServer().getPluginManager().registerEvents(punishmentGui, plugin());
         PunishmentRequestGuiController requestGui = new PunishmentRequestGuiController(
