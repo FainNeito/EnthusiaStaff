@@ -3,6 +3,7 @@ package net.enthusia.staff.paper.punishment;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -52,7 +53,16 @@ final class PunishmentGuiRenderer {
     private static final int MAX_HEADER_SANCTIONS = 4;
     private static final int MAX_LADDER_SLOTS = 18;
     private static final int MAX_HISTORY_REASON_LENGTH = 64;
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm z");
+    private static final int FIRST_HISTORY_PAGE = 1;
+    private static final String CLOSE_LABEL = "Close";
+    private static final List<String> SUCCESS_STATUS_TERMS =
+            List.of("active", "applied", "complete", "approved");
+    private static final List<String> FAILURE_STATUS_TERMS =
+            List.of("fail", "reject", "denied", "overturn", "revoke");
+    private static final List<String> FINISHED_STATUS_TERMS = List.of("expired", "ended");
+    private static final DateTimeFormatter DATE = DateTimeFormatter
+            .ofLocalizedDateTime(FormatStyle.SHORT)
+            .withLocale(Locale.US);
 
     private final PunishmentGuiCatalog catalog;
 
@@ -108,24 +118,11 @@ final class PunishmentGuiRenderer {
         for (int index = 0; index < CONTENT_SIZE && offset + index < categories.size(); index++) {
             String family = categories.get(offset + index);
             int reasonCount = catalog.reasons(actor, state.commandName(), family).size();
-            List<Component> lore = new ArrayList<>();
-            lore.add(Component.text(
-                    reasonCount + " available reason" + (reasonCount == 1 ? "" : "s"),
-                    NamedTextColor.GRAY
-            ));
-            if (state.overview().casesAvailable()) {
-                lore.add(Component.text(
-                        "Recent family cases: " + state.overview().familyCaseCount(family)
-                                + (state.overview().recentCasesTruncated() ? "+" : ""),
-                        NamedTextColor.GREEN
-                ));
-            }
-            lore.add(Component.text("Click to choose an exact reason", NamedTextColor.YELLOW));
             inventory.setItem(CONTENT_START + index, item(
                     familyMaterial(family),
                     humanize(family),
                     familyColor(family),
-                    lore
+                    categoryLore(state.overview(), family, reasonCount)
             ));
         }
         if (categories.isEmpty()) {
@@ -134,7 +131,28 @@ final class PunishmentGuiRenderer {
         }
         pageControls(inventory, state.page(), categories.size());
         footerHistory(inventory);
-        inventory.setItem(CLOSE_SLOT, button(Material.BARRIER, "Close", NamedTextColor.RED));
+        inventory.setItem(CLOSE_SLOT, button(Material.BARRIER, CLOSE_LABEL, NamedTextColor.RED));
+    }
+
+    private static List<Component> categoryLore(
+            PunishmentGuiOverview overview,
+            String family,
+            int reasonCount
+    ) {
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text(
+                reasonCount + " available reason" + (reasonCount == 1 ? "" : "s"),
+                NamedTextColor.GRAY
+        ));
+        if (overview.casesAvailable()) {
+            lore.add(Component.text(
+                    "Recent family cases: " + overview.familyCaseCount(family)
+                            + (overview.recentCasesTruncated() ? "+" : ""),
+                    NamedTextColor.GREEN
+            ));
+        }
+        lore.add(Component.text("Click to choose an exact reason", NamedTextColor.YELLOW));
+        return List.copyOf(lore);
     }
 
     private void renderReasons(Inventory inventory, PunishmentGuiState.Reasons state, Actor actor) {
@@ -153,7 +171,7 @@ final class PunishmentGuiRenderer {
         pageControls(inventory, state.page(), reasons.size());
         footerHistory(inventory);
         inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back · Categories", NamedTextColor.AQUA));
-        inventory.setItem(CLOSE_SLOT, button(Material.BARRIER, "Close", NamedTextColor.RED));
+        inventory.setItem(CLOSE_SLOT, button(Material.BARRIER, CLOSE_LABEL, NamedTextColor.RED));
     }
 
     private void renderReview(Inventory inventory, PunishmentGuiState.Review state, Actor actor) {
@@ -211,14 +229,14 @@ final class PunishmentGuiRenderer {
         }
         int page = state.history().page();
         int totalPages = state.history().totalPages();
-        if (page > 1) {
+        if (page > FIRST_HISTORY_PAGE) {
             inventory.setItem(PREVIOUS_SLOT, button(Material.ARROW, "Previous History Page", NamedTextColor.AQUA));
         }
         if (page < totalPages) {
             inventory.setItem(NEXT_SLOT, button(Material.ARROW, "Next History Page", NamedTextColor.AQUA));
         }
         inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back", NamedTextColor.AQUA));
-        inventory.setItem(CLOSE_SLOT, button(Material.BARRIER, "Close", NamedTextColor.RED));
+        inventory.setItem(CLOSE_SLOT, button(Material.BARRIER, CLOSE_LABEL, NamedTextColor.RED));
     }
 
     private void renderHeader(Inventory inventory, PunishmentGuiState state) {
@@ -532,29 +550,56 @@ final class PunishmentGuiRenderer {
             int selected,
             boolean frozenDraft
     ) {
-        boolean current = ordinal == selected;
-        boolean prior = ordinal < selected;
+        LadderPosition position = ladderPosition(ordinal, selected);
         boolean permanent = step.sanctions().stream().anyMatch(spec -> spec.length().isPermanent());
-        Material material = current ? Material.YELLOW_CONCRETE
-                : prior ? Material.LIME_CONCRETE
-                : permanent ? Material.RED_CONCRETE
-                : Material.GRAY_CONCRETE;
-        NamedTextColor color = current ? NamedTextColor.GOLD
-                : prior ? NamedTextColor.GREEN
-                : permanent ? NamedTextColor.RED
-                : NamedTextColor.GRAY;
-        String prefix = current ? "▶ " : prior ? "✓ " : "";
+        LadderVisual visual = ladderVisual(position, permanent);
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text(step.label(), NamedTextColor.WHITE));
-        lore.add(Component.text(describe(step.sanctions()), permanent ? NamedTextColor.RED : NamedTextColor.GRAY));
+        lore.add(Component.text(describe(step.sanctions()), sanctionTextColor(permanent)));
         lore.add(booleanLine("Permanent", permanent));
-        lore.add(Component.text(
-                current
-                        ? (frozenDraft ? "FROZEN DRAFT STEP" : "RECOMMENDED NOW")
-                        : prior ? "Previous ladder step" : "Future ladder step",
-                color
-        ));
-        return item(material, prefix + "Step " + (ordinal + 1), color, lore);
+        lore.add(Component.text(ladderStatus(position, frozenDraft), visual.color()));
+        return item(
+                visual.material(),
+                visual.prefix() + "Step " + (ordinal + 1),
+                visual.color(),
+                lore
+        );
+    }
+
+    private static LadderPosition ladderPosition(int ordinal, int selected) {
+        if (ordinal == selected) {
+            return LadderPosition.CURRENT;
+        }
+        if (ordinal < selected) {
+            return LadderPosition.PRIOR;
+        }
+        return LadderPosition.FUTURE;
+    }
+
+    private static LadderVisual ladderVisual(LadderPosition position, boolean permanent) {
+        return switch (position) {
+            case CURRENT -> new LadderVisual(
+                    permanent ? Material.RED_CONCRETE : Material.YELLOW_CONCRETE,
+                    NamedTextColor.GOLD,
+                    "▶ "
+            );
+            case PRIOR -> new LadderVisual(Material.LIME_CONCRETE, NamedTextColor.GREEN, "✓ ");
+            case FUTURE -> permanent
+                    ? new LadderVisual(Material.RED_CONCRETE, NamedTextColor.RED, "")
+                    : new LadderVisual(Material.GRAY_CONCRETE, NamedTextColor.GRAY, "");
+        };
+    }
+
+    private static NamedTextColor sanctionTextColor(boolean permanent) {
+        return permanent ? NamedTextColor.RED : NamedTextColor.GRAY;
+    }
+
+    private static String ladderStatus(LadderPosition position, boolean frozenDraft) {
+        return switch (position) {
+            case CURRENT -> frozenDraft ? "FROZEN DRAFT STEP" : "RECOMMENDED NOW";
+            case PRIOR -> "Previous ladder step";
+            case FUTURE -> "Future ladder step";
+        };
     }
 
     private static ItemStack historyEntryItem(
@@ -650,7 +695,7 @@ final class PunishmentGuiRenderer {
             inventory.setItem(NEXT_SLOT, button(Material.ARROW, "Next Page", NamedTextColor.AQUA));
         }
         inventory.setItem(TARGET_REFRESH_SLOT, button(Material.CLOCK, "Refresh Players", NamedTextColor.YELLOW));
-        inventory.setItem(TARGET_CLOSE_SLOT, button(Material.BARRIER, "Close", NamedTextColor.RED));
+        inventory.setItem(TARGET_CLOSE_SLOT, button(Material.BARRIER, CLOSE_LABEL, NamedTextColor.RED));
     }
 
     private static void footerHistory(Inventory inventory) {
@@ -822,18 +867,20 @@ final class PunishmentGuiRenderer {
 
     private static NamedTextColor statusColor(String status) {
         String normalized = status == null ? "" : status.toLowerCase(Locale.ROOT);
-        if (normalized.contains("active") || normalized.contains("applied")
-                || normalized.contains("complete") || normalized.contains("approved")) {
+        if (containsStatusTerm(normalized, SUCCESS_STATUS_TERMS)) {
             return NamedTextColor.GREEN;
         }
-        if (normalized.contains("fail") || normalized.contains("reject") || normalized.contains("denied")
-                || normalized.contains("overturn") || normalized.contains("revoke")) {
+        if (containsStatusTerm(normalized, FAILURE_STATUS_TERMS)) {
             return NamedTextColor.RED;
         }
-        if (normalized.contains("expired") || normalized.contains("ended")) {
+        if (containsStatusTerm(normalized, FINISHED_STATUS_TERMS)) {
             return NamedTextColor.GRAY;
         }
         return NamedTextColor.GOLD;
+    }
+
+    private static boolean containsStatusTerm(String status, List<String> terms) {
+        return terms.stream().anyMatch(status::contains);
     }
 
     static String describe(List<SanctionSpec> sanctions) {
@@ -907,6 +954,15 @@ final class PunishmentGuiRenderer {
             result.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
         }
         return result.toString();
+    }
+
+    private enum LadderPosition {
+        CURRENT,
+        PRIOR,
+        FUTURE
+    }
+
+    private record LadderVisual(Material material, NamedTextColor color, String prefix) {
     }
 
 }
