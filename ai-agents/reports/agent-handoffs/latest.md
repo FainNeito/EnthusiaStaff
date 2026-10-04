@@ -1,23 +1,39 @@
 # Latest agent handoff
 
-## Owner GUI reconciliation requirement and task, 2026-10-04
+## Owner GUI reconciliation verification, 2026-10-04 22:00 UTC
 
-Same owner package: PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
-Canonical upstream 18d4f4b (punishment GUI PR #320) is being reconciled from
-owner head dd62fc46 in an isolated worktree. Requirement: preserve friendly
-player labels, actor-owned name confirmation, UUID identity and existing
-privacy/authority behavior while retaining the new target picker, configured
-ladder and permission-rechecked history. Remove redundant UUID player lore
-when a friendly label is available. No schema, permission or deployment changes.
+Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
+Frozen executable head e418edb8c3c62c0e6029041baff8423a91b1fdb3 normally merges
+canonical upstream main 18d4f4b05af94ee325842c68d482feedabe5d27f from owner
+head dd62fc46. Root aggregate owns the core build; no submodule/dependency pin
+changed. Requirement: preserve friendly player labels, actor-owned name
+confirmation, UUID identity, prior vanish/provider repairs and privacy/authority
+behavior while incorporating upstream target picker, configured ladder and
+permission-rechecked history. Redundant UUID player-card lore is removed.
 
-Tasks: reconcile imports/layout and labels; inspect new command/history paths;
-run focused name, GUI security and prior vanish/provider regressions, then
-freeze and run Java 25 clean test/check/runtimeJars and Wiki validation. Record
-actual results and exact heads in PR #1. No historical red/green claim is made
-for integration of upstream code. Existing EARS/state helpers are absent;
-this bounded requirement/task/evidence record is the fallback. Previously
-unavailable Docker, hosted/static, staging and real-client gates remain open
-and are not retried without changed availability. Product merge is unauthorized.
+The isolated merge resolved only GUI imports/layout and labels. The new upstream
+source-reading security test failed on Windows CRLF; normalizing its input
+retains every assertion. Focused punishment/name, GUI security, vanish policy and
+optional RoseChat regressions pass (117 tests). No historical behavioral red/green
+claim is made for upstream integration. GUI player-label wiring is also checked.
+Java 25.0.3 clean test/check/runtimeJars passes at the frozen executable head:
+1,635 tests, zero failures/errors, two Windows symlink skips. Wiki validates 41
+pages; whitespace, runtime ZIP integrity and RoseChat provider exclusion pass.
+Test.7 JARs are unmerged/local test artifacts. No production acceptance is claimed.
+
+Prior orchestration baseline remains a failure (460 findings); its inputs and
+validator are unchanged and it was not rerun. Docker integration, hosted/static,
+staging, runtime-provider and Java/Bedrock acceptance remain unverified. No EARS
+or state helpers exist; this small requirement/task/evidence record is retained.
+Local review checked command routing, actor-owned confirmation preservation,
+target picker visibility, bounded overview, sensitive-history revocation, ladder
+and owning-scheduler rendering. No migration or permission policy changed.
+
+Next: check exact PR head for actionable review/CI findings and obtain missing
+runtime/provider/client evidence through normal reviewed delivery. Canonical
+product main has not received the owner fixes; product PR merge and production
+deployment are unauthorized. Exact delivery heads and hashes belong in PR #1.
+This section supersedes the preceding reconciliation task/checkpoint records.
 
 ## Owner reconciliation verification, 2026-10-04
 
