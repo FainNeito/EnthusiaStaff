@@ -67,7 +67,7 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class PunishmentGuiController implements Listener {
-    private static final int OVERVIEW_HISTORY_LIMIT = 100;
+    private static final int OVERVIEW_HISTORY_LIMIT = 1;
     private static final int OVERVIEW_CASE_LIMIT = 100;
     private static final int OVERVIEW_REPORT_LIMIT = 100;
     private static final int HISTORY_PAGE_SIZE = 36;
@@ -161,13 +161,12 @@ public final class PunishmentGuiController implements Listener {
         if (actor == null) {
             return;
         }
-        boolean sensitiveHistory = viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION);
         String normalizedCommand = normalizeCommand(commandName);
         resolveTarget(viewer, targetQuery, target -> {
             if (!targetAllowed(viewer, actor, target.playerId())) {
                 return;
             }
-            PunishmentGuiOverview overview = loadOverview(target.playerId(), sensitiveHistory);
+            PunishmentGuiOverview overview = loadOverview(target.playerId());
             openState(viewer, new PunishmentGuiState.Categories(
                     viewer.getUniqueId(),
                     target,
@@ -183,7 +182,6 @@ public final class PunishmentGuiController implements Listener {
         if (actor == null) {
             return;
         }
-        boolean sensitiveHistory = viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION);
         resolveTarget(viewer, targetQuery, target -> {
             if (!targetAllowed(viewer, actor, target.playerId())) {
                 return;
@@ -203,7 +201,7 @@ public final class PunishmentGuiController implements Listener {
                 message(viewer, "That draft belongs to /" + draft.commandName() + ". Resume it with /punish.");
                 return;
             }
-            PunishmentGuiOverview overview = loadOverview(target.playerId(), sensitiveHistory);
+            PunishmentGuiOverview overview = loadOverview(target.playerId());
             openState(viewer, new PunishmentGuiState.Review(
                     viewer.getUniqueId(),
                     target,
@@ -517,7 +515,7 @@ public final class PunishmentGuiController implements Listener {
             ModerationHistoryStore store = histories.get();
             ModerationFeatureSettings active = settings.get();
             if (store == null || active == null) {
-                openUnavailableHistory(viewer, returnState);
+                openUnavailableHistory(viewer, returnState, sensitiveHistory);
                 return;
             }
             HistoryQueryOptions options = historyOptions(active, sensitiveHistory);
@@ -534,18 +532,23 @@ public final class PunishmentGuiController implements Listener {
                         returnState.commandName(),
                         returnState.overview(),
                         result,
+                        sensitiveHistory,
                         returnState
                 ));
             } catch (IllegalArgumentException exception) {
                 message(viewer, "That history page is no longer available.");
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.WARNING, "Punishment GUI history lookup failed", exception);
-                openUnavailableHistory(viewer, returnState);
+                openUnavailableHistory(viewer, returnState, sensitiveHistory);
             }
         });
     }
 
-    private void openUnavailableHistory(Player viewer, PunishmentGuiState returnState) {
+    private void openUnavailableHistory(
+            Player viewer,
+            PunishmentGuiState returnState,
+            boolean sensitiveHistory
+    ) {
         ModerationHistoryPage empty = new ModerationHistoryPage(
                 returnState.target().playerId(),
                 1,
@@ -560,6 +563,7 @@ public final class PunishmentGuiController implements Listener {
                 returnState.commandName(),
                 returnState.overview(),
                 empty,
+                sensitiveHistory,
                 returnState
         ));
     }
@@ -781,11 +785,11 @@ public final class PunishmentGuiController implements Listener {
         message(viewer, rejected.code() + ": " + rejected.message());
     }
 
-    private PunishmentGuiOverview loadOverview(UUID targetId, boolean sensitiveHistory) {
+    private PunishmentGuiOverview loadOverview(UUID targetId) {
         ModerationFeatureSettings active = settings.get();
         ZoneId timezone = active == null ? FALLBACK_TIMEZONE : active.historyTimezone();
         Instant now = clock.instant();
-        HistorySummary history = loadHistorySummary(targetId, active, sensitiveHistory);
+        HistorySummary history = loadHistorySummary(targetId, active);
         CaseSummary cases = loadCaseSummary(targetId);
         SanctionSummary activeSanctions = loadSanctions(targetId, now);
         ReportSummary reportsForTarget = loadReports(targetId);
@@ -793,7 +797,6 @@ public final class PunishmentGuiController implements Listener {
                 now,
                 timezone,
                 history.totalEntries(),
-                history.entries(),
                 history.available(),
                 cases.cases(),
                 cases.truncated(),
@@ -802,15 +805,13 @@ public final class PunishmentGuiController implements Listener {
                 activeSanctions.available(),
                 reportsForTarget.count(),
                 reportsForTarget.truncated(),
-                reportsForTarget.available(),
-                sensitiveHistory
+                reportsForTarget.available()
         );
     }
 
     private HistorySummary loadHistorySummary(
             UUID targetId,
-            ModerationFeatureSettings active,
-            boolean sensitiveHistory
+            ModerationFeatureSettings active
     ) {
         ModerationHistoryStore store = histories.get();
         if (store == null || active == null) {
@@ -821,9 +822,9 @@ public final class PunishmentGuiController implements Listener {
                     targetId,
                     1,
                     OVERVIEW_HISTORY_LIMIT,
-                    historyOptions(active, sensitiveHistory)
+                    historyOptions(active, false)
             );
-            return new HistorySummary(page.totalEntries(), page.entries(), true);
+            return new HistorySummary(page.totalEntries(), true);
         } catch (RuntimeException exception) {
             contextFailure("history", exception);
             return HistorySummary.unavailable();
@@ -1092,17 +1093,9 @@ public final class PunishmentGuiController implements Listener {
         }
     }
 
-    private record HistorySummary(
-            long totalEntries,
-            List<ModerationHistoryEntry> entries,
-            boolean available
-    ) {
-        private HistorySummary {
-            entries = List.copyOf(entries);
-        }
-
+    private record HistorySummary(long totalEntries, boolean available) {
         private static HistorySummary unavailable() {
-            return new HistorySummary(0, List.of(), false);
+            return new HistorySummary(0, false);
         }
     }
 
