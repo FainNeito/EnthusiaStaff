@@ -872,11 +872,26 @@ public final class PunishmentGuiController implements Listener {
         }
         try {
             List<CaseReview> recent = store.recent(targetId, OVERVIEW_CASE_LIMIT);
-            return new CaseSummary(recent, recent.size() == OVERVIEW_CASE_LIMIT, true);
+            List<PunishmentGuiOverview.RecentCase> summaries = recent.stream()
+                    .map(PunishmentGuiController::recentCase)
+                    .toList();
+            return new CaseSummary(summaries, recent.size() == OVERVIEW_CASE_LIMIT, true);
         } catch (RuntimeException exception) {
             contextFailure("recent cases", exception);
             return CaseSummary.unavailable();
         }
+    }
+
+    private static PunishmentGuiOverview.RecentCase recentCase(CaseReview review) {
+        boolean warning = review.sanctions().stream()
+                .anyMatch(sanction -> sanction.type() == SanctionType.WARNING);
+        return new PunishmentGuiOverview.RecentCase(
+                review.exactReasonId(),
+                review.sanctionFamily(),
+                review.publicReason(),
+                review.issuedAt(),
+                warning
+        );
     }
 
     private SanctionSummary loadSanctions(UUID targetId, Instant now) {
@@ -1139,7 +1154,11 @@ public final class PunishmentGuiController implements Listener {
         }
     }
 
-    private record CaseSummary(List<CaseReview> cases, boolean truncated, boolean available) {
+    private record CaseSummary(
+            List<PunishmentGuiOverview.RecentCase> cases,
+            boolean truncated,
+            boolean available
+    ) {
         private CaseSummary {
             cases = List.copyOf(cases);
         }
