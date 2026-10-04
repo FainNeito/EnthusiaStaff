@@ -1,5 +1,29 @@
 # Owner-directed fork change: confirm punishment by player name
 
+## Owner durable recovery fence requirement, 2026-10-04
+
+Same package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
+Starting owner head 44fe28e9; canonical upstream main 18d4f4b is unchanged.
+A retained review concern is valid: the current per-player durable recovery
+callback only checks transient exit/restoration flags. A read started before
+exit can return after those flags clear and reinstate vanished state/mode.
+The UUID-only pending-load set also lets an old connection callback clear a
+new connection's pending load.
+
+Requirement: apply a per-player durable recovery result only while its unique
+read ticket remains current. Staff exit, accepted local state/mode changes,
+transfer snapshots, reconnect/disconnect and plugin shutdown invalidate tickets.
+An old completion must never clear a replacement ticket. Keep one pending ticket
+per player and remove it on completion/cancellation/storage unavailability.
+Preserve existing durable write/authority/permission semantics and prior repairs.
+
+Prove: regression for completed-exit invalidation and overlapping reconnect
+callbacks, plus manager wiring verification; implement a small infrastructure
+fence and retain owning-scheduler rendering. Full Java 25 clean checks, runtime
+JAR integrity and Wiki verification follow a frozen reviewed head. No live-client
+claim. EARS/state helpers are absent; this record is the fallback. Existing
+unavailable gates remain open and are not retried. No product merge/deployment.
+
 ## Owner GUI reconciliation verification, 2026-10-04 22:00 UTC
 
 Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
