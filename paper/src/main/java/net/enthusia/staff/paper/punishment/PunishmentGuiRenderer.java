@@ -208,7 +208,7 @@ final class PunishmentGuiRenderer {
         if (page < totalPages) {
             inventory.setItem(NEXT_SLOT, button(Material.ARROW, "Next History Page", NamedTextColor.AQUA));
         }
-        inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back · Categories", NamedTextColor.AQUA));
+        inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back", NamedTextColor.AQUA));
         inventory.setItem(CLOSE_SLOT, button(Material.BARRIER, "Close", NamedTextColor.RED));
     }
 
