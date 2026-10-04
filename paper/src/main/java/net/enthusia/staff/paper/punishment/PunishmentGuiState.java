@@ -67,12 +67,16 @@ sealed interface PunishmentGuiState {
             PlayerIdentity target,
             String commandName,
             PunishmentGuiOverview overview,
-            ModerationHistoryPage history
+            ModerationHistoryPage history,
+            PunishmentGuiState returnState
     ) implements PunishmentGuiState {
         public History {
             validate(viewerId, target, commandName, overview, 0);
-            if (history == null || !history.subjectId().equals(target.playerId())) {
-                throw new IllegalArgumentException("punishment history state must match the selected target");
+            if (history == null || !history.subjectId().equals(target.playerId())
+                    || returnState == null || returnState instanceof History
+                    || !returnState.viewerId().equals(viewerId)
+                    || !returnState.target().playerId().equals(target.playerId())) {
+                throw new IllegalArgumentException("punishment history state must match the selected target and return view");
             }
         }
     }
