@@ -1,5 +1,25 @@
 # Confirm-player fork handoff
 
+## Isolated upstream reconciliation proof, 2026-10-04
+
+This is an uncommitted local candidate, not the shared PR head or a release.
+Starting owner head: `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`.
+Canonical upstream: `93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
+Worktree: `EnthusiaStaff-upstream-proof`, branch `package/owner-staff-upstream-proof`.
+The automatic merge has no textual conflicts. Requirements: retain names,
+actor-bound confirmation, safe tester recovery, exit fencing and permitted
+Admin/Founder modes; reconcile canonical on-duty rank policies and companion API
+compatibility before pushing any candidate. Existing tests are regression evidence,
+not historical red/green proof. No EARS/state helper was located in this checkout;
+this record tracks the bounded requirement/task/evidence instead.
+
+Initial focused build failed at Paper compilation: the new transfer hook calls
+removed `enforceVanishSpectator`. Route that hook through the retained authorized
+vanish mode implementation, then rerun the relevant module suites. Further review
+must resolve the overlap between canonical on-duty mode profiles and the fork's
+vanish mode policy, and verify RoseChat's new presence contract against the actual
+supported provider. No production, shared branch, or authority changes.
+
 ## Review follow-up (2026-10-03, 08:15 UTC)
 
 Owner confirmation: the reported environment is production; no fork deployment or production verification is implied. Baseline PR head: `f1999bd144a8cddee1121a4773a97eb301c8bbbc`. CodeRabbit run `d3c2adc6-c7ea-44cd-b588-bd351600f720` completed with two valid findings, both repaired in the current checkpoint: canonical UUID confirmation first checks for an actor-owned draft and otherwise resolves the target-bound draft; loose UUID-like names are not coerced. Queued offline inventory edits now recheck view permission and staff identity alongside edit permission and an active session on the owning scheduler. Added regression coverage passes the Paper suite. Frozen repair and package-record head: `73f04425996a3b1fab67062ffc7b8e2dfdc69caf`. Java 25.0.3 clean all-module unit test/check/runtimeJars passed: 1,580 tests total, two existing Windows skips, zero failures/errors, Docker-dependent :integration-tests:test excluded. Final synchronized head and artifact hashes are recorded on PR #1. Version: `0.1.0-staff-bugs-test.5`.
@@ -130,3 +150,22 @@ bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f.
 Next action: non-production hotbar, spectator wall movement, F3 shortcut, permission
 revocation, restart, and names acceptance plus available integration/hosted gates before
 merge. Preserve draft PR #1 and implementation branch; exact frozen heads are on the PR.
+
+Proof result: selected Paper/Velocity/domain/protocol suites report 1,225 tests,
+zero failures/errors and one existing Windows symlink skip. Paper compilation
+first failed on the removed transfer-hook method and was corrected locally.
+Four source-wiring tests then failed solely on CRLF; their source readers now
+normalize CRLF while retaining their assertions. The selected suites pass after
+those repairs. This is not a clean full-build, hosted, Docker, staging or client
+acceptance result, and no runtime JAR was delivered.
+
+Pending merge review finding: canonical StaffModeAccessPolicy permits Helper
+Survival and requires Mod/Developer Survival on duty; the retained fork
+VanishGameModePolicy still rejects those selections and its periodic reconciliation
+can force Spectator. Reconcile active-duty ownership without changing off-duty
+vanish behavior or broadening permissions, and add cross-policy regression proof.
+The new BridgeRegistration.renderPresence contract is absent from the available
+rosechat-26.2 source snapshot; verify the supported runtime binary or provide a
+safe compatibility path before accepting the integration. This snapshot is not
+production-version evidence. Shared PR #1 remains at 14dbab0; both existing review
+threads are resolved and no new head was pushed. Local candidate remains PARTIAL.

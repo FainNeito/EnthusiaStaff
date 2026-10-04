@@ -6,6 +6,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 import java.util.logging.Level;
+import javax.sql.DataSource;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.ports.CheatTesterJournalStore;
 import net.enthusia.staff.domain.ports.FakeBaseAuditStore;
@@ -21,6 +22,8 @@ import net.enthusia.staff.paper.api.InventoryLockService;
 import net.enthusia.staff.paper.api.StaffModeQueryService;
 import net.enthusia.staff.paper.api.StaffSessionService;
 import net.enthusia.staff.paper.api.StaffVisibilityService;
+import net.enthusia.staff.paper.audit.StaffActionAuditListener;
+import net.enthusia.staff.paper.audit.StaffActionLogger;
 import net.enthusia.staff.paper.freeze.FreezeManager;
 import net.enthusia.staff.paper.freeze.FreezeNetworkReconciler;
 import net.enthusia.staff.paper.freeze.FreezeNoticeService;
@@ -28,11 +31,15 @@ import net.enthusia.staff.paper.inventory.InventoryCoordinator;
 import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.inventory.InventoryRecoveryGuard;
 import net.enthusia.staff.paper.report.ReportEvidenceMaintenance;
+import net.enthusia.staff.paper.staff.HelperObserverProtectionListener;
+import net.enthusia.staff.paper.staff.StaffModeDeathListener;
 import net.enthusia.staff.paper.staff.StaffModeManager;
 import net.enthusia.staff.paper.staff.StaffModeWorldInteractionListener;
 import net.enthusia.staff.paper.staff.StaffStatePresentation;
 import net.enthusia.staff.paper.staff.StaffToolDispatcher;
 import net.enthusia.staff.paper.staff.StaffToolTransferListener;
+import net.enthusia.staff.paper.staff.StaffTransferJoinListener;
+import net.enthusia.staff.paper.staff.StaffTransferSnapshotCoordinator;
 import net.enthusia.staff.paper.tester.CheatTesterCommand;
 import net.enthusia.staff.paper.tester.CheatTesterManager;
 import net.enthusia.staff.paper.tester.CheatTesterSettings;
@@ -60,7 +67,9 @@ record PaperRuntimeComponents(
         DefaultStaffVisibilityService visibility,
         VanishManager vanish,
         InventoryOperationContext inventoryContext,
-        InventoryCoordinator inventory
+        InventoryCoordinator inventory,
+        StaffTransferSnapshotCoordinator transferSnapshots,
+        StaffActionLogger staffActionLogger
 ) {
     static PaperRuntimeComponents create(Dependencies dependencies) {
         ReportEvidenceMaintenance evidence = new ReportEvidenceMaintenance(
@@ -82,12 +91,20 @@ record PaperRuntimeComponents(
         registerStaffDutyContext(dependencies, staffMode);
         DefaultStaffVisibilityService visibility = createVisibilityService(dependencies);
         VanishManager vanish = createVanishManager(dependencies, staffMode, visibility);
+        StaffActionLogger staffActionLogger = createStaffActionLogger(dependencies, staffMode, vanish);
+        StaffTransferSnapshotCoordinator transferSnapshots = new StaffTransferSnapshotCoordinator(
+                dependencies.environment().plugin(),
+                dependencies.environment().clock(),
+                dependencies.environment().serverId(),
+                staffMode,
+                vanish
+        );
         StaffStatePresentation statePresentation = new StaffStatePresentation(
                 dependencies.environment().plugin(), staffMode, vanish
         );
         registerListener(dependencies.environment().plugin(), statePresentation);
         statePresentation.start();
-        registerOperationalListeners(dependencies, vanish);
+        registerOperationalListeners(dependencies, vanish, transferSnapshots);
         InventoryOperationContext inventoryContext = new InventoryOperationContext(
                 dependencies.environment().clock(),
                 dependencies.environment().inventoryScopeId(),
@@ -123,7 +140,9 @@ record PaperRuntimeComponents(
                 visibility,
                 vanish,
                 inventoryContext,
-                inventory
+                inventory,
+                transferSnapshots,
+                staffActionLogger
         );
     }
 
@@ -193,6 +212,8 @@ record PaperRuntimeComponents(
                 dependencies.environment().workers()
         );
         registerListener(plugin, new StaffToolTransferListener(plugin, staffMode));
+        registerListener(plugin, new HelperObserverProtectionListener(staffMode));
+        registerListener(plugin, new StaffModeDeathListener(staffMode));
         registerListener(plugin, new StaffModeWorldInteractionListener(staffMode));
         registerListener(plugin, staffMode);
         return staffMode;
@@ -253,8 +274,37 @@ record PaperRuntimeComponents(
                 dependencies.environment().workers()
         );
         staffMode.setExitListener(vanish::staffModeExited);
+        staffMode.setGameModeTransitionGuard(
+                vanish::beginPluginGameModeApplication,
+                vanish::endPluginGameModeApplication
+        );
         registerListener(plugin, vanish);
         return vanish;
+    }
+
+    /**
+     * Builds and wires the staff-action audit pipeline (overnight permission model):
+     * per-server JSON-lines file log, Discord-bot outbox file, best-effort {@code discord_outbox}
+     * insert, plus the vanished/on-duty command+teleport+gamemode audit listener.
+     */
+    private static StaffActionLogger createStaffActionLogger(
+            Dependencies dependencies,
+            StaffModeManager staffMode,
+            VanishManager vanish
+    ) {
+        JavaPlugin plugin = dependencies.environment().plugin();
+        StaffActionLogger logger = new StaffActionLogger(
+                plugin.getLogger(),
+                dependencies.environment().workers(),
+                dependencies.stores().dataSource(),
+                dependencies.environment().serverId(),
+                plugin.getConfig().getString("discord.log-forward-channel", ""),
+                plugin.getDataFolder().toPath()
+        );
+        staffMode.setActionLogger(logger);
+        staffMode.setVanishedLookup(vanish::isVanished);
+        registerListener(plugin, new StaffActionAuditListener(logger, staffMode, vanish));
+        return logger;
     }
 
     private static void scheduleVanishTargetingReconciliation(
@@ -290,7 +340,11 @@ record PaperRuntimeComponents(
         }
     }
 
-    private static void registerOperationalListeners(Dependencies dependencies, VanishManager vanish) {
+    private static void registerOperationalListeners(
+            Dependencies dependencies,
+            VanishManager vanish,
+            StaffTransferSnapshotCoordinator transferSnapshots
+    ) {
         JavaPlugin plugin = dependencies.environment().plugin();
         registerListener(plugin, new PaperPresenceListener(
                 plugin,
@@ -301,6 +355,7 @@ record PaperRuntimeComponents(
         ));
         registerListener(plugin, new VanishBroadcastListener(vanish));
         registerListener(plugin, new PrivateMessagePresenceListener(plugin, vanish));
+        registerListener(plugin, new StaffTransferJoinListener(plugin, transferSnapshots, vanish));
     }
 
     private static FakeBaseManager createFakeBaseManager(
@@ -444,7 +499,8 @@ record PaperRuntimeComponents(
             Supplier<StaffSessionStore> staffSessionStore,
             Supplier<VanishStore> vanishStore,
             Supplier<InventoryJournalStore> inventoryJournalStore,
-            Supplier<PlayerDirectory> playerDirectory
+            Supplier<PlayerDirectory> playerDirectory,
+            Supplier<DataSource> dataSource
     ) {
     }
 }

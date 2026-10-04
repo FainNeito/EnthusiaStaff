@@ -10,12 +10,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.sql.DataSource;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.domain.staff.VanishRecord;
 
 public final class JdbcVanishStore implements VanishStore {
+    private static final Logger LOGGER = Logger.getLogger(JdbcVanishStore.class.getName());
     private static final int SINGLE_ROW_UPDATE = 1;
 
     private final DataSource dataSource;
@@ -119,6 +122,7 @@ public final class JdbcVanishStore implements VanishStore {
             try {
                 return setTransaction(
                         connection,
+                        dataSource,
                         staffId,
                         rank,
                         vanished,
@@ -140,6 +144,7 @@ public final class JdbcVanishStore implements VanishStore {
 
     private static WriteResult setTransaction(
             Connection connection,
+            DataSource dataSource,
             UUID staffId,
             StaffRank rank,
             boolean vanished,
@@ -159,8 +164,14 @@ public final class JdbcVanishStore implements VanishStore {
             connection.rollback();
             return WriteResult.UNCHANGED;
         }
-        persistChanges(connection, staffId, actorId, rank, vanished, now, session, changes, selectedGameMode);
+        persistChanges(
+                connection,
+                new VanishWrite(staffId, actorId, rank, vanished, now, selectedGameMode),
+                session,
+                changes);
         connection.commit();
+        writeAuditAndOutboxBestEffort(
+                dataSource, staffId, actorId, rank, vanished, now, changes.stateChanged());
         return WriteResult.COMMITTED;
     }
 
@@ -179,23 +190,39 @@ public final class JdbcVanishStore implements VanishStore {
 
     private static void persistChanges(
             Connection connection,
+            VanishWrite write,
+            SessionMirror session,
+            ChangeSet changes
+    ) throws SQLException {
+        if (!changes.stateChanged()) {
+            updateSessionMirror(connection, session.sessionId(), write.vanished());
+            return;
+        }
+        writeState(connection, write.staffId(), write.actorId(), write.rank(), write.vanished(), write.now(),
+                write.selectedGameMode());
+        updateSessionMirrorIfChanged(connection, session, write.vanished());
+    }
+
+    private static void writeAuditAndOutboxBestEffort(
+            DataSource dataSource,
             UUID staffId,
             UUID actorId,
             StaffRank rank,
             boolean vanished,
             Instant now,
-            SessionMirror session,
-            ChangeSet changes,
-            String selectedGameMode
-    ) throws SQLException {
-        if (!changes.stateChanged()) {
-            updateSessionMirror(connection, session.sessionId(), vanished);
+            boolean stateChanged
+    ) {
+        if (!stateChanged) {
             return;
         }
-        writeState(connection, staffId, actorId, rank, vanished, now, selectedGameMode);
-        updateSessionMirrorIfChanged(connection, session, vanished);
-        insertAudit(connection, staffId, actorId, rank, vanished, now);
-        insertDiscord(connection, staffId, actorId, rank, vanished, now);
+        try (Connection connection = dataSource.getConnection()) {
+            insertAudit(connection, staffId, actorId, rank, vanished, now);
+            insertDiscord(connection, staffId, actorId, rank, vanished, now);
+        } catch (SQLException | RuntimeException exception) {
+            LOGGER.log(Level.WARNING,
+                    "Vanish audit/discord-outbox follow-up failed; the core vanish state was committed",
+                    exception);
+        }
     }
 
     private static void updateSessionMirrorIfChanged(
@@ -396,5 +423,18 @@ public final class JdbcVanishStore implements VanishStore {
         private boolean changed() {
             return stateChanged || sessionChanged;
         }
+    }
+
+    /**
+     * The new vanish state being written, grouped so persistence helpers stay under the
+     * parameter-count limit.
+     */
+    private record VanishWrite(
+            UUID staffId,
+            UUID actorId,
+            StaffRank rank,
+            boolean vanished,
+            Instant now,
+            String selectedGameMode) {
     }
 }

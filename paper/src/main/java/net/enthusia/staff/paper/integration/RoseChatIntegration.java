@@ -6,6 +6,7 @@ import dev.rosewood.rosechat.api.staff.ChannelRecipientContext;
 import dev.rosewood.rosechat.api.staff.MessageSurface;
 import dev.rosewood.rosechat.api.staff.ModerationDecision;
 import dev.rosewood.rosechat.api.staff.PresenceContext;
+import dev.rosewood.rosechat.api.staff.PresenceType;
 import dev.rosewood.rosechat.api.staff.PrivateMessageContext;
 import dev.rosewood.rosechat.api.staff.RoseChatModerationBridge;
 import dev.rosewood.rosechat.api.staff.RoseChatStaffService;
@@ -17,7 +18,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.application.PunishmentService;
 import net.enthusia.staff.domain.ports.AtomicReasonPolicyRepository;
@@ -25,6 +29,8 @@ import net.enthusia.staff.paper.api.StaffVisibilityService;
 import net.enthusia.staff.paper.enforcement.MuteEnforcementListener;
 import net.enthusia.staff.paper.freeze.FreezeManager;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.ServicesManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -91,6 +97,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             Supplier<MuteEnforcementListener> mutes,
             FreezeManager freezes,
             StaffVisibilityService visibility,
+            Predicate<UUID> presenceStateReady,
             ChatContextBuffer chat,
             JavaPlugin staffPlugin,
             Supplier<PunishmentService> punishments,
@@ -109,6 +116,7 @@ public final class RoseChatIntegration implements AutoCloseable {
                     mutes,
                     freezes,
                     visibility,
+                    presenceStateReady,
                     chat,
                     staffPlugin,
                     punishments,
@@ -161,7 +169,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             BridgeRegistration registration = service.installBridge(
                     BRIDGE_OWNER,
                     configuration,
-                    new StaffBridge(configuration, mode, mutes, freezes, visibility, chat)
+                    new StaffBridge(configuration, mode, mutes, freezes, visibility, ignored -> true, chat)
             );
             return new Discovery(
                     Optional.of(new RoseChatIntegration(service, registration)),
@@ -182,6 +190,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             Supplier<MuteEnforcementListener> mutes,
             FreezeManager freezes,
             StaffVisibilityService visibility,
+            Predicate<UUID> presenceStateReady,
             ChatContextBuffer chat,
             JavaPlugin staffPlugin,
             Supplier<PunishmentService> punishments,
@@ -193,6 +202,7 @@ public final class RoseChatIntegration implements AutoCloseable {
         Objects.requireNonNull(mutes, "mutes");
         Objects.requireNonNull(freezes, "freezes");
         Objects.requireNonNull(visibility, "visibility");
+        Objects.requireNonNull(presenceStateReady, "presenceStateReady");
         Objects.requireNonNull(chat, "chat");
         Objects.requireNonNull(staffPlugin, "staffPlugin");
         Objects.requireNonNull(punishments, "punishments");
@@ -220,7 +230,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             BridgeRegistration registration = service.installBridge(
                     BRIDGE_OWNER,
                     configuration,
-                    new StaffBridge(configuration, mode, mutes, freezes, visibility, chat)
+                    new StaffBridge(configuration, mode, mutes, freezes, visibility, presenceStateReady, chat)
             );
             RoseChatAutomatedModerationProvider automated = null;
             try {
@@ -270,6 +280,34 @@ public final class RoseChatIntegration implements AutoCloseable {
         return registration.isActive();
     }
 
+    static boolean shouldRenderLifecyclePresence(
+            Predicate<UUID> presenceStateReady,
+            StaffVisibilityService visibility,
+            PresenceContext context
+    ) {
+        Objects.requireNonNull(presenceStateReady, "presenceStateReady");
+        Objects.requireNonNull(visibility, "visibility");
+        Objects.requireNonNull(context, "context");
+        UUID subjectId = context.subjectId();
+        if (!presenceStateReady.test(subjectId)) {
+            return false;
+        }
+        return !visibility.isVanished(subjectId);
+    }
+
+    public boolean renderPresenceTransition(UUID subjectId, UUID viewerId, boolean vanished) {
+        Objects.requireNonNull(subjectId, "subjectId");
+        Objects.requireNonNull(viewerId, "viewerId");
+        if (!registration.isActive()) {
+            return false;
+        }
+        return registration.renderPresence(new PresenceContext(
+                subjectId,
+                viewerId,
+                vanished ? PresenceType.QUIT : PresenceType.JOIN
+        ));
+    }
+
     @Override
     public void close() {
         if (automatedModeration != null) {
@@ -305,11 +343,13 @@ public final class RoseChatIntegration implements AutoCloseable {
     }
 
     private static final class StaffBridge implements RoseChatModerationBridge {
+        private static final Logger log = Logger.getLogger(StaffBridge.class.getName());
         private final StaffChannelConfiguration channels;
         private final Supplier<OperationalMode> mode;
         private final Supplier<MuteEnforcementListener> mutes;
         private final FreezeManager freezes;
         private final StaffVisibilityService visibility;
+        private final Predicate<UUID> presenceStateReady;
         private final RoseChatPrivateMessageVisibility privateMessages;
         private final ChatContextBuffer chat;
 
@@ -319,6 +359,7 @@ public final class RoseChatIntegration implements AutoCloseable {
                 Supplier<MuteEnforcementListener> mutes,
                 FreezeManager freezes,
                 StaffVisibilityService visibility,
+                Predicate<UUID> presenceStateReady,
                 ChatContextBuffer chat
         ) {
             this.channels = channels;
@@ -326,6 +367,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             this.mutes = mutes;
             this.freezes = freezes;
             this.visibility = visibility;
+            this.presenceStateReady = presenceStateReady;
             this.privateMessages = new RoseChatPrivateMessageVisibility(visibility);
             this.chat = chat;
         }
@@ -337,9 +379,7 @@ public final class RoseChatIntegration implements AutoCloseable {
             }
             MuteEnforcementListener enforcement = mutes.get();
             if (enforcement == null) {
-                return ModerationDecision.block(
-                        "Your moderation status is still being verified. Please try again shortly."
-                );
+                return unverifiedDecision(context);
             }
             return switch (enforcement.cachedStatus(context.senderId())) {
                 case CLEAR -> ModerationDecision.allow();
@@ -402,7 +442,34 @@ public final class RoseChatIntegration implements AutoCloseable {
 
         @Override
         public boolean canRenderPresence(PresenceContext context) {
-            return visibility.canSee(context.viewerId(), context.subjectId());
+            try {
+                return shouldRenderLifecyclePresence(presenceStateReady, visibility, context);
+            } catch (RuntimeException exception) {
+                log.log(Level.WARNING, exception,
+                        () -> "RoseChat lifecycle-presence check failed; suppressing the message");
+                return false;
+            }
+        }
+
+        /**
+         * M1: fail-closed mute verification, with the operator override. A sender holding
+         * {@code enthusiastaff.override.mute-verification} may chat while unverified so a
+         * sanction-storage outage does not silence the whole server.
+         */
+        private ModerationDecision unverifiedDecision(TransmissionContext context) {
+            UUID senderId = context.senderId();
+            Player sender = senderId == null ? null : Bukkit.getPlayer(senderId);
+            if (sender != null
+                    && sender.hasPermission(MuteEnforcementListener.VERIFICATION_OVERRIDE_PERMISSION)) {
+                String senderName = sender.getName();
+                log.log(Level.INFO,
+                        "Mute-verification override used by {0}; RoseChat message allowed while unverified",
+                        senderName);
+                return ModerationDecision.allow();
+            }
+            return ModerationDecision.block(
+                    "Your moderation status is still being verified. Please try again shortly."
+            );
         }
     }
 }
