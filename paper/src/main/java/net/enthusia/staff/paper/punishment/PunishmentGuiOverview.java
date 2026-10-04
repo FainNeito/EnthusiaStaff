@@ -4,9 +4,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
-import net.enthusia.staff.domain.casefile.CaseReview;
 import net.enthusia.staff.domain.sanction.ActiveSanction;
-import net.enthusia.staff.domain.sanction.SanctionType;
 
 /**
  * Bounded staff-facing context loaded alongside the punishment GUI.
@@ -20,7 +18,7 @@ record PunishmentGuiOverview(
         ZoneId timezone,
         long totalHistoryEntries,
         boolean historyAvailable,
-        List<CaseReview> recentCases,
+        List<RecentCase> recentCases,
         boolean recentCasesTruncated,
         boolean casesAvailable,
         List<ActiveSanction> activeSanctions,
@@ -52,13 +50,29 @@ record PunishmentGuiOverview(
 
     int recentWarningCount() {
         return (int) recentCases.stream()
-                .filter(review -> review.sanctions().stream().anyMatch(sanction -> sanction.type() == SanctionType.WARNING))
+                .filter(RecentCase::warning)
                 .count();
     }
 
-    Optional<CaseReview> latestCase() {
+    Optional<RecentCase> latestCase() {
         return recentCases.stream()
-                .max(java.util.Comparator.comparing(CaseReview::issuedAt));
+                .max(java.util.Comparator.comparing(RecentCase::issuedAt));
     }
 
+    record RecentCase(
+            String exactReasonId,
+            String sanctionFamily,
+            String publicReason,
+            Instant issuedAt,
+            boolean warning
+    ) {
+        RecentCase {
+            if (exactReasonId == null || exactReasonId.isBlank()
+                    || sanctionFamily == null || sanctionFamily.isBlank()
+                    || publicReason == null || publicReason.isBlank()
+                    || issuedAt == null) {
+                throw new IllegalArgumentException("punishment GUI recent-case fields must be present");
+            }
+        }
+    }
 }
