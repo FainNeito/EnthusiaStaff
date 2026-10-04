@@ -32,7 +32,6 @@ import net.enthusia.staff.domain.casefile.CaseReview;
 import net.enthusia.staff.domain.casefile.CaseVisibility;
 import net.enthusia.staff.domain.escalation.ReasonPolicy;
 import net.enthusia.staff.domain.history.HistoryQueryOptions;
-import net.enthusia.staff.domain.history.ModerationHistoryEntry;
 import net.enthusia.staff.domain.history.ModerationHistoryPage;
 import net.enthusia.staff.domain.player.PlayerIdentity;
 import net.enthusia.staff.domain.ports.CaseReviewStore;
