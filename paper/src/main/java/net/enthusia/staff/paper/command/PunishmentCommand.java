@@ -141,7 +141,11 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length == NO_ARGUMENTS) {
-            usage(sender, label, route);
+            if (CENTRAL_COMMAND.equals(route) && sender instanceof Player player) {
+                gui.openTargetPicker(player, route);
+            } else {
+                usage(sender, label, route);
+            }
             return true;
         }
         if (isLegacyTimedMute(route, args)) {
@@ -180,8 +184,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean openTargetOnlyGui(CommandSender sender, String route, String[] args) {
-        if (CENTRAL_COMMAND.equals(route)
-                || args.length != SINGLE_ARGUMENT_COUNT
+        if (args.length != SINGLE_ARGUMENT_COUNT
                 || !(sender instanceof Player player)) {
             return false;
         }
