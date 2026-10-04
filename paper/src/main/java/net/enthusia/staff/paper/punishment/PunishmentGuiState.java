@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.util.UUID;
 import net.enthusia.staff.domain.application.PunishmentAssessment;
 import net.enthusia.staff.domain.application.PunishmentDraft;
+import net.enthusia.staff.domain.history.ModerationHistoryPage;
 import net.enthusia.staff.domain.player.PlayerIdentity;
 
 sealed interface PunishmentGuiState {
@@ -13,17 +14,30 @@ sealed interface PunishmentGuiState {
 
     String commandName();
 
-    record Categories(UUID viewerId, PlayerIdentity target, String commandName, int page)
-            implements PunishmentGuiState {
+    PunishmentGuiOverview overview();
+
+    record Categories(
+            UUID viewerId,
+            PlayerIdentity target,
+            String commandName,
+            PunishmentGuiOverview overview,
+            int page
+    ) implements PunishmentGuiState {
         public Categories {
-            validate(viewerId, target, commandName, page);
+            validate(viewerId, target, commandName, overview, page);
         }
     }
 
-    record Reasons(UUID viewerId, PlayerIdentity target, String commandName, String family, int page)
-            implements PunishmentGuiState {
+    record Reasons(
+            UUID viewerId,
+            PlayerIdentity target,
+            String commandName,
+            PunishmentGuiOverview overview,
+            String family,
+            int page
+    ) implements PunishmentGuiState {
         public Reasons {
-            validate(viewerId, target, commandName, page);
+            validate(viewerId, target, commandName, overview, page);
             if (family == null || family.isBlank()) {
                 throw new IllegalArgumentException("punishment family must be present");
             }
@@ -34,11 +48,12 @@ sealed interface PunishmentGuiState {
             UUID viewerId,
             PlayerIdentity target,
             String commandName,
+            PunishmentGuiOverview overview,
             PunishmentDraft draft,
             Optional<PunishmentAssessment> assessment
     ) implements PunishmentGuiState {
         public Review {
-            validate(viewerId, target, commandName, 0);
+            validate(viewerId, target, commandName, overview, 0);
             if (draft == null || assessment == null
                     || !draft.actorId().equals(viewerId)
                     || !draft.targetId().equals(target.playerId())) {
@@ -47,8 +62,30 @@ sealed interface PunishmentGuiState {
         }
     }
 
-    private static void validate(UUID viewerId, PlayerIdentity target, String commandName, int page) {
-        if (viewerId == null || target == null || commandName == null || commandName.isBlank() || page < 0) {
+    record History(
+            UUID viewerId,
+            PlayerIdentity target,
+            String commandName,
+            PunishmentGuiOverview overview,
+            ModerationHistoryPage history
+    ) implements PunishmentGuiState {
+        public History {
+            validate(viewerId, target, commandName, overview, 0);
+            if (history == null || !history.subjectId().equals(target.playerId())) {
+                throw new IllegalArgumentException("punishment history state must match the selected target");
+            }
+        }
+    }
+
+    private static void validate(
+            UUID viewerId,
+            PlayerIdentity target,
+            String commandName,
+            PunishmentGuiOverview overview,
+            int page
+    ) {
+        if (viewerId == null || target == null || commandName == null || commandName.isBlank()
+                || overview == null || page < 0) {
             throw new IllegalArgumentException("punishment GUI state fields must be present");
         }
     }
