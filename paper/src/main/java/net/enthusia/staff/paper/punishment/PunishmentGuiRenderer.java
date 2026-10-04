@@ -195,7 +195,10 @@ final class PunishmentGuiRenderer {
     private void renderHistory(Inventory inventory, PunishmentGuiState.History state) {
         List<ModerationHistoryEntry> entries = state.history().entries();
         for (int index = 0; index < entries.size() && index < CONTENT_SIZE; index++) {
-            inventory.setItem(CONTENT_START + index, historyEntryItem(entries.get(index), state.overview()));
+            inventory.setItem(
+                    CONTENT_START + index,
+                    historyEntryItem(entries.get(index), state.overview(), state.sensitiveHistory())
+            );
         }
         if (entries.isEmpty()) {
             emptyState(inventory, "No punishment history", "No moderation timeline entries are recorded for this player.");
@@ -395,7 +398,10 @@ final class PunishmentGuiRenderer {
         lore.add(Component.text(describe(draft.expectation().sanctions()), NamedTextColor.WHITE));
         lore.add(Component.text("Policy version: " + draft.expectation().configurationVersion(),
                 NamedTextColor.DARK_GRAY));
-        lore.add(Component.text("Gold = recommended now · gray = future · green = prior", NamedTextColor.GRAY));
+        lore.add(Component.text(
+                "Gold = recommended · green = prior · gray = future · red = permanent",
+                NamedTextColor.GRAY
+        ));
         return item(Material.GOLD_INGOT, "Authoritative Recommendation", NamedTextColor.GOLD, lore);
     }
 
@@ -513,7 +519,11 @@ final class PunishmentGuiRenderer {
         return item(material, prefix + "Step " + (ordinal + 1), color, lore);
     }
 
-    private static ItemStack historyEntryItem(ModerationHistoryEntry entry, PunishmentGuiOverview overview) {
+    private static ItemStack historyEntryItem(
+            ModerationHistoryEntry entry,
+            PunishmentGuiOverview overview,
+            boolean sensitiveHistory
+    ) {
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text(formatInstant(entry.occurredAt(), overview), NamedTextColor.DARK_GRAY));
         entry.punishmentType().ifPresent(type ->
@@ -525,7 +535,7 @@ final class PunishmentGuiRenderer {
         }
         entry.caseId().ifPresent(caseId ->
                 lore.add(Component.text("Case: " + caseId.value(), NamedTextColor.DARK_GRAY)));
-        if (overview.sensitiveHistory()) {
+        if (sensitiveHistory) {
             entry.actorName().ifPresent(name ->
                     lore.add(Component.text("Actor: " + name, NamedTextColor.DARK_GRAY)));
             entry.sensitiveReason().ifPresent(reason ->
@@ -756,12 +766,16 @@ final class PunishmentGuiRenderer {
 
     private static NamedTextColor statusColor(String status) {
         String normalized = status == null ? "" : status.toLowerCase(Locale.ROOT);
-        if (normalized.contains("active") || normalized.contains("complete") || normalized.contains("approved")) {
+        if (normalized.contains("active") || normalized.contains("applied")
+                || normalized.contains("complete") || normalized.contains("approved")) {
             return NamedTextColor.GREEN;
         }
-        if (normalized.contains("fail") || normalized.contains("reject") || normalized.contains("overturn")
-                || normalized.contains("revoke")) {
+        if (normalized.contains("fail") || normalized.contains("reject") || normalized.contains("denied")
+                || normalized.contains("overturn") || normalized.contains("revoke")) {
             return NamedTextColor.RED;
+        }
+        if (normalized.contains("expired") || normalized.contains("ended")) {
+            return NamedTextColor.GRAY;
         }
         return NamedTextColor.GOLD;
     }
