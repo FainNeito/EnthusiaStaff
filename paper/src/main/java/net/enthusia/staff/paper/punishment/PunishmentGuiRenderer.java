@@ -159,13 +159,18 @@ final class PunishmentGuiRenderer {
     private void renderReview(Inventory inventory, PunishmentGuiState.Review state, Actor actor) {
         PunishmentDraft draft = state.draft();
         Optional<PunishmentAssessment> assessment = state.assessment();
-        ReasonPolicy policy = assessment.map(PunishmentAssessment::policy).orElse(null);
+        ReasonPolicy policy = assessment.map(PunishmentAssessment::policy)
+                .orElseGet(() -> catalog.find(draft.reasonId()).orElse(null));
 
         inventory.setItem(10, reasonReviewItem(draft, policy));
         inventory.setItem(12, escalationItem(state));
         inventory.setItem(14, recommendationItem(state));
-        inventory.setItem(16, safetyItem(state));
-        assessment.ifPresent(value -> renderLadder(inventory, value));
+        inventory.setItem(16, safetyItem(state, catalog.activeVersion()));
+        if (assessment.isPresent()) {
+            renderLadder(inventory, assessment.orElseThrow());
+        } else if (policy != null) {
+            renderLadder(inventory, policy.steps(), draft.expectation().stepOrdinal(), true);
+        }
 
         inventory.setItem(VISIBILITY_SLOT, visibilityItem(draft));
         inventory.setItem(NOTE_SLOT, noteItem(draft));
@@ -411,7 +416,8 @@ final class PunishmentGuiRenderer {
         return item(Material.GOLD_INGOT, "Authoritative Recommendation", NamedTextColor.GOLD, lore);
     }
 
-    private static ItemStack safetyItem(PunishmentGuiState.Review state) {
+    private static ItemStack safetyItem(PunishmentGuiState.Review state, String activePolicyVersion) {
+        boolean currentVersion = state.draft().expectation().configurationVersion().equals(activePolicyVersion);
         return item(
                 Material.CLOCK,
                 "Draft Safety",
@@ -419,6 +425,7 @@ final class PunishmentGuiRenderer {
                 List.of(
                         Component.text("Expires: " + formatInstant(state.draft().expiresAt(), state.overview()),
                                 NamedTextColor.GRAY),
+                        yesNoLine("Draft matches active policy version", currentVersion),
                         yesNoLine("Survives logout/restart/server switch", true),
                         yesNoLine("Revalidates changed ladder before commit", true),
                         Component.text("A stale recommendation cannot silently apply.", NamedTextColor.DARK_GRAY)
@@ -480,28 +487,48 @@ final class PunishmentGuiRenderer {
     }
 
     private static void renderLadder(Inventory inventory, PunishmentAssessment assessment) {
-        List<PunishmentStep> steps = assessment.policy().steps();
-        int selected = assessment.escalation().selectedStep().ordinal();
-        int shown = Math.min(steps.size(), steps.size() > MAX_LADDER_SLOTS ? MAX_LADDER_SLOTS - 1 : MAX_LADDER_SLOTS);
+        renderLadder(
+                inventory,
+                assessment.policy().steps(),
+                assessment.escalation().selectedStep().ordinal(),
+                false
+        );
+    }
+
+    private static void renderLadder(
+            Inventory inventory,
+            List<PunishmentStep> steps,
+            int selected,
+            boolean frozenDraft
+    ) {
+        int shown = Math.min(
+                steps.size(),
+                steps.size() > MAX_LADDER_SLOTS ? MAX_LADDER_SLOTS - 1 : MAX_LADDER_SLOTS
+        );
         for (int index = 0; index < shown; index++) {
             int slot = 18 + index;
             PunishmentStep step = steps.get(index);
-            inventory.setItem(slot, ladderItem(step, index, selected));
+            inventory.setItem(slot, ladderItem(step, index, selected, frozenDraft));
         }
-        if (steps.size() > MAX_LADDER_SLOTS) {
+        if (steps.size() > shown) {
             inventory.setItem(35, item(
                     Material.MAP,
                     "Additional Ladder Steps",
                     NamedTextColor.GRAY,
                     List.of(Component.text(
-                            (steps.size() - MAX_LADDER_SLOTS) + " additional configured steps are not shown here.",
+                            (steps.size() - shown) + " additional configured steps are not shown here.",
                             NamedTextColor.GRAY
                     ))
             ));
         }
     }
 
-    private static ItemStack ladderItem(PunishmentStep step, int ordinal, int selected) {
+    private static ItemStack ladderItem(
+            PunishmentStep step,
+            int ordinal,
+            int selected,
+            boolean frozenDraft
+    ) {
         boolean current = ordinal == selected;
         boolean prior = ordinal < selected;
         boolean permanent = step.sanctions().stream().anyMatch(spec -> spec.length().isPermanent());
@@ -519,7 +546,9 @@ final class PunishmentGuiRenderer {
         lore.add(Component.text(describe(step.sanctions()), permanent ? NamedTextColor.RED : NamedTextColor.GRAY));
         lore.add(booleanLine("Permanent", permanent));
         lore.add(Component.text(
-                current ? "RECOMMENDED NOW" : prior ? "Previous ladder step" : "Future ladder step",
+                current
+                        ? (frozenDraft ? "FROZEN DRAFT STEP" : "RECOMMENDED NOW")
+                        : prior ? "Previous ladder step" : "Future ladder step",
                 color
         ));
         return item(material, prefix + "Step " + (ordinal + 1), color, lore);
