@@ -1,7 +1,10 @@
 package net.enthusia.staff.paper.punishment;
 
-import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -25,14 +28,27 @@ import net.enthusia.staff.domain.application.PunishmentRequestDraftCleanupExcept
 import net.enthusia.staff.domain.auth.Actor;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.ModerationAction;
+import net.enthusia.staff.domain.casefile.CaseReview;
 import net.enthusia.staff.domain.casefile.CaseVisibility;
 import net.enthusia.staff.domain.escalation.ReasonPolicy;
+import net.enthusia.staff.domain.history.HistoryQueryOptions;
+import net.enthusia.staff.domain.history.ModerationHistoryEntry;
+import net.enthusia.staff.domain.history.ModerationHistoryPage;
 import net.enthusia.staff.domain.player.PlayerIdentity;
+import net.enthusia.staff.domain.ports.CaseReviewStore;
+import net.enthusia.staff.domain.ports.ModerationHistoryStore;
 import net.enthusia.staff.domain.ports.PlayerDirectory;
 import net.enthusia.staff.domain.ports.ReasonPolicyRepository;
+import net.enthusia.staff.domain.ports.ReportStore;
+import net.enthusia.staff.domain.ports.SanctionLookup;
+import net.enthusia.staff.domain.sanction.ActiveSanction;
+import net.enthusia.staff.domain.sanction.SanctionType;
 import net.enthusia.staff.paper.auth.LuckPermsStaffTargetGuard;
 import net.enthusia.staff.paper.auth.PaperActorResolver;
 import net.enthusia.staff.paper.auth.StaffTargetGuard;
+import net.enthusia.staff.paper.command.HistoryCommand;
+import net.enthusia.staff.paper.config.ModerationFeatureSettings;
+import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -47,15 +63,28 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class PunishmentGuiController implements Listener {
+    private static final int OVERVIEW_HISTORY_LIMIT = 100;
+    private static final int OVERVIEW_CASE_LIMIT = 100;
+    private static final int OVERVIEW_REPORT_LIMIT = 100;
+    private static final int HISTORY_PAGE_SIZE = 36;
+    private static final ZoneId FALLBACK_TIMEZONE = ZoneId.of("UTC");
+
     private final JavaPlugin plugin;
+    private final Clock clock;
     private final Supplier<OperationalMode> mode;
     private final Supplier<PunishmentDraftWorkflow> workflows;
     private final Supplier<PlayerDirectory> players;
     private final AuthorizationPolicy authorization;
     private final ReasonPolicyRepository policies;
+    private final Supplier<ModerationHistoryStore> histories;
+    private final Supplier<CaseReviewStore> caseReviews;
+    private final Supplier<SanctionLookup> sanctions;
+    private final Supplier<ReportStore> reports;
+    private final Supplier<ModerationFeatureSettings> settings;
     private final ExecutorService workers;
     private final StaffTargetGuard targetGuard;
     private final PunishmentGuiCatalog catalog;
@@ -66,21 +95,33 @@ public final class PunishmentGuiController implements Listener {
 
     public PunishmentGuiController(
             JavaPlugin plugin,
+            Clock clock,
             Supplier<OperationalMode> mode,
             Supplier<PunishmentDraftWorkflow> workflows,
             Supplier<PlayerDirectory> players,
             AuthorizationPolicy authorization,
             ReasonPolicyRepository policies,
+            Supplier<ModerationHistoryStore> histories,
+            Supplier<CaseReviewStore> caseReviews,
+            Supplier<SanctionLookup> sanctions,
+            Supplier<ReportStore> reports,
+            Supplier<ModerationFeatureSettings> settings,
             ExecutorService workers
     ) {
         this(
                 new Dependencies(
                         plugin,
+                        clock,
                         mode,
                         workflows,
                         players,
                         authorization,
                         policies,
+                        histories,
+                        caseReviews,
+                        sanctions,
+                        reports,
+                        settings,
                         workers
                 ),
                 LuckPermsStaffTargetGuard.discover(plugin)
@@ -90,15 +131,29 @@ public final class PunishmentGuiController implements Listener {
     PunishmentGuiController(Dependencies dependencies, StaffTargetGuard targetGuard) {
         Dependencies checked = java.util.Objects.requireNonNull(dependencies, "dependencies");
         this.plugin = checked.plugin();
+        this.clock = checked.clock();
         this.mode = checked.mode();
         this.workflows = checked.workflows();
         this.players = checked.players();
         this.authorization = checked.authorization();
         this.policies = checked.policies();
+        this.histories = checked.histories();
+        this.caseReviews = checked.caseReviews();
+        this.sanctions = checked.sanctions();
+        this.reports = checked.reports();
+        this.settings = checked.settings();
         this.workers = checked.workers();
         this.targetGuard = java.util.Objects.requireNonNull(targetGuard, "targetGuard");
         this.catalog = new PunishmentGuiCatalog(this.policies, this.authorization);
         this.renderer = new PunishmentGuiRenderer(catalog);
+    }
+
+    public void openTargetPicker(Player viewer, String commandName) {
+        if (authorizedActor(viewer) == null) {
+            return;
+        }
+        String normalizedCommand = normalizeCommand(commandName);
+        onEntity(viewer, () -> openTargetPickerPage(viewer, normalizedCommand, 0));
     }
 
     public void open(Player viewer, String targetQuery, String commandName) {
@@ -106,13 +161,20 @@ public final class PunishmentGuiController implements Listener {
         if (actor == null) {
             return;
         }
+        boolean sensitiveHistory = viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION);
         String normalizedCommand = normalizeCommand(commandName);
         resolveTarget(viewer, targetQuery, target -> {
-            if (targetAllowed(viewer, actor, target.playerId())) {
-                openState(viewer, new PunishmentGuiState.Categories(
-                        viewer.getUniqueId(), target, normalizedCommand, 0
-                ));
+            if (!targetAllowed(viewer, actor, target.playerId())) {
+                return;
             }
+            PunishmentGuiOverview overview = loadOverview(target.playerId(), sensitiveHistory);
+            openState(viewer, new PunishmentGuiState.Categories(
+                    viewer.getUniqueId(),
+                    target,
+                    normalizedCommand,
+                    overview,
+                    0
+            ));
         });
     }
 
@@ -121,7 +183,8 @@ public final class PunishmentGuiController implements Listener {
         if (actor == null) {
             return;
         }
-        resolveTarget(viewer, targetQuery, target -> submit(viewer, () -> {
+        boolean sensitiveHistory = viewer.hasPermission(HistoryCommand.SENSITIVE_PERMISSION);
+        resolveTarget(viewer, targetQuery, target -> {
             if (!targetAllowed(viewer, actor, target.playerId())) {
                 return;
             }
@@ -140,25 +203,40 @@ public final class PunishmentGuiController implements Listener {
                 message(viewer, "That draft belongs to /" + draft.commandName() + ". Resume it with /punish.");
                 return;
             }
+            PunishmentGuiOverview overview = loadOverview(target.playerId(), sensitiveHistory);
             openState(viewer, new PunishmentGuiState.Review(
-                    viewer.getUniqueId(), target, draft.commandName(), draft, Optional.empty()
+                    viewer.getUniqueId(),
+                    target,
+                    draft.commandName(),
+                    overview,
+                    draft,
+                    Optional.empty()
             ));
-        }));
+        });
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getWhoClicked() instanceof Player viewer)
-                || !(event.getView().getTopInventory().getHolder(false) instanceof PunishmentGuiHolder holder)) {
+        if (!(event.getWhoClicked() instanceof Player viewer)) {
+            return;
+        }
+        Inventory top = event.getView().getTopInventory();
+        InventoryHolder holder = top.getHolder(false);
+        if (!(holder instanceof PunishmentGuiHolder)
+                && !(holder instanceof PunishmentTargetPickerHolder)) {
             return;
         }
         event.setCancelled(true);
-        PunishmentGuiState state = holder.state();
-        if (!state.viewerId().equals(viewer.getUniqueId())) {
+        int slot = event.getRawSlot();
+        if (slot < 0 || slot >= top.getSize()) {
             return;
         }
-        int slot = event.getRawSlot();
-        if (slot < 0 || slot >= event.getView().getTopInventory().getSize()) {
+        if (holder instanceof PunishmentTargetPickerHolder picker) {
+            targetPickerClick(viewer, picker, slot);
+            return;
+        }
+        PunishmentGuiState state = ((PunishmentGuiHolder) holder).state();
+        if (!state.viewerId().equals(viewer.getUniqueId())) {
             return;
         }
         Actor actor = authorizedActor(viewer);
@@ -172,12 +250,15 @@ public final class PunishmentGuiController implements Listener {
             reasonClick(viewer, actor, reasons, slot);
         } else if (state instanceof PunishmentGuiState.Review review) {
             reviewClick(viewer, actor, review, slot);
+        } else if (state instanceof PunishmentGuiState.History history) {
+            historyClick(viewer, history, slot);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onDrag(InventoryDragEvent event) {
-        if (event.getView().getTopInventory().getHolder(false) instanceof PunishmentGuiHolder) {
+        InventoryHolder holder = event.getView().getTopInventory().getHolder(false);
+        if (holder instanceof PunishmentGuiHolder || holder instanceof PunishmentTargetPickerHolder) {
             event.setCancelled(true);
         }
     }
@@ -238,6 +319,37 @@ public final class PunishmentGuiController implements Listener {
         confirmations.remove(viewerId);
     }
 
+    private void targetPickerClick(Player viewer, PunishmentTargetPickerHolder picker, int slot) {
+        if (!picker.viewerId().equals(viewer.getUniqueId()) || authorizedActor(viewer) == null) {
+            return;
+        }
+        if (slot == PunishmentGuiRenderer.TARGET_CLOSE_SLOT) {
+            viewer.closeInventory();
+            return;
+        }
+        if (slot == PunishmentGuiRenderer.TARGET_REFRESH_SLOT) {
+            openTargetPickerPage(viewer, picker.commandName(), picker.page());
+            return;
+        }
+        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && picker.page() > 0) {
+            openTargetPickerPage(viewer, picker.commandName(), picker.page() - 1);
+            return;
+        }
+        if (slot == PunishmentGuiRenderer.NEXT_SLOT) {
+            openTargetPickerPage(viewer, picker.commandName(), picker.page() + 1);
+            return;
+        }
+        int localIndex = slot - PunishmentGuiRenderer.CONTENT_START;
+        if (localIndex < 0 || localIndex >= PunishmentGuiRenderer.CONTENT_SIZE) {
+            return;
+        }
+        int index = picker.page() * PunishmentGuiRenderer.CONTENT_SIZE + localIndex;
+        if (index >= picker.targetIds().size()) {
+            return;
+        }
+        open(viewer, picker.targetIds().get(index).toString(), picker.commandName());
+    }
+
     private void categoryClick(
             Player viewer,
             Actor actor,
@@ -245,16 +357,27 @@ public final class PunishmentGuiController implements Listener {
             int slot
     ) {
         List<String> categories = catalog.categories(actor, state.commandName());
+        if (openHistoryFromControl(viewer, state, slot)) {
+            return;
+        }
         if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.page() > 0) {
             openState(viewer, new PunishmentGuiState.Categories(
-                    state.viewerId(), state.target(), state.commandName(), state.page() - 1
+                    state.viewerId(),
+                    state.target(),
+                    state.commandName(),
+                    state.overview(),
+                    state.page() - 1
             ));
             return;
         }
         if (slot == PunishmentGuiRenderer.NEXT_SLOT
                 && (state.page() + 1) * PunishmentGuiRenderer.CONTENT_SIZE < categories.size()) {
             openState(viewer, new PunishmentGuiState.Categories(
-                    state.viewerId(), state.target(), state.commandName(), state.page() + 1
+                    state.viewerId(),
+                    state.target(),
+                    state.commandName(),
+                    state.overview(),
+                    state.page() + 1
             ));
             return;
         }
@@ -262,52 +385,76 @@ public final class PunishmentGuiController implements Listener {
             viewer.closeInventory();
             return;
         }
-        int index = state.page() * PunishmentGuiRenderer.CONTENT_SIZE + slot;
-        if (slot < PunishmentGuiRenderer.CONTENT_SIZE && index < categories.size()) {
+        int index = contentIndex(state.page(), slot);
+        if (index >= 0 && index < categories.size()) {
             openState(viewer, new PunishmentGuiState.Reasons(
-                    state.viewerId(), state.target(), state.commandName(), categories.get(index), 0
+                    state.viewerId(),
+                    state.target(),
+                    state.commandName(),
+                    state.overview(),
+                    categories.get(index),
+                    0
             ));
         }
     }
 
     private void reasonClick(Player viewer, Actor actor, PunishmentGuiState.Reasons state, int slot) {
         List<ReasonPolicy> reasons = catalog.reasons(actor, state.commandName(), state.family());
+        if (openHistoryFromControl(viewer, state, slot)) {
+            return;
+        }
         if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.page() > 0) {
             openState(viewer, new PunishmentGuiState.Reasons(
-                    state.viewerId(), state.target(), state.commandName(), state.family(), state.page() - 1
+                    state.viewerId(),
+                    state.target(),
+                    state.commandName(),
+                    state.overview(),
+                    state.family(),
+                    state.page() - 1
             ));
             return;
         }
         if (slot == PunishmentGuiRenderer.NEXT_SLOT
                 && (state.page() + 1) * PunishmentGuiRenderer.CONTENT_SIZE < reasons.size()) {
             openState(viewer, new PunishmentGuiState.Reasons(
-                    state.viewerId(), state.target(), state.commandName(), state.family(), state.page() + 1
+                    state.viewerId(),
+                    state.target(),
+                    state.commandName(),
+                    state.overview(),
+                    state.family(),
+                    state.page() + 1
             ));
             return;
         }
         if (slot == PunishmentGuiRenderer.BACK_SLOT) {
-            openState(viewer, new PunishmentGuiState.Categories(
-                    state.viewerId(), state.target(), state.commandName(), 0
-            ));
+            openState(viewer, categoriesState(state));
             return;
         }
         if (slot == PunishmentGuiRenderer.CLOSE_SLOT) {
             viewer.closeInventory();
             return;
         }
-        int index = state.page() * PunishmentGuiRenderer.CONTENT_SIZE + slot;
-        if (slot < PunishmentGuiRenderer.CONTENT_SIZE && index < reasons.size()) {
+        int index = contentIndex(state.page(), slot);
+        if (index >= 0 && index < reasons.size()) {
             prepare(viewer, actor, state, reasons.get(index));
         }
     }
 
     private void reviewClick(Player viewer, Actor actor, PunishmentGuiState.Review state, int slot) {
+        if (openHistoryFromControl(viewer, state, slot)) {
+            return;
+        }
         if (slot == PunishmentGuiRenderer.BACK_SLOT) {
             String family = policies.find(state.draft().reasonId())
                     .map(ReasonPolicy::family)
                     .orElse(state.draft().reasonId());
             openState(viewer, new PunishmentGuiState.Reasons(
-                    state.viewerId(), state.target(), state.commandName(), family, 0
+                    state.viewerId(),
+                    state.target(),
+                    state.commandName(),
+                    state.overview(),
+                    family,
+                    0
             ));
             return;
         }
@@ -336,6 +483,86 @@ public final class PunishmentGuiController implements Listener {
         }
     }
 
+    private void historyClick(Player viewer, PunishmentGuiState.History state, int slot) {
+        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.history().page() > 1) {
+            openHistory(viewer, state.returnState(), state.history().page() - 1);
+            return;
+        }
+        if (slot == PunishmentGuiRenderer.NEXT_SLOT
+                && state.history().page() < state.history().totalPages()) {
+            openHistory(viewer, state.returnState(), state.history().page() + 1);
+            return;
+        }
+        if (slot == PunishmentGuiRenderer.BACK_SLOT) {
+            openState(viewer, state.returnState());
+            return;
+        }
+        if (slot == PunishmentGuiRenderer.CLOSE_SLOT) {
+            viewer.closeInventory();
+        }
+    }
+
+    private boolean openHistoryFromControl(Player viewer, PunishmentGuiState state, int slot) {
+        if (slot != PunishmentGuiRenderer.HISTORY_SLOT
+                && slot != PunishmentGuiRenderer.SUMMARY_HISTORY_SLOT) {
+            return false;
+        }
+        openHistory(viewer, state, 1);
+        return true;
+    }
+
+    private void openHistory(Player viewer, PunishmentGuiState returnState, int page) {
+        submit(viewer, () -> {
+            ModerationHistoryStore store = histories.get();
+            ModerationFeatureSettings active = settings.get();
+            if (store == null || active == null) {
+                openUnavailableHistory(viewer, returnState);
+                return;
+            }
+            HistoryQueryOptions options = historyOptions(active, returnState.overview().sensitiveHistory());
+            try {
+                ModerationHistoryPage result = store.page(
+                        returnState.target().playerId(),
+                        page,
+                        HISTORY_PAGE_SIZE,
+                        options
+                );
+                openState(viewer, new PunishmentGuiState.History(
+                        returnState.viewerId(),
+                        returnState.target(),
+                        returnState.commandName(),
+                        returnState.overview(),
+                        result,
+                        returnState
+                ));
+            } catch (IllegalArgumentException exception) {
+                message(viewer, "That history page is no longer available.");
+            } catch (RuntimeException exception) {
+                plugin.getLogger().log(Level.WARNING, "Punishment GUI history lookup failed", exception);
+                openUnavailableHistory(viewer, returnState);
+            }
+        });
+    }
+
+    private void openUnavailableHistory(Player viewer, PunishmentGuiState returnState) {
+        ModerationHistoryPage empty = new ModerationHistoryPage(
+                returnState.target().playerId(),
+                1,
+                HISTORY_PAGE_SIZE,
+                0,
+                0,
+                List.of()
+        );
+        openState(viewer, new PunishmentGuiState.History(
+                returnState.viewerId(),
+                returnState.target(),
+                returnState.commandName(),
+                returnState.overview(),
+                empty,
+                returnState
+        ));
+    }
+
     private void prepare(
             Player viewer,
             Actor actor,
@@ -362,7 +589,14 @@ public final class PunishmentGuiController implements Listener {
                     ),
                     mode.get()
             );
-            showPrepared(viewer, state.target(), state.commandName(), actor, evaluation);
+            showPrepared(
+                    viewer,
+                    state.target(),
+                    state.commandName(),
+                    actor,
+                    state.overview(),
+                    evaluation
+            );
         });
     }
 
@@ -393,7 +627,14 @@ public final class PunishmentGuiController implements Listener {
                     ),
                     mode.get()
             );
-            showPrepared(viewer, state.target(), state.commandName(), actor, evaluation);
+            showPrepared(
+                    viewer,
+                    state.target(),
+                    state.commandName(),
+                    actor,
+                    state.overview(),
+                    evaluation
+            );
         });
     }
 
@@ -402,6 +643,7 @@ public final class PunishmentGuiController implements Listener {
             PlayerIdentity target,
             String commandName,
             Actor actor,
+            PunishmentGuiOverview overview,
             PunishmentDraftEvaluation evaluation
     ) {
         if (evaluation instanceof PunishmentDraftEvaluation.Rejected rejected) {
@@ -420,14 +662,21 @@ public final class PunishmentGuiController implements Listener {
             return;
         }
         openState(viewer, new PunishmentGuiState.Review(
-                viewer.getUniqueId(), target, commandName, prepared.draft(), Optional.of(assessment)
+                viewer.getUniqueId(),
+                target,
+                commandName,
+                overview,
+                prepared.draft(),
+                Optional.of(assessment)
         ));
     }
 
     private void confirm(Player viewer, Actor actor, PunishmentGuiState.Review state) {
         UUID viewerId = viewer.getUniqueId();
         if (!confirmations.add(viewerId)) {
-            viewer.sendMessage(StaffMessageStyle.style(Component.text("That punishment confirmation is already in progress.")));
+            viewer.sendMessage(StaffMessageStyle.style(
+                    Component.text("That punishment confirmation is already in progress.")
+            ));
             return;
         }
         boolean submitted = submit(viewer, () -> runConfirmation(viewer, actor, state, viewerId));
@@ -459,9 +708,7 @@ public final class PunishmentGuiController implements Listener {
             return;
         }
         Optional<PunishmentDraftConfirmation> result = confirmDraft(viewer, actor, state, workflow);
-        if (result.isPresent()) {
-            handleConfirmation(viewer, actor, state, result.orElseThrow());
-        }
+        result.ifPresent(value -> handleConfirmation(viewer, actor, state, value));
     }
 
     private Optional<PunishmentDraftConfirmation> confirmDraft(
@@ -522,11 +769,118 @@ public final class PunishmentGuiController implements Listener {
             message(viewer, "The recommendation changed. A fresh review is being opened; "
                     + "no punishment or request was created.");
             reprepare(
-                    viewer, actor, state, state.draft().internalExplanation(), state.draft().visibility()
+                    viewer,
+                    actor,
+                    state,
+                    state.draft().internalExplanation(),
+                    state.draft().visibility()
             );
             return;
         }
         message(viewer, rejected.code() + ": " + rejected.message());
+    }
+
+    private PunishmentGuiOverview loadOverview(UUID targetId, boolean sensitiveHistory) {
+        ModerationFeatureSettings active = settings.get();
+        ZoneId timezone = active == null ? FALLBACK_TIMEZONE : active.historyTimezone();
+        Instant now = clock.instant();
+        HistorySummary history = loadHistorySummary(targetId, active, sensitiveHistory);
+        CaseSummary cases = loadCaseSummary(targetId);
+        SanctionSummary activeSanctions = loadSanctions(targetId, now);
+        ReportSummary reportsForTarget = loadReports(targetId);
+        return new PunishmentGuiOverview(
+                now,
+                timezone,
+                history.totalEntries(),
+                history.entries(),
+                history.available(),
+                cases.cases(),
+                cases.truncated(),
+                cases.available(),
+                activeSanctions.sanctions(),
+                activeSanctions.available(),
+                reportsForTarget.count(),
+                reportsForTarget.truncated(),
+                reportsForTarget.available(),
+                sensitiveHistory
+        );
+    }
+
+    private HistorySummary loadHistorySummary(
+            UUID targetId,
+            ModerationFeatureSettings active,
+            boolean sensitiveHistory
+    ) {
+        ModerationHistoryStore store = histories.get();
+        if (store == null || active == null) {
+            return HistorySummary.unavailable();
+        }
+        try {
+            ModerationHistoryPage page = store.page(
+                    targetId,
+                    1,
+                    OVERVIEW_HISTORY_LIMIT,
+                    historyOptions(active, sensitiveHistory)
+            );
+            return new HistorySummary(page.totalEntries(), page.entries(), true);
+        } catch (RuntimeException exception) {
+            contextFailure("history", exception);
+            return HistorySummary.unavailable();
+        }
+    }
+
+    private CaseSummary loadCaseSummary(UUID targetId) {
+        CaseReviewStore store = caseReviews.get();
+        if (store == null) {
+            return CaseSummary.unavailable();
+        }
+        try {
+            List<CaseReview> recent = store.recent(targetId, OVERVIEW_CASE_LIMIT);
+            return new CaseSummary(recent, recent.size() == OVERVIEW_CASE_LIMIT, true);
+        } catch (RuntimeException exception) {
+            contextFailure("recent cases", exception);
+            return CaseSummary.unavailable();
+        }
+    }
+
+    private SanctionSummary loadSanctions(UUID targetId, Instant now) {
+        SanctionLookup store = sanctions.get();
+        if (store == null) {
+            return SanctionSummary.unavailable();
+        }
+        try {
+            List<ActiveSanction> active = store.activeFor(
+                    targetId,
+                    EnumSet.allOf(SanctionType.class),
+                    now
+            );
+            return new SanctionSummary(active, true);
+        } catch (RuntimeException exception) {
+            contextFailure("active sanctions", exception);
+            return SanctionSummary.unavailable();
+        }
+    }
+
+    private ReportSummary loadReports(UUID targetId) {
+        ReportStore store = reports.get();
+        if (store == null) {
+            return ReportSummary.unavailable();
+        }
+        try {
+            int count = store.listActiveForTarget(targetId, OVERVIEW_REPORT_LIMIT).size();
+            return new ReportSummary(count, count == OVERVIEW_REPORT_LIMIT, true);
+        } catch (RuntimeException exception) {
+            contextFailure("active reports", exception);
+            return ReportSummary.unavailable();
+        }
+    }
+
+    private void contextFailure(String context, RuntimeException exception) {
+        plugin.getLogger().log(
+                Level.FINE,
+                "Punishment GUI could not load optional " + context + " context",
+                exception
+        );
     }
 
     private void resolveTarget(
@@ -542,7 +896,11 @@ public final class PunishmentGuiController implements Listener {
             }
             PlayerIdentity target = directory.find(targetQuery).orElse(null);
             if (target == null) {
-                message(viewer, "Player is not present in the authoritative directory. UUIDs and historical names are accepted.");
+                message(
+                        viewer,
+                        "Player is not present in the authoritative directory. "
+                                + "UUIDs and historical names are accepted."
+                );
                 return;
             }
             continuation.accept(target);
@@ -556,6 +914,29 @@ public final class PunishmentGuiController implements Listener {
         }
         message(viewer, result.message());
         return false;
+    }
+
+    private void openTargetPickerPage(Player viewer, String commandName, int requestedPage) {
+        Actor actor = authorizedActor(viewer);
+        if (actor == null) {
+            return;
+        }
+        List<Player> targets = plugin.getServer().getOnlinePlayers().stream()
+                .filter(target -> !target.getUniqueId().equals(viewer.getUniqueId()))
+                .filter(viewer::canSee)
+                .filter(target -> targetGuard.check(actor, target.getUniqueId(), false).allowed())
+                .toList();
+        int maxPage = targets.isEmpty()
+                ? 0
+                : (targets.size() - 1) / PunishmentGuiRenderer.CONTENT_SIZE;
+        int page = Math.max(0, Math.min(requestedPage, maxPage));
+        Inventory inventory = renderer.renderTargetPicker(
+                viewer.getUniqueId(),
+                targets,
+                page,
+                commandName
+        );
+        viewer.openInventory(inventory);
     }
 
     private void openState(Player viewer, PunishmentGuiState state) {
@@ -605,12 +986,18 @@ public final class PunishmentGuiController implements Listener {
                     work.run();
                 } catch (RuntimeException exception) {
                     plugin.getLogger().log(Level.SEVERE, "Punishment GUI workflow failed", exception);
-                    message(viewer, "The punishment workflow failed and its outcome was not confirmed. Check case history before retrying.");
+                    message(
+                            viewer,
+                            "The punishment workflow failed and its outcome was not confirmed. "
+                                    + "Check case history before retrying."
+                    );
                 }
             });
             return true;
         } catch (RejectedExecutionException exception) {
-            viewer.sendMessage(StaffMessageStyle.style(Component.text("The moderation work queue is full; no action was taken.")));
+            viewer.sendMessage(StaffMessageStyle.style(
+                    Component.text("The moderation work queue is full; no action was taken.")
+            ));
             return false;
         }
     }
@@ -621,6 +1008,35 @@ public final class PunishmentGuiController implements Listener {
 
     private void onEntity(Player player, Runnable task) {
         player.getScheduler().execute(plugin, task, null, 1L);
+    }
+
+    private static PunishmentGuiState.Categories categoriesState(PunishmentGuiState state) {
+        return new PunishmentGuiState.Categories(
+                state.viewerId(),
+                state.target(),
+                state.commandName(),
+                state.overview(),
+                0
+        );
+    }
+
+    private static int contentIndex(int page, int slot) {
+        int localIndex = slot - PunishmentGuiRenderer.CONTENT_START;
+        if (localIndex < 0 || localIndex >= PunishmentGuiRenderer.CONTENT_SIZE) {
+            return -1;
+        }
+        return page * PunishmentGuiRenderer.CONTENT_SIZE + localIndex;
+    }
+
+    private static HistoryQueryOptions historyOptions(
+            ModerationFeatureSettings active,
+            boolean sensitiveHistory
+    ) {
+        return new HistoryQueryOptions(
+                active.includeRequestEvents(),
+                active.includeAppealEvents(),
+                sensitiveHistory
+        );
     }
 
     private static String normalizeCommand(String commandName) {
@@ -636,20 +1052,32 @@ public final class PunishmentGuiController implements Listener {
 
     record Dependencies(
             JavaPlugin plugin,
+            Clock clock,
             Supplier<OperationalMode> mode,
             Supplier<PunishmentDraftWorkflow> workflows,
             Supplier<PlayerDirectory> players,
             AuthorizationPolicy authorization,
             ReasonPolicyRepository policies,
+            Supplier<ModerationHistoryStore> histories,
+            Supplier<CaseReviewStore> caseReviews,
+            Supplier<SanctionLookup> sanctions,
+            Supplier<ReportStore> reports,
+            Supplier<ModerationFeatureSettings> settings,
             ExecutorService workers
     ) {
         Dependencies {
             plugin = java.util.Objects.requireNonNull(plugin, "plugin");
+            clock = java.util.Objects.requireNonNull(clock, "clock");
             mode = java.util.Objects.requireNonNull(mode, "mode");
             workflows = java.util.Objects.requireNonNull(workflows, "workflows");
             players = java.util.Objects.requireNonNull(players, "players");
             authorization = java.util.Objects.requireNonNull(authorization, "authorization");
             policies = java.util.Objects.requireNonNull(policies, "policies");
+            histories = java.util.Objects.requireNonNull(histories, "histories");
+            caseReviews = java.util.Objects.requireNonNull(caseReviews, "caseReviews");
+            sanctions = java.util.Objects.requireNonNull(sanctions, "sanctions");
+            reports = java.util.Objects.requireNonNull(reports, "reports");
+            settings = java.util.Objects.requireNonNull(settings, "settings");
             workers = java.util.Objects.requireNonNull(workers, "workers");
         }
     }
@@ -659,6 +1087,46 @@ public final class PunishmentGuiController implements Listener {
             if (review == null) {
                 throw new IllegalArgumentException("punishment note capture requires a review");
             }
+        }
+    }
+
+    private record HistorySummary(
+            long totalEntries,
+            List<ModerationHistoryEntry> entries,
+            boolean available
+    ) {
+        private HistorySummary {
+            entries = List.copyOf(entries);
+        }
+
+        private static HistorySummary unavailable() {
+            return new HistorySummary(0, List.of(), false);
+        }
+    }
+
+    private record CaseSummary(List<CaseReview> cases, boolean truncated, boolean available) {
+        private CaseSummary {
+            cases = List.copyOf(cases);
+        }
+
+        private static CaseSummary unavailable() {
+            return new CaseSummary(List.of(), false, false);
+        }
+    }
+
+    private record SanctionSummary(List<ActiveSanction> sanctions, boolean available) {
+        private SanctionSummary {
+            sanctions = List.copyOf(sanctions);
+        }
+
+        private static SanctionSummary unavailable() {
+            return new SanctionSummary(List.of(), false);
+        }
+    }
+
+    private record ReportSummary(int count, boolean truncated, boolean available) {
+        private static ReportSummary unavailable() {
+            return new ReportSummary(0, false, false);
         }
     }
 }
