@@ -1,5 +1,40 @@
 # Confirm-player fork handoff
 
+## Owner GUI reconciliation verification, 2026-10-04 22:00 UTC
+
+Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
+Frozen executable head e418edb8c3c62c0e6029041baff8423a91b1fdb3 normally merges
+canonical upstream main 18d4f4b05af94ee325842c68d482feedabe5d27f from owner
+head dd62fc46. Root aggregate owns the core build; no submodule/dependency pin
+changed. Requirement: preserve friendly player labels, actor-owned name
+confirmation, UUID identity, prior vanish/provider repairs and privacy/authority
+behavior while incorporating upstream target picker, configured ladder and
+permission-rechecked history. Redundant UUID player-card lore is removed.
+
+The isolated merge resolved only GUI imports/layout and labels. The new upstream
+source-reading security test failed on Windows CRLF; normalizing its input
+retains every assertion. Focused punishment/name, GUI security, vanish policy and
+optional RoseChat regressions pass (117 tests). No historical behavioral red/green
+claim is made for upstream integration. GUI player-label wiring is also checked.
+Java 25.0.3 clean test/check/runtimeJars passes at the frozen executable head:
+1,635 tests, zero failures/errors, two Windows symlink skips. Wiki validates 41
+pages; whitespace, runtime ZIP integrity and RoseChat provider exclusion pass.
+Test.7 JARs are unmerged/local test artifacts. No production acceptance is claimed.
+
+Prior orchestration baseline remains a failure (460 findings); its inputs and
+validator are unchanged and it was not rerun. Docker integration, hosted/static,
+staging, runtime-provider and Java/Bedrock acceptance remain unverified. No EARS
+or state helpers exist; this small requirement/task/evidence record is retained.
+Local review checked command routing, actor-owned confirmation preservation,
+target picker visibility, bounded overview, sensitive-history revocation, ladder
+and owning-scheduler rendering. No migration or permission policy changed.
+
+Next: check exact PR head for actionable review/CI findings and obtain missing
+runtime/provider/client evidence through normal reviewed delivery. Canonical
+product main has not received the owner fixes; product PR merge and production
+deployment are unauthorized. Exact delivery heads and hashes belong in PR #1.
+This section supersedes the preceding reconciliation task/checkpoint records.
+
 ## Owner reconciliation verification, 2026-10-04
 
 Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
@@ -36,6 +71,66 @@ normal reviewed delivery. Canonical product main is not updated by this fork PR.
 Do not merge product PR #1, deploy, change production permissions or activate
 authority. This section supersedes older isolated-candidate status below.
 
+## Owner reconciliation repairs, 2026-10-04 follow-up
+
+The same owner package remains PARTIAL / ACTIONABLE_CONTINUATION. Canonical
+upstream 93e81ca1 is reconciled in the isolated candidate, with earlier player-name,
+tester safety, visibility, and exit-fencing fixes retained. The duty/vanish mode
+conflict is repaired: on-duty selection, recovery, restoration and queued-write
+validation use the applied duty rank and canonical mode policy. Off-duty vanish
+retains its previous policy. Helpers may use Survival/Spectator on duty;
+Mods/Developers remain Survival; Admin/Founder permitted modes remain intact.
+No permission backend or production authority was changed.
+
+An older RoseChat interface binary reproduces NoSuchMethodError for the new
+optional presence-render method. A narrow compatibility adapter now disables
+only that optional rendering path once and retains the existing active bridge.
+The focused policy and binary-compatibility regressions first failed as expected,
+then all nine focused tests passed. Runtime matching/live acceptance remain open;
+this synthetic old-API binary proof is not a production-provider acceptance test.
+
+The source repairs follow local candidate c8bf330d and repair commit d7588734.
+Full exact-head Java 25 clean test/check/runtimeJars, Wiki, orchestration and
+artifact verification must complete before the shared PR branch is updated;
+actual frozen head and results belong in PR #1's verification record. Test artifact
+version is 0.1.0-staff-bugs-test.6, explicitly unmerged/local test only. Docker,
+hosted/static, staging and client acceptance remain unverified. No unchanged
+unavailable gate is retried. No EARS/state helpers exist; bounded requirements,
+tasks and evidence are recorded here and in the canonical owner handoff.
+
+Next: finish complete synchronized-diff review and available exact-head local
+gates, then push reviewed source to existing draft PR #1. Publish the partial
+status through the allowed docs-only PR; do not merge the product PR, deploy,
+change production permissions or activate authority.
+
+## Historical isolated upstream reconciliation proof, 2026-10-04
+
+Continuation requirement: on-duty vanish must use the applied Staff Mode rank and
+its canonical game-mode policy; off-duty vanish keeps its existing policy.
+Helper Survival must remain selectable, Mod/Developer must remain Survival, and
+Admin/Founder permitted modes must survive both paths. Missing applied authority
+must fail closed. Older RoseChat binaries without the optional presence-render
+method must not propagate a linkage error or disable the existing bridge.
+Establish focused failing regressions before these repairs, then verify the
+synchronized exact head and retain the separate runtime/client acceptance gaps.
+
+This section records the initial local candidate before the later repair checkpoint.
+Starting owner head: `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`.
+Canonical upstream: `93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
+Worktree: `EnthusiaStaff-upstream-proof`, branch `package/owner-staff-upstream-proof`.
+The automatic merge has no textual conflicts. Requirements: retain names,
+actor-bound confirmation, safe tester recovery, exit fencing and permitted
+Admin/Founder modes; reconcile canonical on-duty rank policies and companion API
+compatibility before pushing any candidate. Existing tests are regression evidence,
+not historical red/green proof. No EARS/state helper was located in this checkout;
+this record tracks the bounded requirement/task/evidence instead.
+
+Initial focused build failed at Paper compilation: the new transfer hook calls
+removed `enforceVanishSpectator`. Route that hook through the retained authorized
+vanish mode implementation, then rerun the relevant module suites. Further review
+must resolve the overlap between canonical on-duty mode profiles and the fork's
+vanish mode policy, and verify RoseChat's new presence contract against the actual
+supported provider. No production, shared branch, or authority changes.
 ## Owner upstream reconciliation checkpoint, 2026-10-04
 
 Owner package remains `PARTIAL` / `ACTIONABLE_CONTINUATION`. Product PR #1 remains
@@ -196,3 +291,22 @@ bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f.
 Next action: non-production hotbar, spectator wall movement, F3 shortcut, permission
 revocation, restart, and names acceptance plus available integration/hosted gates before
 merge. Preserve draft PR #1 and implementation branch; exact frozen heads are on the PR.
+
+Proof result: selected Paper/Velocity/domain/protocol suites report 1,225 tests,
+zero failures/errors and one existing Windows symlink skip. Paper compilation
+first failed on the removed transfer-hook method and was corrected locally.
+Four source-wiring tests then failed solely on CRLF; their source readers now
+normalize CRLF while retaining their assertions. The selected suites pass after
+those repairs. This is not a clean full-build, hosted, Docker, staging or client
+acceptance result, and no runtime JAR was delivered.
+
+Pending merge review finding: canonical StaffModeAccessPolicy permits Helper
+Survival and requires Mod/Developer Survival on duty; the retained fork
+VanishGameModePolicy still rejects those selections and its periodic reconciliation
+can force Spectator. Reconcile active-duty ownership without changing off-duty
+vanish behavior or broadening permissions, and add cross-policy regression proof.
+The new BridgeRegistration.renderPresence contract is absent from the available
+rosechat-26.2 source snapshot; verify the supported runtime binary or provide a
+safe compatibility path before accepting the integration. This snapshot is not
+production-version evidence. Shared PR #1 remains at 14dbab0; both existing review
+threads are resolved and no new head was pushed. Local candidate remains PARTIAL.

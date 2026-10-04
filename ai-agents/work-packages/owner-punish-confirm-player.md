@@ -1,5 +1,40 @@
 # Owner-directed fork change: confirm punishment by player name
 
+## Owner GUI reconciliation verification, 2026-10-04 22:00 UTC
+
+Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
+Frozen executable head e418edb8c3c62c0e6029041baff8423a91b1fdb3 normally merges
+canonical upstream main 18d4f4b05af94ee325842c68d482feedabe5d27f from owner
+head dd62fc46. Root aggregate owns the core build; no submodule/dependency pin
+changed. Requirement: preserve friendly player labels, actor-owned name
+confirmation, UUID identity, prior vanish/provider repairs and privacy/authority
+behavior while incorporating upstream target picker, configured ladder and
+permission-rechecked history. Redundant UUID player-card lore is removed.
+
+The isolated merge resolved only GUI imports/layout and labels. The new upstream
+source-reading security test failed on Windows CRLF; normalizing its input
+retains every assertion. Focused punishment/name, GUI security, vanish policy and
+optional RoseChat regressions pass (117 tests). No historical behavioral red/green
+claim is made for upstream integration. GUI player-label wiring is also checked.
+Java 25.0.3 clean test/check/runtimeJars passes at the frozen executable head:
+1,635 tests, zero failures/errors, two Windows symlink skips. Wiki validates 41
+pages; whitespace, runtime ZIP integrity and RoseChat provider exclusion pass.
+Test.7 JARs are unmerged/local test artifacts. No production acceptance is claimed.
+
+Prior orchestration baseline remains a failure (460 findings); its inputs and
+validator are unchanged and it was not rerun. Docker integration, hosted/static,
+staging, runtime-provider and Java/Bedrock acceptance remain unverified. No EARS
+or state helpers exist; this small requirement/task/evidence record is retained.
+Local review checked command routing, actor-owned confirmation preservation,
+target picker visibility, bounded overview, sensitive-history revocation, ladder
+and owning-scheduler rendering. No migration or permission policy changed.
+
+Next: check exact PR head for actionable review/CI findings and obtain missing
+runtime/provider/client evidence through normal reviewed delivery. Canonical
+product main has not received the owner fixes; product PR merge and production
+deployment are unauthorized. Exact delivery heads and hashes belong in PR #1.
+This section supersedes the preceding reconciliation task/checkpoint records.
+
 ## Owner reconciliation verification, 2026-10-04
 
 Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
@@ -35,6 +70,38 @@ defects, and obtain missing provider/runtime and client acceptance evidence thro
 normal reviewed delivery. Canonical product main is not updated by this fork PR.
 Do not merge product PR #1, deploy, change production permissions or activate
 authority. This section supersedes older isolated-candidate status below.
+
+## Owner reconciliation repairs, 2026-10-04 follow-up
+
+The same owner package remains PARTIAL / ACTIONABLE_CONTINUATION. Canonical
+upstream 93e81ca1 is reconciled in the isolated candidate, with earlier player-name,
+tester safety, visibility, and exit-fencing fixes retained. The duty/vanish mode
+conflict is repaired: on-duty selection, recovery, restoration and queued-write
+validation use the applied duty rank and canonical mode policy. Off-duty vanish
+retains its previous policy. Helpers may use Survival/Spectator on duty;
+Mods/Developers remain Survival; Admin/Founder permitted modes remain intact.
+No permission backend or production authority was changed.
+
+An older RoseChat interface binary reproduces NoSuchMethodError for the new
+optional presence-render method. A narrow compatibility adapter now disables
+only that optional rendering path once and retains the existing active bridge.
+The focused policy and binary-compatibility regressions first failed as expected,
+then all nine focused tests passed. Runtime matching/live acceptance remain open;
+this synthetic old-API binary proof is not a production-provider acceptance test.
+
+The source repairs follow local candidate c8bf330d and repair commit d7588734.
+Full exact-head Java 25 clean test/check/runtimeJars, Wiki, orchestration and
+artifact verification must complete before the shared PR branch is updated;
+actual frozen head and results belong in PR #1's verification record. Test artifact
+version is 0.1.0-staff-bugs-test.6, explicitly unmerged/local test only. Docker,
+hosted/static, staging and client acceptance remain unverified. No unchanged
+unavailable gate is retried. No EARS/state helpers exist; bounded requirements,
+tasks and evidence are recorded here and in the canonical owner handoff.
+
+Next: finish complete synchronized-diff review and available exact-head local
+gates, then push reviewed source to existing draft PR #1. Publish the partial
+status through the allowed docs-only PR; do not merge the product PR, deploy,
+change production permissions or activate authority.
 
 ## Owner upstream reconciliation checkpoint, 2026-10-04
 
