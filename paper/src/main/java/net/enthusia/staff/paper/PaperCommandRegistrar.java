@@ -11,6 +11,7 @@ import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.application.ActivePlaytimeProvider;
 import net.enthusia.staff.domain.application.PunishmentDraftWorkflow;
 import net.enthusia.staff.domain.application.PunishmentRequestService;
+import net.enthusia.staff.domain.application.PunishmentService;
 import net.enthusia.staff.domain.application.SanctionChangeService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.ports.AtomicReasonPolicyRepository;
@@ -37,6 +38,7 @@ import net.enthusia.staff.paper.command.ReportCommand;
 import net.enthusia.staff.paper.command.ReportsCommand;
 import net.enthusia.staff.paper.command.SanctionChangeCommand;
 import net.enthusia.staff.paper.command.SanctionLifecycleCommand;
+import net.enthusia.staff.paper.command.StaffApiCommand;
 import net.enthusia.staff.paper.command.StaffChatCommand;
 import net.enthusia.staff.paper.command.StaffModeCommand;
 import net.enthusia.staff.paper.command.StaffWhoCommand;
@@ -117,6 +119,7 @@ final class PaperCommandRegistrar {
         configureEstaff();
         registerAccountLinkCommands();
         registerPunishmentCommands();
+        registerStaffApiCommands();
         registerSanctionChangeCommands();
         registerReportCommands();
         registerStaffCommands();
@@ -178,6 +181,18 @@ final class PaperCommandRegistrar {
                 plugin(), writeMode(), drafts, players, activeAuthorization, punishmentGui, requestHandler, workers()
         );
         PUNISHMENT_COMMANDS.forEach(name -> bindCompleting(name, command, command));
+    }
+
+    private void registerStaffApiCommands() {
+        Supplier<PunishmentService> punishments = storage(PaperStorageBindings::punishmentService);
+        Supplier<PlayerDirectory> players = storage(PaperStorageBindings::playerDirectory);
+        StaffApiCommand command = new StaffApiCommand(
+                punishments,
+                players,
+                authoritativeMode(),
+                clock()
+        );
+        bindCompleting("staffapi", command, command);
     }
 
     private void registerSanctionChangeCommands() {

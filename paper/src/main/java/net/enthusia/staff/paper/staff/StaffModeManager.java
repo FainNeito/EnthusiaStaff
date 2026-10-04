@@ -3,6 +3,7 @@ package net.enthusia.staff.paper.staff;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -19,6 +20,7 @@ import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 import net.enthusia.staff.paper.auth.PaperStaffRankResolver;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.GameMode;
 import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
@@ -77,6 +79,12 @@ public final class StaffModeManager implements Listener {
     private volatile Consumer<UUID> presenceListener = ignored -> { };
     private volatile Consumer<StaffSessionSnapshot> activeSessionListener = ignored -> {
     };
+    private volatile Consumer<UUID> gameModeTransitionGuardBegin = ignored -> {
+    };
+    private volatile Consumer<UUID> gameModeTransitionGuardEnd = ignored -> {
+    };
+    private volatile net.enthusia.staff.paper.audit.StaffActionLogger actionLogger;
+    private volatile java.util.function.Function<UUID, Boolean> vanishedLookup = id -> false;
 
     public StaffModeManager(
             JavaPlugin plugin,
@@ -120,6 +128,28 @@ public final class StaffModeManager implements Listener {
                 && !transitions.contains(playerId);
     }
 
+    /**
+     * Returns whether the currently applied Staff Mode profile is the Helper observer profile.
+     *
+     * <p>This deliberately reads the session's cached rank instead of live permissions so Helper
+     * protections remain fail-closed while a rank removal/change is being reconciled. The backing
+     * maps are concurrent, so callers may safely use this from another entity scheduler.</p>
+     */
+    boolean helperObserverActive(UUID playerId) {
+        return playerId != null
+                && active.containsKey(playerId)
+                && ranks.get(playerId) == StaffRank.HELPER;
+    }
+
+    /**
+     * Returns the authoritative Staff Mode session rank, or null if the player
+     * has no active session or the rank is currently being reconciled.
+     * Callers must treat null as fail-closed while Staff Mode is active.
+     */
+    public StaffRank sessionRank(UUID playerId) {
+        return playerId == null ? null : ranks.get(playerId);
+    }
+
     public CombatStatusAdapter combat() {
         return combat;
     }
@@ -138,6 +168,70 @@ public final class StaffModeManager implements Listener {
 
     public void setActiveSessionListener(Consumer<StaffSessionSnapshot> listener) {
         activeSessionListener = java.util.Objects.requireNonNull(listener);
+    }
+
+    /**
+     * Registers the vanish game-mode guard so staff-mode profile transitions are recognized as
+     * plugin-initiated instead of being cancelled (C1: entering staff mode while vanished as
+     * ADMIN/FOUNDER previously deadlocked on the vanish listener's gamemode cancellation).
+     */
+    public void setGameModeTransitionGuard(Consumer<UUID> begin, Consumer<UUID> end) {
+        this.gameModeTransitionGuardBegin = java.util.Objects.requireNonNull(begin, "begin");
+        this.gameModeTransitionGuardEnd = java.util.Objects.requireNonNull(end, "end");
+    }
+
+    /** Installs the staff-action audit logger (overnight permission model: tiered allow+log). */
+    public void setActionLogger(net.enthusia.staff.paper.audit.StaffActionLogger actionLogger) {
+        this.actionLogger = actionLogger;
+    }
+
+    /** Lets the manager read vanish state for audit lines without depending on VanishManager. */
+    public void setVanishedLookup(java.util.function.Function<UUID, Boolean> vanishedLookup) {
+        this.vanishedLookup = java.util.Objects.requireNonNull(vanishedLookup, "vanishedLookup");
+    }
+
+    /**
+     * Resolves the caller's on-duty tier, or {@code null} while a transition is in progress or
+     * the rank cannot be resolved (fail-closed callers must block).
+     */
+    public StaffDutyTier dutyTier(Player player) {
+        return StaffDutyTier.of(rankForAction(player));
+    }
+
+    private void audit(Player player, StaffRank rank, String action, String detail) {
+        net.enthusia.staff.paper.audit.StaffActionLogger logger = actionLogger;
+        if (logger == null) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        String playerName = player.getName();
+        boolean vanished;
+        try {
+            vanished = vanishedLookup.apply(playerId);
+        } catch (RuntimeException exception) {
+            vanished = false;
+        }
+        boolean onDuty = authorityActive(playerId);
+        logger.log(playerId, playerName, rank, vanished, onDuty, action, detail);
+    }
+
+    /**
+     * Writes one staff-action audit line for an allowed on-duty world/inventory interaction
+     * (Mod logged-not-blocked, Admin/Founder unrestricted-but-logged). Never throws.
+     */
+    public void logStaffAction(Player player, String action, String detail) {
+        try {
+            audit(player, rankForAction(player), action, detail);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(Level.FINE, "Staff action audit failed for " + action, exception);
+        }
+    }
+
+    private static String describe(ItemStack item) {
+        if (item == null || item.getType().isAir()) {
+            return "empty";
+        }
+        return item.getType() + "x" + item.getAmount();
     }
 
     public boolean prepareBackendHandoffResume(UUID playerId, UUID transferId) {
@@ -693,23 +787,50 @@ public final class StaffModeManager implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDrop(PlayerDropItemEvent event) {
-        if (protectedMode(event.getPlayer().getUniqueId())) {
-            event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (!protectedMode(player.getUniqueId())) {
+            return;
         }
+        StaffRank rank = rankForAction(player);
+        StaffDutyTier tier = StaffDutyTier.of(rank);
+        if (tier == null || tier == StaffDutyTier.HELPER) {
+            event.setCancelled(true);
+            return;
+        }
+        // Mod: logged-not-blocked. Admin/Founder: unrestricted but logged.
+        audit(player, rank, "item-drop", describe(event.getItemDrop().getItemStack()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPickup(EntityPickupItemEvent event) {
-        if (event.getEntity() instanceof Player player && protectedMode(player.getUniqueId())) {
-            event.setCancelled(true);
+        if (!(event.getEntity() instanceof Player player) || !protectedMode(player.getUniqueId())) {
+            return;
         }
+        StaffRank rank = rankForAction(player);
+        StaffDutyTier tier = StaffDutyTier.of(rank);
+        if (tier == null || tier == StaffDutyTier.HELPER) {
+            event.setCancelled(true);
+            return;
+        }
+        // Mod: logged-not-blocked. Admin/Founder: unrestricted but logged.
+        audit(player, rank, "item-pickup", describe(event.getItem().getItemStack()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onSwapHands(PlayerSwapHandItemsEvent event) {
-        if (protectedMode(event.getPlayer().getUniqueId())) {
-            event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (!protectedMode(player.getUniqueId())) {
+            return;
         }
+        StaffRank rank = rankForAction(player);
+        StaffDutyTier tier = StaffDutyTier.of(rank);
+        if (tier == null || tier == StaffDutyTier.HELPER) {
+            event.setCancelled(true);
+            return;
+        }
+        // Mod: logged-not-blocked (staff/empty inventory toggle). Admin/Founder: logged.
+        audit(player, rank, "inventory-swap-hands",
+                describe(event.getMainHandItem()) + " <-> " + describe(event.getOffHandItem()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -721,6 +842,13 @@ public final class StaffModeManager implements Listener {
         boolean ender = event.getView().getTopInventory().getType() == InventoryType.ENDER_CHEST;
         if (rank == null || StaffModeAccessPolicy.blocksInventoryMutation(rank, ender)) {
             event.setCancelled(true);
+            return;
+        }
+        StaffDutyTier tier = StaffDutyTier.of(rank);
+        if (tier == StaffDutyTier.MOD || tier == StaffDutyTier.ADMIN) {
+            audit(player, rank, "inventory-edit",
+                    event.getClick() + " container=" + event.getView().getTopInventory().getType()
+                            + " item=" + describe(event.getCurrentItem()));
         }
     }
 
@@ -735,6 +863,13 @@ public final class StaffModeManager implements Listener {
                 || StaffModeAccessPolicy.blocksInventoryMutation(rank, ender)
                 || isStaffTool(event.getOldCursor())) {
             event.setCancelled(true);
+            return;
+        }
+        StaffDutyTier tier = StaffDutyTier.of(rank);
+        if (tier == StaffDutyTier.MOD || tier == StaffDutyTier.ADMIN) {
+            audit(player, rank, "inventory-edit",
+                    "drag container=" + event.getView().getTopInventory().getType()
+                            + " cursor=" + describe(event.getOldCursor()));
         }
     }
 
@@ -1042,7 +1177,12 @@ public final class StaffModeManager implements Listener {
             player.setInvulnerable(true);
             player.setCollidable(false);
             player.setCanPickupItems(false);
-            player.setGameMode(targetGameMode);
+            gameModeTransitionGuardBegin.accept(playerId);
+            try {
+                player.setGameMode(targetGameMode);
+            } finally {
+                gameModeTransitionGuardEnd.accept(playerId);
+            }
             if (player.getGameMode() != targetGameMode) {
                 throw new IllegalStateException("staff game mode transition was rejected");
             }
@@ -1067,6 +1207,7 @@ public final class StaffModeManager implements Listener {
         ItemStack item = ItemStack.of(tool.material());
         ItemMeta meta = item.getItemMeta();
         meta.displayName(Component.text(tool.displayName()));
+        meta.lore(List.of(Component.text(tool.description(), NamedTextColor.GRAY)));
         PersistentDataContainer data = meta.getPersistentDataContainer();
         data.set(staffToolKey, PersistentDataType.STRING, tool.id());
         data.set(staffToolOwnerKey, PersistentDataType.STRING, playerId.toString());

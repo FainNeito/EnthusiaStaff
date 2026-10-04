@@ -4,6 +4,7 @@ import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -62,9 +63,12 @@ public final class VanishManager implements Listener {
     private final Set<UUID> staffSessionCheckFailureNotified = ConcurrentHashMap.newKeySet();
     private final Set<UUID> pendingStaffModeExitDisables = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean rankReconciliationStarted = new AtomicBoolean();
+    private final AtomicBoolean durableVanishLoaded = new AtomicBoolean();
     private final AtomicInteger rankReconciliationPass = new AtomicInteger();
     private final VanishAudienceCoordinator<Player> audiences;
     private final SpectatorTabPacketAdapter spectatorTabPackets;
+    private volatile PresenceTransitionSink presenceTransitionSink = (subjectId, viewerId, vanished) -> {
+    };
 
     public VanishManager(
             JavaPlugin plugin,
@@ -89,6 +93,7 @@ public final class VanishManager implements Listener {
     }
 
     public void initialize() {
+        durableVanishLoaded.set(false);
         submit(() -> {
             VanishStore loaded = store.get();
             if (loaded == null) {
@@ -100,6 +105,7 @@ public final class VanishManager implements Listener {
                     rememberPersistedGameMode(record);
                     visibility.setVanished(record.staffId(), record.rank(), true);
                 }
+                durableVanishLoaded.set(true);
                 recoverOnlinePlayers();
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.SEVERE, "Vanish-state initialization failed", exception);
@@ -169,6 +175,87 @@ public final class VanishManager implements Listener {
 
     public boolean isVanished(UUID playerId) {
         return visibility.isVanished(playerId);
+    }
+
+    /**
+     * Returns whether RoseChat may safely decide a real login/logout presence message for this player.
+     * A currently vanished player is always known immediately; otherwise the initial durable vanish
+     * scan must have completed so a cold-start login cannot leak a persisted vanish state.
+     */
+    public boolean presenceStateReady(UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return visibility.isVanished(playerId) || durableVanishLoaded.get();
+    }
+
+    public void setPresenceTransitionSink(PresenceTransitionSink sink) {
+        presenceTransitionSink = Objects.requireNonNull(sink, "sink");
+    }
+
+    public void clearPresenceTransitionSink() {
+        presenceTransitionSink = (subjectId, viewerId, vanished) -> {
+        };
+    }
+
+    /**
+     * Cross-server transfer hook (overnight/cross-server). Read-only: returns the staff
+     * member's selected vanish game mode, if known, for inclusion in a transfer snapshot.
+     * Does not change any vanish state.
+     */
+    public java.util.Optional<GameMode> transferSelectedGameMode(UUID playerId) {
+        if (playerId == null) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.ofNullable(selectedGameModes.get(playerId));
+    }
+
+    /**
+     * Cross-server transfer hook (overnight/cross-server). Applies a vanish state snapshot
+     * carried from the source backend, before the join-message logic runs on arrival.
+     *
+     * <p>The transferred snapshot is authoritative for this session: it is applied
+     * synchronously from in-memory state with no database write. The existing asynchronous
+     * durable-vanish load remains the fallback and reconciles with the database afterwards.
+     * When the snapshot says the player was not vanished this is a no-op.</p>
+     */
+    public void applyTransferSnapshot(
+            Player player,
+            net.enthusia.staff.domain.staff.StaffTransferSnapshot snapshot
+    ) {
+        java.util.Objects.requireNonNull(player, "player");
+        java.util.Objects.requireNonNull(snapshot, "snapshot");
+        if (!snapshot.vanished()) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        if (!snapshot.playerId().equals(playerId)) {
+            throw new IllegalArgumentException("transfer snapshot belongs to a different player");
+        }
+        StaffRank rank = snapshot.rank() != null
+                ? snapshot.rank()
+                : PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
+        if (rank == null) {
+            plugin.getLogger().warning(
+                    "Ignoring cross-server vanish snapshot for " + playerId
+                            + ": no staff rank available on this backend");
+            return;
+        }
+        durableVanishedRanks.put(playerId, rank);
+        if (snapshot.selectedGameMode() != null) {
+            try {
+                selectedGameModes.put(playerId, GameMode.valueOf(snapshot.selectedGameMode()));
+            } catch (IllegalArgumentException exception) {
+                plugin.getLogger().warning(
+                        "Ignoring invalid transferred vanish selected game mode for " + playerId);
+            }
+        }
+        visibility.setVanished(playerId, rank, true);
+        applyVanishGameMode(player);
+        audiences.updateGameMode(playerId, player.getGameMode());
+        audiences.refreshViewer(playerId);
+        audiences.refreshTarget(playerId);
+        plugin.getLogger().info(
+                "Applied cross-server vanish snapshot for " + player.getName()
+                        + " from backend " + snapshot.sourceServer());
     }
 
     public boolean canSee(UUID viewerId, UUID targetId) {
@@ -243,6 +330,20 @@ public final class VanishManager implements Listener {
         audiences.onOwner(playerId, player -> disableAfterStaffModeExit(playerId, player));
     }
 
+    /**
+     * Marks a game-mode change as plugin-initiated so {@link #onGameModeChange} does not cancel
+     * it for vanished staff (C1: staff-mode profile transitions, e.g. forcing a vanished Mod to
+     * Survival on duty-enter, must not be mistaken for the player leaving vanish-spectator).
+     */
+    public void beginPluginGameModeApplication(UUID playerId) {
+        vanishGameModeApplications.add(Objects.requireNonNull(playerId, "playerId"));
+    }
+
+    /** Clears the plugin-initiated game-mode marker installed by {@link #beginPluginGameModeApplication}. */
+    public void endPluginGameModeApplication(UUID playerId) {
+        vanishGameModeApplications.remove(playerId);
+    }
+
     private void disableAfterStaffModeExit(UUID playerId, Player player) {
         audiences.refreshTarget(playerId);
         durableStaffSessionPresence.put(playerId, false);
@@ -294,7 +395,9 @@ public final class VanishManager implements Listener {
             persistState(loaded, playerId, rank, vanished, selectedGameMode);
             rememberCommittedState(playerId, rank, vanished, restoreSelectedMode, selectedGameMode);
             boolean viewerChanged = publishViewerRank(playerId, rank);
+            Set<UUID> hiddenBefore = vanished ? Set.of() : hiddenPresenceViewers(playerId);
             visibility.setVanished(playerId, rank, vanished);
+            Set<UUID> presenceViewers = vanished ? hiddenPresenceViewers(playerId) : hiddenBefore;
             if (vanished) {
                 hiddenSpectators.remove(playerId);
             }
@@ -302,7 +405,13 @@ public final class VanishManager implements Listener {
             reconciliationFailureNotified.remove(playerId);
             audiences.onOwner(
                     playerId,
-                    current -> finishSet(current, vanished, viewerChanged, restoreSelectedMode)
+                    current -> finishSet(
+                            current,
+                            vanished,
+                            viewerChanged,
+                            restoreSelectedMode,
+                            presenceViewers
+                    )
             );
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.SEVERE, "Vanish state change failed", exception);
@@ -357,7 +466,8 @@ public final class VanishManager implements Listener {
             Player player,
             boolean vanished,
             boolean viewerChanged,
-            boolean restoreSelectedMode
+            boolean restoreSelectedMode,
+            Set<UUID> presenceViewers
     ) {
         UUID playerId = player.getUniqueId();
         if (vanished) {
@@ -373,7 +483,32 @@ public final class VanishManager implements Listener {
             audiences.refreshViewer(playerId);
         }
         audiences.refreshTarget(playerId);
+        publishPresenceTransition(playerId, vanished, presenceViewers);
         player.sendMessage(StaffMessageStyle.style(Component.text(vanished ? "Vanish enabled." : "Vanish disabled.")));
+    }
+
+    private Set<UUID> hiddenPresenceViewers(UUID subjectId) {
+        return Set.copyOf(audiences.playerIds().stream()
+                .filter(viewerId -> !viewerId.equals(subjectId))
+                .filter(viewerId -> !visibility.canSee(viewerId, subjectId))
+                .toList());
+    }
+
+    private void publishPresenceTransition(UUID subjectId, boolean vanished, Set<UUID> viewerIds) {
+        PresenceTransitionSink sink = presenceTransitionSink;
+        for (UUID viewerId : viewerIds) {
+            audiences.onOwner(viewerId, ignored -> {
+                try {
+                    sink.publish(subjectId, viewerId, vanished);
+                } catch (RuntimeException | LinkageError exception) {
+                    plugin.getLogger().log(
+                            Level.WARNING,
+                            "RoseChat vanish presence transition failed for viewer " + viewerId,
+                            exception
+                    );
+                }
+            });
+        }
     }
 
     private void reconcileLiveRank(Player player) {
@@ -667,7 +802,7 @@ public final class VanishManager implements Listener {
         }
         if (visibility.isVanished(playerId) && !vanishGameModeApplications.contains(playerId)) {
             StaffRank rank = resolveLiveRank(player);
-            if (!isSelectableGameMode(rank, event.getNewGameMode())) {
+            if (!isSelectableGameMode(playerId, rank, event.getNewGameMode())) {
                 event.setCancelled(true);
                 return;
             }
@@ -1006,22 +1141,37 @@ public final class VanishManager implements Listener {
 
     private GameMode selectedGameModeForEnable(Player player, StaffRank rank) {
         GameMode current = player.getGameMode();
-        return isSelectableGameMode(rank, current) ? current : defaultSelectedGameMode(rank);
+        UUID playerId = player.getUniqueId();
+        return isSelectableGameMode(playerId, rank, current)
+                ? current : defaultSelectedGameMode(playerId, rank);
     }
 
-    private static GameMode defaultSelectedGameMode(StaffRank rank) {
-        return VanishGameModePolicy.defaultMode(rank);
+    private GameMode defaultSelectedGameMode(UUID playerId, StaffRank rank) {
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        return VanishGameModePolicy.defaultMode(authority.rank(), authority.onDuty());
     }
 
-    private static boolean isSelectableGameMode(StaffRank rank, GameMode mode) {
-        return VanishGameModePolicy.allows(rank, mode);
+    private boolean isSelectableGameMode(UUID playerId, StaffRank rank, GameMode mode) {
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        return VanishGameModePolicy.allows(authority.rank(), mode, authority.onDuty());
+    }
+
+    private ModeAuthority modeAuthority(UUID playerId, StaffRank liveRank) {
+        // Duty profiles own their applied rank; visibility and permission refreshes
+        // must not temporarily widen or replace that profile's mode authority.
+        boolean onDuty = staffMode.active(playerId);
+        return new ModeAuthority(onDuty ? staffMode.activeRank(playerId) : liveRank, onDuty);
+    }
+
+    private record ModeAuthority(StaffRank rank, boolean onDuty) {
     }
 
     private void applyVanishGameMode(Player player) {
         UUID playerId = player.getUniqueId();
         StaffRank rank = resolveLiveRank(player);
-        GameMode selected = VanishGameModePolicy.reconcile(rank,
-                selectedGameModes.getOrDefault(playerId, player.getGameMode()));
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        GameMode selected = VanishGameModePolicy.reconcile(authority.rank(),
+                selectedGameModes.getOrDefault(playerId, player.getGameMode()), authority.onDuty());
         if (player.getGameMode() == selected) {
             return;
         }
@@ -1050,7 +1200,7 @@ public final class VanishManager implements Listener {
         player.getScheduler().execute(plugin, () -> {
             StaffRank rank = resolveLiveRank(player);
             if (visibility.isVanished(playerId) && player.getGameMode() == selected
-                    && isSelectableGameMode(rank, selected)) {
+                    && isSelectableGameMode(playerId, rank, selected)) {
                 selectedGameModes.put(playerId, selected);
                 persistSelectedGameMode(playerId, rank, selected);
             }
@@ -1060,9 +1210,9 @@ public final class VanishManager implements Listener {
     private void restoreSelectedGameMode(Player player) {
         UUID playerId = player.getUniqueId();
         StaffRank rank = resolveLiveRank(player);
-        GameMode selected = selectedGameModes.getOrDefault(playerId, defaultSelectedGameMode(rank));
-        if (!isSelectableGameMode(rank, selected)) {
-            selected = defaultSelectedGameMode(rank);
+        GameMode selected = selectedGameModes.getOrDefault(playerId, defaultSelectedGameMode(playerId, rank));
+        if (!isSelectableGameMode(playerId, rank, selected)) {
+            selected = defaultSelectedGameMode(playerId, rank);
         }
         vanishGameModeApplications.add(playerId);
         try {
@@ -1112,7 +1262,7 @@ public final class VanishManager implements Listener {
                     audiences.onOwner(playerId, player -> {
                         GameMode latest = selectedGameModes.get(playerId);
                         StaffRank liveRank = resolveLiveRank(player);
-                        if (visibility.isVanished(playerId) && isSelectableGameMode(liveRank, latest)) {
+                        if (visibility.isVanished(playerId) && isSelectableGameMode(playerId, liveRank, latest)) {
                             persistSelectedGameMode(playerId, liveRank, latest);
                         }
                     });
@@ -1121,6 +1271,11 @@ public final class VanishManager implements Listener {
         })) {
             selectedModeWrites.remove(playerId);
         }
+    }
+
+    @FunctionalInterface
+    public interface PresenceTransitionSink {
+        void publish(UUID subjectId, UUID viewerId, boolean vanished);
     }
 
     private boolean submit(Runnable operation) {

@@ -1,5 +1,95 @@
 # Confirm-player fork handoff
 
+## Owner reconciliation repairs, 2026-10-04 follow-up
+
+The same owner package remains PARTIAL / ACTIONABLE_CONTINUATION. Canonical
+upstream 93e81ca1 is reconciled in the isolated candidate, with earlier player-name,
+tester safety, visibility, and exit-fencing fixes retained. The duty/vanish mode
+conflict is repaired: on-duty selection, recovery, restoration and queued-write
+validation use the applied duty rank and canonical mode policy. Off-duty vanish
+retains its previous policy. Helpers may use Survival/Spectator on duty;
+Mods/Developers remain Survival; Admin/Founder permitted modes remain intact.
+No permission backend or production authority was changed.
+
+An older RoseChat interface binary reproduces NoSuchMethodError for the new
+optional presence-render method. A narrow compatibility adapter now disables
+only that optional rendering path once and retains the existing active bridge.
+The focused policy and binary-compatibility regressions first failed as expected,
+then all nine focused tests passed. Runtime matching/live acceptance remain open;
+this synthetic old-API binary proof is not a production-provider acceptance test.
+
+The source repairs follow local candidate c8bf330d and repair commit d7588734.
+Full exact-head Java 25 clean test/check/runtimeJars, Wiki, orchestration and
+artifact verification must complete before the shared PR branch is updated;
+actual frozen head and results belong in PR #1's verification record. Test artifact
+version is 0.1.0-staff-bugs-test.6, explicitly unmerged/local test only. Docker,
+hosted/static, staging and client acceptance remain unverified. No unchanged
+unavailable gate is retried. No EARS/state helpers exist; bounded requirements,
+tasks and evidence are recorded here and in the canonical owner handoff.
+
+Next: finish complete synchronized-diff review and available exact-head local
+gates, then push reviewed source to existing draft PR #1. Publish the partial
+status through the allowed docs-only PR; do not merge the product PR, deploy,
+change production permissions or activate authority.
+
+## Historical isolated upstream reconciliation proof, 2026-10-04
+
+Continuation requirement: on-duty vanish must use the applied Staff Mode rank and
+its canonical game-mode policy; off-duty vanish keeps its existing policy.
+Helper Survival must remain selectable, Mod/Developer must remain Survival, and
+Admin/Founder permitted modes must survive both paths. Missing applied authority
+must fail closed. Older RoseChat binaries without the optional presence-render
+method must not propagate a linkage error or disable the existing bridge.
+Establish focused failing regressions before these repairs, then verify the
+synchronized exact head and retain the separate runtime/client acceptance gaps.
+
+This section records the initial local candidate before the later repair checkpoint.
+Starting owner head: `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`.
+Canonical upstream: `93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
+Worktree: `EnthusiaStaff-upstream-proof`, branch `package/owner-staff-upstream-proof`.
+The automatic merge has no textual conflicts. Requirements: retain names,
+actor-bound confirmation, safe tester recovery, exit fencing and permitted
+Admin/Founder modes; reconcile canonical on-duty rank policies and companion API
+compatibility before pushing any candidate. Existing tests are regression evidence,
+not historical red/green proof. No EARS/state helper was located in this checkout;
+this record tracks the bounded requirement/task/evidence instead.
+
+Initial focused build failed at Paper compilation: the new transfer hook calls
+removed `enforceVanishSpectator`. Route that hook through the retained authorized
+vanish mode implementation, then rerun the relevant module suites. Further review
+must resolve the overlap between canonical on-duty mode profiles and the fork's
+vanish mode policy, and verify RoseChat's new presence contract against the actual
+supported provider. No production, shared branch, or authority changes.
+## Owner upstream reconciliation checkpoint, 2026-10-04
+
+Owner package remains `PARTIAL` / `ACTIONABLE_CONTINUATION`. Product PR #1 remains
+open/draft at `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`; its two existing review
+threads are resolved. Canonical upstream was fetched at
+`93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
+
+Isolated local candidate: branch `package/owner-staff-upstream-proof`, worktree
+`EnthusiaStaff-upstream-proof`, checkpoint
+`c8bf330d16618808b678bc1fff0fc6c97f6bc0bb`. It is not pushed, merged into canonical
+main, a release, or a deployment. Automatic source merge was conflict-free but
+Paper compilation failed because the transfer hook referenced a removed method.
+The hook now routes through the retained authorized vanish-mode implementation.
+Four source-wiring tests failed on Windows CRLF and their source readers now
+normalize line endings without removing assertions. Selected Paper, Velocity,
+domain and protocol suites then report 1,225 tests, zero failures/errors and one
+existing Windows symlink skip. No new full-build, hosted, Docker, staging, runtime
+artifact or client acceptance pass is claimed. EARS/state helper tooling was not
+located; bounded requirements/tasks/evidence are maintained in the candidate handoff.
+
+Next: resolve the overlap between canonical on-duty game-mode authority and the
+fork vanish policy (Helper Survival and Mod/Developer Survival), preserving
+Admin/Founder selections, names, tester safety and exit fencing; establish
+cross-policy regression evidence. Verify the new RoseChat presence API against
+the supported provider runtime before acceptance. An available older source
+snapshot lacks that API; this is not production-version evidence. Then review
+and validate the complete synchronized candidate before pushing source to existing
+PR #1. Upstream routing remains unchanged. No product PR merge, production change,
+permission change or authority activation is authorized by this checkpoint.
+
 ## Review follow-up (2026-10-03, 08:15 UTC)
 
 Owner confirmation: the reported environment is production; no fork deployment or production verification is implied. Baseline PR head: `f1999bd144a8cddee1121a4773a97eb301c8bbbc`. CodeRabbit run `d3c2adc6-c7ea-44cd-b588-bd351600f720` completed with two valid findings, both repaired in the current checkpoint: canonical UUID confirmation first checks for an actor-owned draft and otherwise resolves the target-bound draft; loose UUID-like names are not coerced. Queued offline inventory edits now recheck view permission and staff identity alongside edit permission and an active session on the owning scheduler. Added regression coverage passes the Paper suite. Frozen repair and package-record head: `73f04425996a3b1fab67062ffc7b8e2dfdc69caf`. Java 25.0.3 clean all-module unit test/check/runtimeJars passed: 1,580 tests total, two existing Windows skips, zero failures/errors, Docker-dependent :integration-tests:test excluded. Final synchronized head and artifact hashes are recorded on PR #1. Version: `0.1.0-staff-bugs-test.5`.
@@ -130,3 +220,22 @@ bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f.
 Next action: non-production hotbar, spectator wall movement, F3 shortcut, permission
 revocation, restart, and names acceptance plus available integration/hosted gates before
 merge. Preserve draft PR #1 and implementation branch; exact frozen heads are on the PR.
+
+Proof result: selected Paper/Velocity/domain/protocol suites report 1,225 tests,
+zero failures/errors and one existing Windows symlink skip. Paper compilation
+first failed on the removed transfer-hook method and was corrected locally.
+Four source-wiring tests then failed solely on CRLF; their source readers now
+normalize CRLF while retaining their assertions. The selected suites pass after
+those repairs. This is not a clean full-build, hosted, Docker, staging or client
+acceptance result, and no runtime JAR was delivered.
+
+Pending merge review finding: canonical StaffModeAccessPolicy permits Helper
+Survival and requires Mod/Developer Survival on duty; the retained fork
+VanishGameModePolicy still rejects those selections and its periodic reconciliation
+can force Spectator. Reconcile active-duty ownership without changing off-duty
+vanish behavior or broadening permissions, and add cross-policy regression proof.
+The new BridgeRegistration.renderPresence contract is absent from the available
+rosechat-26.2 source snapshot; verify the supported runtime binary or provide a
+safe compatibility path before accepting the integration. This snapshot is not
+production-version evidence. Shared PR #1 remains at 14dbab0; both existing review
+threads are resolved and no new head was pushed. Local candidate remains PARTIAL.
