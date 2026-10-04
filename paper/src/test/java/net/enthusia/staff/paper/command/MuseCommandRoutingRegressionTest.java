@@ -15,12 +15,21 @@ class MuseCommandRoutingRegressionTest {
     private static final String TARGET = "Target";
 
     @Test
-    void centralPunishSingleArgumentDoesNotOpenTheGui() throws IOException {
+    void centralPunishSingleArgumentOpensTheGui() throws IOException {
         String source = source("PunishmentCommand.java");
         String method = method(source, "private boolean openTargetOnlyGui", "private void prepareStoredDraft");
 
-        assertTrue(method.contains("CENTRAL_COMMAND.equals(route)"));
-        assertTrue(method.contains("return false;"));
+        assertFalse(method.contains("CENTRAL_COMMAND.equals(route)"));
+        assertTrue(method.contains("gui.open(player, args[0], route)"));
+    }
+
+    @Test
+    void centralPunishWithoutArgumentsOpensTheTargetPicker() throws IOException {
+        String source = source("PunishmentCommand.java");
+        String command = method(source, "public boolean onCommand", "private void prepare");
+
+        assertTrue(command.contains("CENTRAL_COMMAND.equals(route) && sender instanceof Player player"));
+        assertTrue(command.contains("gui.openTargetPicker(player, route)"));
     }
 
     @Test
