@@ -68,6 +68,7 @@ sealed interface PunishmentGuiState {
             String commandName,
             PunishmentGuiOverview overview,
             ModerationHistoryPage history,
+            boolean sensitiveHistory,
             PunishmentGuiState returnState
     ) implements PunishmentGuiState {
         public History {
