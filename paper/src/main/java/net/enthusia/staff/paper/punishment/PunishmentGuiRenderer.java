@@ -107,15 +107,24 @@ final class PunishmentGuiRenderer {
         for (int index = 0; index < CONTENT_SIZE && offset + index < categories.size(); index++) {
             String family = categories.get(offset + index);
             int reasonCount = catalog.reasons(actor, state.commandName(), family).size();
+            List<Component> lore = new ArrayList<>();
+            lore.add(Component.text(
+                    reasonCount + " available reason" + (reasonCount == 1 ? "" : "s"),
+                    NamedTextColor.GRAY
+            ));
+            if (state.overview().casesAvailable()) {
+                lore.add(Component.text(
+                        "Recent family cases: " + state.overview().familyCaseCount(family)
+                                + (state.overview().recentCasesTruncated() ? "+" : ""),
+                        NamedTextColor.GREEN
+                ));
+            }
+            lore.add(Component.text("Click to choose an exact reason", NamedTextColor.YELLOW));
             inventory.setItem(CONTENT_START + index, item(
                     familyMaterial(family),
                     humanize(family),
                     familyColor(family),
-                    List.of(
-                            Component.text(reasonCount + " available reason" + (reasonCount == 1 ? "" : "s"),
-                                    NamedTextColor.GRAY),
-                            Component.text("Click to choose an exact reason", NamedTextColor.YELLOW)
-                    )
+                    lore
             ));
         }
         if (categories.isEmpty()) {
