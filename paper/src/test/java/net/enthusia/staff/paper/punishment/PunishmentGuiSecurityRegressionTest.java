@@ -39,6 +39,8 @@ class PunishmentGuiSecurityRegressionTest {
 
         assertFalse(source.contains("sensitiveHistory"));
         assertFalse(source.contains("ModerationHistoryEntry"));
+        assertFalse(source.contains("CaseReview"));
+        assertFalse(source.contains("internalExplanation"));
         assertTrue(controller.contains("historyOptions(active, false)"));
         assertTrue(controller.contains("private static final int OVERVIEW_HISTORY_LIMIT = 1"));
     }
