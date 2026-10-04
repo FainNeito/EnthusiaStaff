@@ -1,5 +1,35 @@
 # Workspace state
 
+## Owner upstream reconciliation checkpoint, 2026-10-04
+
+Owner package remains `PARTIAL` / `ACTIONABLE_CONTINUATION`. Product PR #1 remains
+open/draft at `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`; its two existing review
+threads are resolved. Canonical upstream was fetched at
+`93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
+
+Isolated local candidate: branch `package/owner-staff-upstream-proof`, worktree
+`EnthusiaStaff-upstream-proof`, checkpoint
+`c8bf330d16618808b678bc1fff0fc6c97f6bc0bb`. It is not pushed, merged into canonical
+main, a release, or a deployment. Automatic source merge was conflict-free but
+Paper compilation failed because the transfer hook referenced a removed method.
+The hook now routes through the retained authorized vanish-mode implementation.
+Four source-wiring tests failed on Windows CRLF and their source readers now
+normalize line endings without removing assertions. Selected Paper, Velocity,
+domain and protocol suites then report 1,225 tests, zero failures/errors and one
+existing Windows symlink skip. No new full-build, hosted, Docker, staging, runtime
+artifact or client acceptance pass is claimed. EARS/state helper tooling was not
+located; bounded requirements/tasks/evidence are maintained in the candidate handoff.
+
+Next: resolve the overlap between canonical on-duty game-mode authority and the
+fork vanish policy (Helper Survival and Mod/Developer Survival), preserving
+Admin/Founder selections, names, tester safety and exit fencing; establish
+cross-policy regression evidence. Verify the new RoseChat presence API against
+the supported provider runtime before acceptance. An available older source
+snapshot lacks that API; this is not production-version evidence. Then review
+and validate the complete synchronized candidate before pushing source to existing
+PR #1. Upstream routing remains unchanged. No product PR merge, production change,
+permission change or authority activation is authorized by this checkpoint.
+
 ## Review follow-up (2026-10-03, 08:15 UTC)
 
 Owner confirmation: the reported environment is production; no fork deployment or production verification is implied. Baseline PR head: `f1999bd144a8cddee1121a4773a97eb301c8bbbc`. CodeRabbit run `d3c2adc6-c7ea-44cd-b588-bd351600f720` completed with two valid findings, both repaired in the current checkpoint: canonical UUID confirmation first checks for an actor-owned draft and otherwise resolves the target-bound draft; loose UUID-like names are not coerced. Queued offline inventory edits now recheck view permission and staff identity alongside edit permission and an active session on the owning scheduler. Added regression coverage passes the Paper suite. Frozen repair and package-record head: `73f04425996a3b1fab67062ffc7b8e2dfdc69caf`. Java 25.0.3 clean all-module unit test/check/runtimeJars passed: 1,580 tests total, two existing Windows skips, zero failures/errors, Docker-dependent :integration-tests:test excluded. Final synchronized head and artifact hashes are recorded on PR #1. Version: `0.1.0-staff-bugs-test.5`.

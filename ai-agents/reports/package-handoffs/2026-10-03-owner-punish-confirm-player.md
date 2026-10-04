@@ -1,6 +1,6 @@
 # Confirm-player fork handoff
 
-## Isolated upstream reconciliation proof, 2026-10-04
+## Historical isolated upstream reconciliation proof, 2026-10-04
 
 Continuation requirement: on-duty vanish must use the applied Staff Mode rank and
 its canonical game-mode policy; off-duty vanish keeps its existing policy.
@@ -11,7 +11,7 @@ method must not propagate a linkage error or disable the existing bridge.
 Establish focused failing regressions before these repairs, then verify the
 synchronized exact head and retain the separate runtime/client acceptance gaps.
 
-This is an uncommitted local candidate, not the shared PR head or a release.
+This section records the initial local candidate before the later repair checkpoint.
 Starting owner head: `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`.
 Canonical upstream: `93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
 Worktree: `EnthusiaStaff-upstream-proof`, branch `package/owner-staff-upstream-proof`.
@@ -28,6 +28,35 @@ vanish mode implementation, then rerun the relevant module suites. Further revie
 must resolve the overlap between canonical on-duty mode profiles and the fork's
 vanish mode policy, and verify RoseChat's new presence contract against the actual
 supported provider. No production, shared branch, or authority changes.
+## Owner upstream reconciliation checkpoint, 2026-10-04
+
+Owner package remains `PARTIAL` / `ACTIONABLE_CONTINUATION`. Product PR #1 remains
+open/draft at `14dbab0fb63ad8b332cfd2bb82dd5da3eefdee6f`; its two existing review
+threads are resolved. Canonical upstream was fetched at
+`93e81ca1d4a1d2ce4f1199c91130bb7963093dcc`.
+
+Isolated local candidate: branch `package/owner-staff-upstream-proof`, worktree
+`EnthusiaStaff-upstream-proof`, checkpoint
+`c8bf330d16618808b678bc1fff0fc6c97f6bc0bb`. It is not pushed, merged into canonical
+main, a release, or a deployment. Automatic source merge was conflict-free but
+Paper compilation failed because the transfer hook referenced a removed method.
+The hook now routes through the retained authorized vanish-mode implementation.
+Four source-wiring tests failed on Windows CRLF and their source readers now
+normalize line endings without removing assertions. Selected Paper, Velocity,
+domain and protocol suites then report 1,225 tests, zero failures/errors and one
+existing Windows symlink skip. No new full-build, hosted, Docker, staging, runtime
+artifact or client acceptance pass is claimed. EARS/state helper tooling was not
+located; bounded requirements/tasks/evidence are maintained in the candidate handoff.
+
+Next: resolve the overlap between canonical on-duty game-mode authority and the
+fork vanish policy (Helper Survival and Mod/Developer Survival), preserving
+Admin/Founder selections, names, tester safety and exit fencing; establish
+cross-policy regression evidence. Verify the new RoseChat presence API against
+the supported provider runtime before acceptance. An available older source
+snapshot lacks that API; this is not production-version evidence. Then review
+and validate the complete synchronized candidate before pushing source to existing
+PR #1. Upstream routing remains unchanged. No product PR merge, production change,
+permission change or authority activation is authorized by this checkpoint.
 
 ## Review follow-up (2026-10-03, 08:15 UTC)
 
