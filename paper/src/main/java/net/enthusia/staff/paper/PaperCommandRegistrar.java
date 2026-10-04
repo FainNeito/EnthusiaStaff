@@ -173,19 +173,21 @@ final class PaperCommandRegistrar {
         Supplier<ReportStore> reports = storage(PaperStorageBindings::reportStore);
         AuthorizationPolicy activeAuthorization = activeAuthorization();
         PunishmentGuiController punishmentGui = new PunishmentGuiController(
-                plugin(),
-                clock(),
-                writeMode(),
-                drafts,
-                players,
-                activeAuthorization,
-                reasons(),
-                histories,
-                cases,
-                sanctions,
-                reports,
-                moderationSettings::current,
-                workers()
+                new PunishmentGuiController.Dependencies(
+                        plugin(),
+                        clock(),
+                        writeMode(),
+                        drafts,
+                        players,
+                        activeAuthorization,
+                        reasons(),
+                        histories,
+                        cases,
+                        sanctions,
+                        reports,
+                        moderationSettings::current,
+                        workers()
+                )
         );
         plugin().getServer().getPluginManager().registerEvents(punishmentGui, plugin());
         PunishmentRequestGuiController requestGui = new PunishmentRequestGuiController(
