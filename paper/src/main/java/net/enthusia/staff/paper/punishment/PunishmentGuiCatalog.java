@@ -41,6 +41,14 @@ final class PunishmentGuiCatalog {
         return policies.describe(reasonId);
     }
 
+    Optional<ReasonPolicy> find(String reasonId) {
+        return policies.find(reasonId);
+    }
+
+    String activeVersion() {
+        return policies.activeVersion();
+    }
+
     private List<ReasonPolicy> available(Actor actor, String commandName) {
         boolean mayIssue = authorization.permits(actor, ModerationAction.ISSUE_POLICY_SANCTION);
         boolean mayRequest = authorization.permits(actor, ModerationAction.REQUEST_POLICY_SANCTION);

@@ -1,5 +1,24 @@
 # Workspace state
 
+## Owner GUI reconciliation requirement and task, 2026-10-04
+
+Same owner package: PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
+Canonical upstream 18d4f4b (punishment GUI PR #320) is being reconciled from
+owner head dd62fc46 in an isolated worktree. Requirement: preserve friendly
+player labels, actor-owned name confirmation, UUID identity and existing
+privacy/authority behavior while retaining the new target picker, configured
+ladder and permission-rechecked history. Remove redundant UUID player lore
+when a friendly label is available. No schema, permission or deployment changes.
+
+Tasks: reconcile imports/layout and labels; inspect new command/history paths;
+run focused name, GUI security and prior vanish/provider regressions, then
+freeze and run Java 25 clean test/check/runtimeJars and Wiki validation. Record
+actual results and exact heads in PR #1. No historical red/green claim is made
+for integration of upstream code. Existing EARS/state helpers are absent;
+this bounded requirement/task/evidence record is the fallback. Previously
+unavailable Docker, hosted/static, staging and real-client gates remain open
+and are not retried without changed availability. Product merge is unauthorized.
+
 ## Owner reconciliation verification, 2026-10-04
 
 Owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft fork PR #1.
