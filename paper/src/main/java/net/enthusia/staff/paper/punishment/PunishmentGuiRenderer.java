@@ -164,7 +164,7 @@ final class PunishmentGuiRenderer {
 
         inventory.setItem(10, reasonReviewItem(draft, policy));
         inventory.setItem(12, escalationItem(state));
-        inventory.setItem(14, recommendationItem(state));
+        inventory.setItem(14, recommendationItem(state, policy));
         inventory.setItem(16, safetyItem(state, catalog.activeVersion()));
         if (assessment.isPresent()) {
             renderLadder(inventory, assessment.orElseThrow());
@@ -398,9 +398,12 @@ final class PunishmentGuiRenderer {
         return item(Material.PRISMARINE_CRYSTALS, "Escalation Context", NamedTextColor.AQUA, lore);
     }
 
-    private static ItemStack recommendationItem(PunishmentGuiState.Review state) {
+    private static ItemStack recommendationItem(
+            PunishmentGuiState.Review state,
+            ReasonPolicy policy
+    ) {
         PunishmentDraft draft = state.draft();
-        int total = state.assessment().map(value -> value.policy().steps().size()).orElse(0);
+        int total = policy == null ? 0 : policy.steps().size();
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text(
                 "Step " + (draft.expectation().stepOrdinal() + 1) + (total > 0 ? "/" + total : ""),
