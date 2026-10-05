@@ -180,7 +180,7 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
     private static List<Candidate> selectCandidates(Connection connection, Instant cutover, int limit)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT c.case_id, c.target_id, c.issued_at,
+                SELECT c.case_id, c.issued_at,
                        (
                            SELECT l.discord_user_id
                            FROM discord_minecraft_links l
@@ -211,7 +211,6 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
                 while (result.next()) {
                     candidates.add(new Candidate(
                             result.getString("case_id"),
-                            UuidBytes.fromBytes(result.getBytes("target_id")),
                             result.getTimestamp("issued_at").toInstant(),
                             unsignedText(result.getBigDecimal("discord_user_id"))
                     ));
@@ -359,7 +358,6 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
 
     private record Candidate(
             String caseId,
-            UUID targetId,
             Instant issuedAt,
             Optional<String> discordUserId
     ) {
