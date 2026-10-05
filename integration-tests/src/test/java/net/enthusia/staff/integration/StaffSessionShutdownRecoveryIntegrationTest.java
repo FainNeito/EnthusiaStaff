@@ -72,6 +72,31 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
     }
 
     @Test
+    void detachAllowsUnrelatedVanishRevisionBump() {
+        UUID staffId = identifier("staff-detach-vanish-revision");
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 5);
+
+            assertTrue(store.setVanish(staffId, true, NOW.plusSeconds(1)));
+            assertTrue(store.active(staffId).orElseThrow().revision() > source.revision());
+
+            StaffSessionSnapshot detached = store.detach(
+                    staffId,
+                    source.sessionId(),
+                    source.revision(),
+                    OTHER_SERVER,
+                    source.checksum(),
+                    NOW.plusSeconds(2)
+            ).orElseThrow();
+
+            assertEquals(StaffSessionOwnership.DETACHED_SERVER_ID, detached.serverId());
+            assertEquals(StaffSessionState.ACTIVE, detached.state());
+        }
+    }
+
+    @Test
     void detachRejectsWrongBackendWithoutChangingOwner() {
         UUID staffId = identifier("staff-detach-owner-fence");
 
@@ -120,7 +145,7 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
     }
 
     @Test
-    void marksOnlyOpenSessionsForTheStoppingServerAndIsIdempotent() throws Exception {
+    void cleanShutdownPreservesActiveNetworkDutyAndMarksOnlyExitsForRecovery() throws Exception {
         UUID activeStaff = identifier("staff-shutdown-active");
         UUID exitingStaff = identifier("staff-shutdown-exiting");
         UUID existingRecoveryStaff = identifier("staff-shutdown-existing-recovery");
