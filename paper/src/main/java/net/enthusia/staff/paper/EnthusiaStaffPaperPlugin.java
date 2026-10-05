@@ -663,7 +663,8 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                 Clock.systemUTC().instant()
         );
         if (marked > 0 && getLogger().isLoggable(Level.INFO)) {
-            getLogger().info("Marked " + marked + " staff session(s) for exact restoration after restart");
+            getLogger().info("Marked " + marked
+                    + " in-progress Staff Mode exit(s) for exact restoration after restart");
         }
     }
 
