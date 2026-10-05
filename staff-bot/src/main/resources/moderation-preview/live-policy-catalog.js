@@ -42,7 +42,10 @@ function catalogRulesLink() {
 }
 
 function renderCatalogCategoryStep() {
-  if (!punishmentCatalogAvailable()) return catalogBaseRenderOffenseStep();
+  if (!punishmentCatalogAvailable()) {
+    if (state.session?.staging === false) return renderCatalogUnavailableStep();
+    return catalogBaseRenderOffenseStep();
+  }
   const workflow = state.workflow;
   $('#workflowTitle').textContent = 'Choose punishment category';
   const cards = catalogFamilies().map(group => {
@@ -63,6 +66,17 @@ function renderCatalogCategoryStep() {
     workflow.step = 'reason';
     renderWorkflow();
   }));
+  $('[data-cancel]')?.addEventListener('click',closeWorkflow);
+}
+
+function renderCatalogUnavailableStep() {
+  $('#workflowTitle').textContent = 'Punishment catalog unavailable';
+  $('#workflowSteps').replaceChildren();
+  replaceChildrenOf($('#workflowBody'),
+    element('div',{className:'alert warning'},
+      element('strong',{text:'Configured punishment policy could not be loaded.'}),
+      element('span',{text:'No fallback punishment list is shown because it could be stale or incomplete. Close this dialog and retry after the moderation service is available.'})));
+  replaceChildrenOf($('#workflowFooter'),buttonNode('Close','button ghost',{cancel:''}));
   $('[data-cancel]')?.addEventListener('click',closeWorkflow);
 }
 
