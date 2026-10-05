@@ -50,6 +50,10 @@ final class MinecraftBanDiscordNotificationWorker {
     }
 
     private void deliver(Lease lease) {
+        if (!lease.active()) {
+            store.markDelivered(lease, clock.instant());
+            return;
+        }
         DiscordDeliveryOutcome outcome = gateway.notifyMinecraftBan(lease);
         if (outcome == DiscordDeliveryOutcome.DELIVERED) {
             store.markDelivered(lease, clock.instant());
