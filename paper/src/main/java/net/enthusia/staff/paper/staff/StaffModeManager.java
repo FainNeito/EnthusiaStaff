@@ -869,10 +869,10 @@ public final class StaffModeManager implements Listener {
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
-        StaffSessionSnapshot session = active.get(playerId);
-        if (session == null) {
-            session = pendingLocalSessions.get(playerId);
-        }
+        StaffSessionSnapshot appliedSession = active.get(playerId);
+        StaffSessionSnapshot session = appliedSession != null
+                ? appliedSession
+                : pendingLocalSessions.get(playerId);
 
         // A normal backend disconnect is not a Staff Mode exit. Restore this backend's
         // native state before Minecraft saves the player, then release only the local
