@@ -22,12 +22,27 @@ public record RestartRequiredConfiguration(
         String channelProxySecretEnvironment,
         String channelTrustStore,
         String channelTrustStorePasswordEnvironment,
-        CheatTesterSettings cheatTesterSettings
+        CheatTesterSettings cheatTesterSettings,
+        java.util.Map<String, String> investigationSettings
 ) {
     public RestartRequiredConfiguration {
+        investigationSettings = investigationSettings == null ? java.util.Map.of() : java.util.Map.copyOf(investigationSettings);
         if (cheatTesterSettings == null) {
             cheatTesterSettings = CheatTesterSettings.defaults();
         }
+    }
+
+    public RestartRequiredConfiguration(String storageJdbcUrlEnvironment, String storageUsernameEnvironment,
+            String storagePasswordEnvironment, int storageMaximumPoolSize, long storageConnectionTimeoutMillis,
+            int workerThreads, int workerQueueCapacity, String networkServerId, String inventoryScopeId,
+            boolean channelEnabled, String channelHost, int channelPort, String channelProxyId,
+            String channelBackendSecretEnvironment, String channelProxySecretEnvironment, String channelTrustStore,
+            String channelTrustStorePasswordEnvironment, CheatTesterSettings cheatTesterSettings) {
+        this(storageJdbcUrlEnvironment, storageUsernameEnvironment, storagePasswordEnvironment,
+                storageMaximumPoolSize, storageConnectionTimeoutMillis, workerThreads, workerQueueCapacity,
+                networkServerId, inventoryScopeId, channelEnabled, channelHost, channelPort, channelProxyId,
+                channelBackendSecretEnvironment, channelProxySecretEnvironment, channelTrustStore,
+                channelTrustStorePasswordEnvironment, cheatTesterSettings, java.util.Map.of());
     }
 
     /** Compatibility constructor for existing test/runtime fixtures that predate ES-P10 settings. */
@@ -96,6 +111,7 @@ public record RestartRequiredConfiguration(
         compare(differences, "channel.tls.trust-store", channelTrustStore, candidate.channelTrustStore);
         compare(differences, "channel.tls.trust-store-password-environment", channelTrustStorePasswordEnvironment, candidate.channelTrustStorePasswordEnvironment);
         compare(differences, "staff-tools.cheat-tester", cheatTesterSettings, candidate.cheatTesterSettings);
+        compare(differences, "staff-tools/investigation", investigationSettings, candidate.investigationSettings);
         return List.copyOf(differences);
     }
 

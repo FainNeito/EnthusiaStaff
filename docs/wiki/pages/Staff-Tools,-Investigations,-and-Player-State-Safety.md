@@ -184,3 +184,7 @@ Use [[Code Review Guide]] for the cross-cutting checklist and [[Build and Testin
 - [[Developer Code Guide]] — detailed source traces.
 - [[Code Review Guide]] — scheduler, player-state, persistence and privacy review.
 - [[Build and Testing]] — evidence limits and runtime acceptance.
+
+## Proposed patrol and investigation additions
+
+The owner-directed investigation package proposes successful-visit patrol history, permission-gated local activity timestamps, audited player flags, visible-player join summaries and validated hotbar slot layouts. See the [source investigation guide](https://github.com/wsg138/EnthusiaStaff/blob/main/docs/investigation-tools.md) after merge for commands, configuration and release boundaries. These additions are not yet merged or activated.

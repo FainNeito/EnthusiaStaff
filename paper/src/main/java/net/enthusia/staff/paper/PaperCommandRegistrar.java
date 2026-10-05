@@ -297,6 +297,11 @@ final class PaperCommandRegistrar {
     }
 
     private void registerInspectionCommands() {
+        var activity = new net.enthusia.staff.paper.staff.PlayerActivityListener(clock());
+        plugin().getServer().getPluginManager().registerEvents(activity, plugin());
+        plugin().getServer().getServicesManager().register(
+                net.enthusia.staff.paper.staff.PlayerActivityListener.class, activity, plugin(),
+                org.bukkit.plugin.ServicePriority.Normal);
         Supplier<PlayerDirectory> players = storage(PaperStorageBindings::playerDirectory);
         Supplier<CaseLookup> cases = storage(PaperStorageBindings::caseLookup);
         Supplier<FreezeStore> freezes = storage(PaperStorageBindings::freezeStore);
@@ -310,6 +315,23 @@ final class PaperCommandRegistrar {
                 dependencies.integrations().reputation(), workers()
         );
         bindCompleting("inspect", inspect, inspect);
+        Supplier<net.enthusia.staff.domain.ports.InvestigationFlagStore> flags = storage(
+                bindings -> new net.enthusia.staff.persistence.JdbcInvestigationFlagStore(bindings.runtime().dataSource()));
+        var flagCommand = new net.enthusia.staff.paper.command.InvestigationCommand(
+                plugin(), clock(), flags, players, cases, writeMode(), workers(), storage(
+                        bindings -> new net.enthusia.staff.persistence.JdbcStaffNoteStore(bindings.runtime().dataSource())));
+        bind("staffflags", flagCommand);
+        plugin().getServer().getServicesManager().register(
+                net.enthusia.staff.paper.command.InvestigationCommand.class, flagCommand, plugin(),
+                org.bukkit.plugin.ServicePriority.Normal);
+        var joinAlerts = new net.enthusia.staff.paper.staff.InvestigationJoinListener(
+                plugin(), clock(), workers(), flags, storage(
+                        bindings -> new net.enthusia.staff.persistence.JdbcStaffNoteStore(bindings.runtime().dataSource())));
+        plugin().getServer().getPluginManager().registerEvents(joinAlerts, plugin());
+        plugin().getServer().getServicesManager().register(
+                net.enthusia.staff.paper.staff.InvestigationJoinListener.class, joinAlerts, plugin(),
+                org.bukkit.plugin.ServicePriority.Normal);
+
         HistoryCommand history = new HistoryCommand(
                 plugin(), players, histories, moderationSettings::current, workers()
         );

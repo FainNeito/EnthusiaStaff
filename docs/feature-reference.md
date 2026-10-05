@@ -212,3 +212,7 @@ Once active, the pieces ordinary players are expected to notice are primarily:
 - clearer auditable moderation changes rather than punishments silently disappearing.
 
 Most other features in this document are staff-only and should not be exposed in unnecessary operational detail on the public wiki.
+
+## Proposed player investigation additions
+
+See [Player investigation tools](investigation-tools.md) for patrol visit preference, local activity, audited flags, join summaries and hotbar slot configuration. These are unmerged source additions pending review and validation; they do not establish live moderation authority.

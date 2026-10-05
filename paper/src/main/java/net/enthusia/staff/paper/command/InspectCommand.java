@@ -202,12 +202,37 @@ public final class InspectCommand implements CommandExecutor, TabCompleter {
             showActions(viewer, target.playerId(), actions);
             showReports(viewer, target.playerId(), canManageReports);
             showFreeze(viewer, target.playerId(), canManageFreeze);
+            showActivity(viewer, target.playerId());
+            var investigations = plugin.getServer().getServicesManager().load(InvestigationCommand.class);
+            if (investigations != null) { investigations.show(viewer, target.playerId()); }
             showReputation(viewer, target.playerId());
             showMarket(viewer, target.playerId());
         } catch (RuntimeException exception) {
             plugin.getLogger().log(java.util.logging.Level.SEVERE, "Player inspector lookup failed", exception);
             message(viewer, "Player inspector storage lookup failed.");
         }
+    }
+
+    private void showActivity(Player viewer, UUID playerId) {
+        var activity = plugin.getServer().getServicesManager().load(
+                net.enthusia.staff.paper.staff.PlayerActivityListener.class);
+        if (activity == null) { return; }
+        var snapshot = activity.tracker().snapshot(playerId);
+        onViewer(viewer, () -> {
+            if (!viewer.hasPermission("enthusiastaff.inspect.activity") || !viewer.hasPermission(INSPECT_PERMISSION)) {
+                return;
+            }
+            viewer.sendMessage(StaffMessageStyle.style("Recent activity (this backend/session; observations only):"));
+            if (snapshot.isEmpty()) {
+                viewer.sendMessage(StaffMessageStyle.style("No local activity recorded."));
+            }
+            for (var type : net.enthusia.staff.domain.investigation.PlayerActivityTracker.Activity.values()) {
+                if (type != net.enthusia.staff.domain.investigation.PlayerActivityTracker.Activity.MOVE) {
+                    viewer.sendMessage(StaffMessageStyle.style(type.name().toLowerCase(Locale.ROOT).replace('_', ' ')
+                            + ": " + (snapshot.containsKey(type) ? snapshot.get(type) : "not observed")));
+                }
+            }
+        });
     }
 
     private InspectActionSection.Access availableActions(Player viewer) {

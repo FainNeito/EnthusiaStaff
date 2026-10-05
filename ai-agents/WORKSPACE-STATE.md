@@ -4,6 +4,10 @@ Last updated: 2026-09-22
 
 Live GitHub overrides stale records. Detailed package evidence remains in the registries, selected package record, canonical handoff, and PR verification ledgers.
 
+## Explicit owner assignment — 2026-10-04
+
+`OWNER-INVESTIGATION-TOOLS` is active in isolated `EnthusiaStaff-investigation-tools` on `package/owner-investigation-tools`, base `18d4f4b05af94ee325842c68d482feedabe5d27f`. See its package record and handoff for patrol/activity/flags/join-alert/slot scope. Existing user checkout and other open package work remain preserved. No merge/deployment authorization is implied.
+
 ## Current routing
 
 | Field | Value |

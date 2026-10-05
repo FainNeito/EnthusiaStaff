@@ -73,6 +73,7 @@ public final class StaffModeManager implements Listener {
     private final StaffModeHandoffIntentRegistry handoffResumes;
     private final StaffModeSourceHandoffRegistry sourceHandoffs = new StaffModeSourceHandoffRegistry();
     private final StaffModeActivationCoordinator activation;
+    private final StaffToolLayout toolLayout;
     private final AtomicBoolean rankReconciliationStarted = new AtomicBoolean();
     private volatile Consumer<UUID> exitListener = ignored -> {
     };
@@ -93,6 +94,7 @@ public final class StaffModeManager implements Listener {
             ExecutorService workers
     ) {
         this.plugin = plugin;
+        this.toolLayout = StaffToolLayout.load(plugin.getConfig());
         this.clock = clock;
         this.runtimeStartedAt = clock.instant();
         this.serverId = serverId;
@@ -906,7 +908,8 @@ public final class StaffModeManager implements Listener {
                 item.getType(),
                 data.get(staffToolOwnerKey, PersistentDataType.STRING),
                 data.get(staffToolSessionKey, PersistentDataType.STRING),
-                rank
+                rank,
+                toolLayout.slot(tool)
         );
         return StaffToolResolution.tagged(tool, status);
     }
@@ -1180,7 +1183,7 @@ public final class StaffModeManager implements Listener {
             player.setFlying(true);
             for (StaffToolDefinition tool : StaffToolDefinition.values()) {
                 if (tool.availableFor(rank)) {
-                    player.getInventory().setItem(tool.slot(), item(playerId, toolSession, tool));
+                    player.getInventory().setItem(toolLayout.slot(tool), item(playerId, toolSession, tool));
                 }
             }
             player.updateInventory();
