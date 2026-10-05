@@ -17,6 +17,8 @@ import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 
 public final class JdbcStaffSessionStore implements StaffSessionStore {
+    private static final int SINGLE_ROW_UPDATE = 1;
+
     private final DataSource dataSource;
 
     public JdbcStaffSessionStore(DataSource dataSource) {
@@ -142,51 +144,13 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             String restoredChecksum,
             Instant now
     ) {
-        if (staffId == null || expectedSessionId == null || expectedRevision < 0
-                || expectedServerId == null || expectedServerId.isBlank()
-                || restoredChecksum == null || !restoredChecksum.matches("[0-9a-f]{64}")
-                || now == null) {
-            throw new IllegalArgumentException("valid staff backend detach fields are required");
-        }
+        validateDetachRequest(
+                staffId, expectedSessionId, expectedRevision, expectedServerId, restoredChecksum, now);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                StaffSessionSnapshot current = active(connection, staffId, true);
-                if (current == null
-                        || !current.sessionId().equals(expectedSessionId)
-                        || current.state() != StaffSessionState.ACTIVE
-                        || !current.serverId().equalsIgnoreCase(expectedServerId)) {
-                    connection.rollback();
-                    return Optional.empty();
-                }
-                if (!current.checksum().equals(restoredChecksum)) {
-                    connection.rollback();
-                    throw new SQLException("backend detach restoration checksum did not match the saved snapshot");
-                }
-                try (PreparedStatement statement = connection.prepareStatement("""
-                        UPDATE staff_sessions
-                        SET server_id = ?, revision = revision + 1
-                        WHERE session_id = ? AND state = 'ACTIVE' AND server_id = ?
-                        """)) {
-                    statement.setString(1, StaffSessionOwnership.DETACHED_SERVER_ID);
-                    statement.setBytes(2, UuidBytes.toBytes(expectedSessionId));
-                    statement.setString(3, current.serverId());
-                    if (statement.executeUpdate() != 1) {
-                        connection.rollback();
-                        return Optional.empty();
-                    }
-                }
-                insertAudit(
-                        connection,
-                        staffId,
-                        expectedSessionId,
-                        "STAFF_MODE_BACKEND_DETACHED",
-                        "Restored backend " + expectedServerId + " and retained network Staff Mode",
-                        now
-                );
-                StaffSessionSnapshot detached = active(connection, staffId, true);
-                connection.commit();
-                return Optional.ofNullable(detached);
+                return detachTransaction(
+                        connection, staffId, expectedSessionId, expectedServerId, restoredChecksum, now);
             } catch (SQLException exception) {
                 rollback(connection, exception);
                 throw exception;
@@ -195,6 +159,84 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             }
         } catch (SQLException exception) {
             throw new ModerationPersistenceException("Unable to detach Staff Mode backend ownership", exception);
+        }
+    }
+
+    private static void validateDetachRequest(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    ) {
+        if (staffId == null || expectedSessionId == null || expectedRevision < 0
+                || expectedServerId == null || expectedServerId.isBlank()
+                || restoredChecksum == null || !restoredChecksum.matches("[0-9a-f]{64}")
+                || now == null) {
+            throw new IllegalArgumentException("valid staff backend detach fields are required");
+        }
+    }
+
+    private static Optional<StaffSessionSnapshot> detachTransaction(
+            Connection connection,
+            UUID staffId,
+            UUID expectedSessionId,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    ) throws SQLException {
+        StaffSessionSnapshot current = active(connection, staffId, true);
+        if (!ownedActiveSession(current, expectedSessionId, expectedServerId)) {
+            connection.rollback();
+            return Optional.empty();
+        }
+        if (!current.checksum().equals(restoredChecksum)) {
+            connection.rollback();
+            throw new SQLException("backend detach restoration checksum did not match the saved snapshot");
+        }
+        if (!markDetached(connection, expectedSessionId, current.serverId())) {
+            connection.rollback();
+            return Optional.empty();
+        }
+        insertAudit(
+                connection,
+                staffId,
+                expectedSessionId,
+                "STAFF_MODE_BACKEND_DETACHED",
+                "Restored backend " + expectedServerId + " and retained network Staff Mode",
+                now
+        );
+        StaffSessionSnapshot detached = active(connection, staffId, true);
+        connection.commit();
+        return Optional.ofNullable(detached);
+    }
+
+    private static boolean ownedActiveSession(
+            StaffSessionSnapshot current,
+            UUID expectedSessionId,
+            String expectedServerId
+    ) {
+        return current != null
+                && current.sessionId().equals(expectedSessionId)
+                && current.state() == StaffSessionState.ACTIVE
+                && current.serverId().equalsIgnoreCase(expectedServerId);
+    }
+
+    private static boolean markDetached(
+            Connection connection,
+            UUID sessionId,
+            String currentServerId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE staff_sessions
+                SET server_id = ?, revision = revision + 1
+                WHERE session_id = ? AND state = 'ACTIVE' AND server_id = ?
+                """)) {
+            statement.setString(1, StaffSessionOwnership.DETACHED_SERVER_ID);
+            statement.setBytes(2, UuidBytes.toBytes(sessionId));
+            statement.setString(3, currentServerId);
+            return statement.executeUpdate() == SINGLE_ROW_UPDATE;
         }
     }
 
