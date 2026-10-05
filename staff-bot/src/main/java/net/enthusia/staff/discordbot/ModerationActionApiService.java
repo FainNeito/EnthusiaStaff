@@ -138,29 +138,15 @@ final class ModerationActionApiService {
                             new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode());
         }
         com.fasterxml.jackson.databind.JsonNode reasons = minecraft.path("reasons");
+        com.fasterxml.jackson.databind.JsonNode configuredReasons = minecraft.has("configuredReasons")
+                ? minecraft.path("configuredReasons") : reasons;
         return Map.of(
                 "discordEnabled", moderation.punishmentService().isPresent(),
                 "minecraftEnabled", minecraft.path("enabled").asBoolean(false),
-                "configuredReasons", reasons,
-                "minecraftReasons", supportedMinecraftReasons(reasons),
+                "configuredReasons", configuredReasons,
+                "minecraftReasons", reasons,
                 "messageDeletionEnabled", false
         );
-    }
-
-    private static com.fasterxml.jackson.databind.node.ArrayNode supportedMinecraftReasons(
-            com.fasterxml.jackson.databind.JsonNode reasons
-    ) {
-        com.fasterxml.jackson.databind.node.ArrayNode supported =
-                new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode();
-        if (!reasons.isArray()) {
-            return supported;
-        }
-        reasons.forEach(reason -> {
-            if (reason.path("minecraftSupported").asBoolean(false)) {
-                supported.add(reason);
-            }
-        });
-        return supported;
     }
 
     private static boolean minecraftOperation(Request request) {
