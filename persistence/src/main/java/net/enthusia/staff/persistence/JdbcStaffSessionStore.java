@@ -507,7 +507,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT session_id, staff_id
                 FROM staff_sessions
-                WHERE server_id = ? AND state IN ('ACTIVE', 'EXITING')
+                WHERE server_id = ? AND state = 'EXITING'
                 ORDER BY session_id
                 FOR UPDATE
                 """)) {
@@ -528,7 +528,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         try (PreparedStatement statement = connection.prepareStatement("""
                 UPDATE staff_sessions
                 SET state = 'RECOVERY_REQUIRED', revision = revision + 1
-                WHERE server_id = ? AND state IN ('ACTIVE', 'EXITING')
+                WHERE server_id = ? AND state = 'EXITING'
                 """)) {
             statement.setString(1, serverId);
             return statement.executeUpdate();
