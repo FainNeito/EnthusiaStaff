@@ -14,6 +14,7 @@ import net.dv8tion.jda.api.entities.User;
 import org.junit.jupiter.api.Test;
 
 class ModerationDiscordMessageReaderTest {
+    private static final String SEARCH_NEEDLE = SEARCH_NEEDLE;
     @Test
     void messageReadsRequireActorAndBotChannelAccess() {
         assertFalse(ModerationDiscordMessageReader.hasReadPermissions(false, false, true, true));
@@ -63,8 +64,8 @@ class ModerationDiscordMessageReaderTest {
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.of("alice"), Optional.empty(), 50);
         List<Message> source = List.of(
-                message("matching", 222L, "Alice Example", "needle", "2026-09-01T10:00:00Z"),
-                message("other", 333L, "Bob Example", "needle", "2026-09-01T09:00:00Z"));
+                message("matching", 222L, "Alice Example", SEARCH_NEEDLE, "2026-09-01T10:00:00Z"),
+                message("other", 333L, "Bob Example", SEARCH_NEEDLE, "2026-09-01T09:00:00Z"));
 
         List<Message> result = ModerationDiscordMessageReader.filterAndLimit(source, query, 50);
 
@@ -74,14 +75,14 @@ class ModerationDiscordMessageReaderTest {
     @Test
     void recentQueriesApplyAuthorTextDateAndLimitBeforeMapping() {
         ModerationReadApiModel.MessageQuery query = new ModerationReadApiModel.MessageQuery(
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("needle"), Optional.of("222"),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(SEARCH_NEEDLE), Optional.of("222"),
                 Optional.of("2026-09-01"), 1);
         List<Message> source = List.of(
                 message("first", 222L, "needle one", "2026-09-01T10:00:00Z"),
                 message("second", 222L, "needle two", "2026-09-01T09:00:00Z"),
-                message("wrong-author", 333L, "needle", "2026-09-01T08:00:00Z"),
+                message("wrong-author", 333L, SEARCH_NEEDLE, "2026-09-01T08:00:00Z"),
                 message("wrong-text", 222L, "other", "2026-09-01T07:00:00Z"),
-                message("wrong-date", 222L, "needle", "2026-08-31T23:00:00Z"));
+                message("wrong-date", 222L, SEARCH_NEEDLE, "2026-08-31T23:00:00Z"));
 
         List<Message> result = ModerationDiscordMessageReader.filterAndLimit(source, query, 1);
 
