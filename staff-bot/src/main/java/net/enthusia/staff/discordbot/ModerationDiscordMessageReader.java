@@ -98,6 +98,9 @@ final class ModerationDiscordMessageReader {
             int limit,
             int scanLimit
     ) {
+        if (query.afterMessageId().isPresent() || query.aroundMessageId().isPresent()) {
+            return filterAndLimit(page(channel, query, limit), query, limit);
+        }
         List<Message> matches = new ArrayList<>();
         String before = query.beforeMessageId().orElse(null);
         int scanned = 0;
