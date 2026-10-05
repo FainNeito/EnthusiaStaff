@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 class StaffModeRestorationWiringTest {
     private static final String CODEC_RESTORE = "codec.restore";
-    private static final String COMPLETE_RESTORATION = COMPLETE_RESTORATION;
+    private static final String COMPLETE_RESTORATION = "private void completeRestoration";
     private static final Path SOURCE = Path.of(
             "src/main/java/net/enthusia/staff/paper/staff/StaffModeManager.java"
     );
