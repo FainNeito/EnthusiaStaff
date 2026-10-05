@@ -139,20 +139,20 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             );
             begin(runtime, otherServerStaff, OTHER_SERVER, 4);
 
-            assertEquals(2, store.recoveryRequiredForServer(
+            assertEquals(1, store.recoveryRequiredForServer(
                     SCOPED_SERVER,
                     SHUTDOWN_REASON,
                     NOW.plusSeconds(3)
             ));
 
-            assertEquals(StaffSessionState.RECOVERY_REQUIRED, store.active(activeStaff).orElseThrow().state());
+            assertEquals(StaffSessionState.ACTIVE, store.active(activeStaff).orElseThrow().state());
             assertEquals(StaffSessionState.RECOVERY_REQUIRED, store.active(exitingStaff).orElseThrow().state());
             assertEquals(
                     StaffSessionState.RECOVERY_REQUIRED,
                     store.active(existingRecoveryStaff).orElseThrow().state()
             );
             assertEquals(StaffSessionState.ACTIVE, store.active(otherServerStaff).orElseThrow().state());
-            assertEquals(1, recoveryAuditCount(active.sessionId()));
+            assertEquals(0, recoveryAuditCount(active.sessionId()));
             assertEquals(1, recoveryAuditCount(exiting.sessionId()));
             assertEquals(1, recoveryAuditCount(existingRecovery.sessionId()));
 
@@ -161,7 +161,7 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
                     SHUTDOWN_REASON,
                     NOW.plusSeconds(4)
             ));
-            assertEquals(1, recoveryAuditCount(active.sessionId()));
+            assertEquals(0, recoveryAuditCount(active.sessionId()));
             assertEquals(1, recoveryAuditCount(exiting.sessionId()));
             assertEquals(1, recoveryAuditCount(existingRecovery.sessionId()));
 
