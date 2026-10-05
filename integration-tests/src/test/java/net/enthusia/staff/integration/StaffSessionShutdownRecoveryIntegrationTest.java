@@ -185,6 +185,8 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             StaffSessionStore store = runtime.staffSessionStore();
             begin(runtime, firstStaff, ROLLBACK_SERVER, 5);
             begin(runtime, secondStaff, ROLLBACK_SERVER, 6);
+            store.beginExit(firstStaff, NOW.plusSeconds(1)).orElseThrow();
+            store.beginExit(secondStaff, NOW.plusSeconds(2)).orElseThrow();
             installAuditFailureTrigger();
             try {
                 assertThrows(ModerationPersistenceException.class, () ->
@@ -197,8 +199,8 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
                 dropAuditFailureTrigger();
             }
 
-            assertEquals(StaffSessionState.ACTIVE, store.active(firstStaff).orElseThrow().state());
-            assertEquals(StaffSessionState.ACTIVE, store.active(secondStaff).orElseThrow().state());
+            assertEquals(StaffSessionState.EXITING, store.active(firstStaff).orElseThrow().state());
+            assertEquals(StaffSessionState.EXITING, store.active(secondStaff).orElseThrow().state());
         }
     }
 
