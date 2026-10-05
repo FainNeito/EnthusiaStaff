@@ -160,7 +160,7 @@ public final class InvestigationCommand implements CommandExecutor {
         return new FlagInput(args[1], category, reason, lifetime, linkedCase);
     }
 
-    private static Duration parseLifetime(String input) {
+    static Duration parseLifetime(String input) {
         if (input.equalsIgnoreCase("permanent")) { return null; }
         long hours = Long.parseLong(input);
         if (hours < 1 || hours > 8760) {
