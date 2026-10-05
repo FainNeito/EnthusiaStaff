@@ -386,6 +386,15 @@ public final class StaffModeManager implements Listener {
 
     public void exit(Player player) {
         UUID playerId = player.getUniqueId();
+        StaffSessionSnapshot localSession = active.get(playerId);
+        if (localSession == null
+                || localSession.state() != StaffSessionState.ACTIVE
+                || !serverId.equalsIgnoreCase(localSession.serverId())) {
+            player.sendMessage(StaffMessageStyle.style(Component.text(
+                    "Staff Mode is still resuming on this backend; try the command again shortly."
+            )));
+            return;
+        }
         if (!transitions.add(playerId)) {
             player.sendMessage(StaffMessageStyle.style(Component.text("A staff-mode transition is already in progress.")));
             return;
