@@ -169,7 +169,7 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
 
     private static int mirrorEligible(Connection connection, Instant now, int limit) throws SQLException {
         Instant cutover = ensureCutover(connection, now);
-        List<Candidate> candidates = selectCandidates(connection, cutover, limit);
+        List<Candidate> candidates = selectCandidates(connection, cutover, now, limit);
         int inserted = 0;
         for (Candidate candidate : candidates) {
             inserted += insertCandidate(connection, candidate, now);
@@ -177,8 +177,12 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
         return inserted;
     }
 
-    private static List<Candidate> selectCandidates(Connection connection, Instant cutover, int limit)
-            throws SQLException {
+    private static List<Candidate> selectCandidates(
+            Connection connection,
+            Instant cutover,
+            Instant now,
+            int limit
+    ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT c.case_id, c.issued_at,
                        (
@@ -196,6 +200,8 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
                       SELECT 1 FROM sanctions s
                       WHERE s.case_id=c.case_id
                         AND s.sanction_type IN ('BAN','NETWORK_BAN','NETWORK_IDENTITY_BAN')
+                        AND s.status='ACTIVE'
+                        AND (s.expiration_at IS NULL OR s.expiration_at > ?)
                   )
                   AND NOT EXISTS (
                       SELECT 1 FROM discord_outbox d
@@ -205,7 +211,8 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
                 LIMIT ?
                 """)) {
             statement.setTimestamp(1, Timestamp.from(cutover));
-            statement.setInt(2, limit);
+            statement.setTimestamp(2, Timestamp.from(now));
+            statement.setInt(3, limit);
             try (ResultSet result = statement.executeQuery()) {
                 List<Candidate> candidates = new ArrayList<>();
                 while (result.next()) {
@@ -284,11 +291,20 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
                        JSON_UNQUOTE(JSON_EXTRACT(d.payload_json, '$.discordUserId')) AS discord_user_id,
                        c.case_id, c.public_reason, c.issued_at,
                        COALESCE(p.current_username, 'Minecraft account') AS minecraft_name,
+                       EXISTS(
+                           SELECT 1 FROM sanctions active
+                           WHERE active.case_id=c.case_id
+                             AND active.sanction_type IN ('NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
+                             AND active.status='ACTIVE'
+                             AND (active.expiration_at IS NULL OR active.expiration_at > ?)
+                       ) AS active_ban,
                        (
                            SELECT s.expiration_at
                            FROM sanctions s
                            WHERE s.case_id=c.case_id
                              AND s.sanction_type IN ('NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
+                             AND s.status='ACTIVE'
+                             AND (s.expiration_at IS NULL OR s.expiration_at > ?)
                            ORDER BY FIELD(s.sanction_type, 'NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
                            LIMIT 1
                        ) AS expiration_at
@@ -302,12 +318,14 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
                 ORDER BY d.available_at, d.created_at
                 LIMIT ? FOR UPDATE SKIP LOCKED
                 """)) {
-            statement.setString(1, DESTINATION);
-            statement.setString(2, EVENT);
             Timestamp timestamp = Timestamp.from(now);
-            statement.setTimestamp(3, timestamp);
-            statement.setTimestamp(4, timestamp);
-            statement.setInt(5, limit);
+            statement.setTimestamp(1, timestamp);
+            statement.setTimestamp(2, timestamp);
+            statement.setString(3, DESTINATION);
+            statement.setString(4, EVENT);
+            statement.setTimestamp(5, timestamp);
+            statement.setTimestamp(6, timestamp);
+            statement.setInt(7, limit);
             try (ResultSet result = statement.executeQuery()) {
                 List<Lease> leases = new ArrayList<>();
                 while (result.next()) {
@@ -320,7 +338,8 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
                             result.getString("minecraft_name"),
                             result.getString("public_reason"),
                             result.getTimestamp("issued_at").toInstant(),
-                            Optional.ofNullable(expiration).map(Timestamp::toInstant)
+                            Optional.ofNullable(expiration).map(Timestamp::toInstant),
+                            result.getBoolean("active_ban")
                     ));
                 }
                 return leases;
@@ -371,7 +390,8 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
             String minecraftName,
             String publicReason,
             Instant issuedAt,
-            Optional<Instant> expiresAt
+            Optional<Instant> expiresAt,
+            boolean active
     ) {
         public Lease {
             if (messageId == null || owner == null || owner.isBlank() || attemptCount < 0
@@ -386,7 +406,7 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
         private Lease incrementAttempt() {
             return new Lease(
                     messageId, owner, Math.addExact(attemptCount, 1), discordUserId,
-                    minecraftName, publicReason, issuedAt, expiresAt
+                    minecraftName, publicReason, issuedAt, expiresAt, active
             );
         }
     }
