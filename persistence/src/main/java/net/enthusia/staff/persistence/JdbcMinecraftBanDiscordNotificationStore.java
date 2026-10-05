@@ -27,6 +27,38 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
     private static final String CUTOVER_EVENT = "PLAYER_DM_CUTOVER";
     private static final String CUTOVER_KEY = "staffbot:player-dm-cutover:v1";
     private static final int MAX_LIMIT = 100;
+    private static final String SELECT_DUE_SQL = """
+            SELECT d.message_id, d.attempt_count,
+                   JSON_UNQUOTE(JSON_EXTRACT(d.payload_json, '$.discordUserId')) AS discord_user_id,
+                   c.case_id, c.public_reason, c.issued_at,
+                   COALESCE(p.current_username, 'Minecraft account') AS minecraft_name,
+                   EXISTS(
+                       SELECT 1 FROM sanctions active
+                       WHERE active.case_id=c.case_id
+                         AND active.sanction_type IN ('NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
+                         AND active.status='ACTIVE'
+                         AND (active.expiration_at IS NULL OR active.expiration_at > ?)
+                   ) AS active_ban,
+                   (
+                       SELECT active_expiry.expiration_at
+                       FROM sanctions active_expiry
+                       WHERE active_expiry.case_id=c.case_id
+                         AND active_expiry.sanction_type IN ('NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
+                         AND active_expiry.status='ACTIVE'
+                         AND (active_expiry.expiration_at IS NULL OR active_expiry.expiration_at > ?)
+                       ORDER BY FIELD(active_expiry.sanction_type, 'NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
+                       LIMIT 1
+                   ) AS expiration_at
+            FROM discord_outbox d
+            JOIN cases c
+              ON c.case_id=JSON_UNQUOTE(JSON_EXTRACT(d.payload_json, '$.caseId'))
+            JOIN players p ON p.player_id=c.target_id
+            WHERE d.destination=? AND d.event_type=?
+              AND d.available_at <= ?
+              AND (d.state='PENDING' OR (d.state='LEASED' AND d.lease_until <= ?))
+            ORDER BY d.available_at, d.created_at
+            LIMIT ? FOR UPDATE SKIP LOCKED
+            """;
 
     private final DataSource dataSource;
 
@@ -241,12 +273,21 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
             statement.setString(3, DESTINATION);
             statement.setString(4, EVENT);
             statement.setString(5, candidate.caseId());
-            statement.setString(6, candidate.discordUserId().orElse(null));
-            statement.setString(7, linked ? null : "unlinked-at-punishment");
+            if (linked) {
+                statement.setString(6, candidate.discordUserId().orElseThrow());
+                statement.setNull(7, java.sql.Types.VARCHAR);
+            } else {
+                statement.setNull(6, java.sql.Types.VARCHAR);
+                statement.setString(7, "unlinked-at-punishment");
+            }
             statement.setString(8, linked ? "PENDING" : "DELIVERED");
             statement.setTimestamp(9, Timestamp.from(now));
             statement.setTimestamp(10, Timestamp.from(candidate.issuedAt()));
-            statement.setTimestamp(11, linked ? null : Timestamp.from(now));
+            if (linked) {
+                statement.setNull(11, java.sql.Types.TIMESTAMP);
+            } else {
+                statement.setTimestamp(11, Timestamp.from(now));
+            }
             return statement.executeUpdate();
         }
     }
@@ -286,65 +327,46 @@ public final class JdbcMinecraftBanDiscordNotificationStore {
 
     private static List<Lease> selectDue(Connection connection, Instant now, int limit, String owner)
             throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT d.message_id, d.attempt_count,
-                       JSON_UNQUOTE(JSON_EXTRACT(d.payload_json, '$.discordUserId')) AS discord_user_id,
-                       c.case_id, c.public_reason, c.issued_at,
-                       COALESCE(p.current_username, 'Minecraft account') AS minecraft_name,
-                       EXISTS(
-                           SELECT 1 FROM sanctions active
-                           WHERE active.case_id=c.case_id
-                             AND active.sanction_type IN ('NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
-                             AND active.status='ACTIVE'
-                             AND (active.expiration_at IS NULL OR active.expiration_at > ?)
-                       ) AS active_ban,
-                       (
-                           SELECT s.expiration_at
-                           FROM sanctions s
-                           WHERE s.case_id=c.case_id
-                             AND s.sanction_type IN ('NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
-                             AND s.status='ACTIVE'
-                             AND (s.expiration_at IS NULL OR s.expiration_at > ?)
-                           ORDER BY FIELD(s.sanction_type, 'NETWORK_IDENTITY_BAN','NETWORK_BAN','BAN')
-                           LIMIT 1
-                       ) AS expiration_at
-                FROM discord_outbox d
-                JOIN cases c
-                  ON c.case_id=JSON_UNQUOTE(JSON_EXTRACT(d.payload_json, '$.caseId'))
-                JOIN players p ON p.player_id=c.target_id
-                WHERE d.destination=? AND d.event_type=?
-                  AND d.available_at <= ?
-                  AND (d.state='PENDING' OR (d.state='LEASED' AND d.lease_until <= ?))
-                ORDER BY d.available_at, d.created_at
-                LIMIT ? FOR UPDATE SKIP LOCKED
-                """)) {
-            Timestamp timestamp = Timestamp.from(now);
-            statement.setTimestamp(1, timestamp);
-            statement.setTimestamp(2, timestamp);
-            statement.setString(3, DESTINATION);
-            statement.setString(4, EVENT);
-            statement.setTimestamp(5, timestamp);
-            statement.setTimestamp(6, timestamp);
-            statement.setInt(7, limit);
+        try (PreparedStatement statement = connection.prepareStatement(SELECT_DUE_SQL)) {
+            bindDueQuery(statement, now, limit);
             try (ResultSet result = statement.executeQuery()) {
-                List<Lease> leases = new ArrayList<>();
-                while (result.next()) {
-                    Timestamp expiration = result.getTimestamp("expiration_at");
-                    leases.add(new Lease(
-                            UuidBytes.fromBytes(result.getBytes("message_id")),
-                            owner,
-                            result.getInt("attempt_count"),
-                            result.getString("discord_user_id"),
-                            result.getString("minecraft_name"),
-                            result.getString("public_reason"),
-                            result.getTimestamp("issued_at").toInstant(),
-                            Optional.ofNullable(expiration).map(Timestamp::toInstant),
-                            result.getBoolean("active_ban")
-                    ));
-                }
-                return leases;
+                return readLeases(result, owner);
             }
         }
+    }
+
+    private static void bindDueQuery(PreparedStatement statement, Instant now, int limit) throws SQLException {
+        Timestamp timestamp = Timestamp.from(now);
+        statement.setTimestamp(1, timestamp);
+        statement.setTimestamp(2, timestamp);
+        statement.setString(3, DESTINATION);
+        statement.setString(4, EVENT);
+        statement.setTimestamp(5, timestamp);
+        statement.setTimestamp(6, timestamp);
+        statement.setInt(7, limit);
+    }
+
+    private static List<Lease> readLeases(ResultSet result, String owner) throws SQLException {
+        List<Lease> leases = new ArrayList<>();
+        while (result.next()) {
+            leases.add(readLease(result, owner));
+        }
+        return leases;
+    }
+
+    private static Lease readLease(ResultSet result, String owner) throws SQLException {
+        Timestamp expiration = result.getTimestamp("expiration_at");
+        return new Lease(
+                UuidBytes.fromBytes(result.getBytes("message_id")),
+                owner,
+                result.getInt("attempt_count"),
+                result.getString("discord_user_id"),
+                result.getString("minecraft_name"),
+                result.getString("public_reason"),
+                result.getTimestamp("issued_at").toInstant(),
+                Optional.ofNullable(expiration).map(Timestamp::toInstant),
+                result.getBoolean("active_ban")
+        );
     }
 
     private static Optional<String> unsignedText(BigDecimal value) {
