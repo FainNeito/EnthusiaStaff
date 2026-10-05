@@ -679,10 +679,10 @@ public final class StaffModeManager implements Listener {
     ) {
         return session != null
                 && expectedSessionId != null
+                && expectedRevision >= 0
                 && session.sessionId().equals(expectedSessionId)
-                && session.revision() == expectedRevision
                 && session.state() == StaffSessionState.ACTIVE
-                && session.serverId().equals(serverId);
+                && session.serverId().equalsIgnoreCase(serverId);
     }
 
     private void beginBackendHandoffClose(
