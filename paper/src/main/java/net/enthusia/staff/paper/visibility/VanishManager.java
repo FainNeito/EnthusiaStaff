@@ -469,7 +469,9 @@ public final class VanishManager implements Listener {
     ) {
         UUID playerId = player.getUniqueId();
         if (vanished) {
-            enforceVanishSpectator(player);
+            if (!staffMode.transitioning(playerId)) {
+                enforceVanishSpectator(player);
+            }
         } else if (restoreSelectedMode) {
             restoreSelectedGameMode(player);
         } else {
