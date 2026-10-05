@@ -16,8 +16,4 @@ public final class StaffSessionOwnership {
     public static boolean detached(String serverId) {
         return DETACHED_SERVER_ID.equals(serverId);
     }
-
-    public static boolean ownedBy(String serverId, String backendId) {
-        return serverId != null && backendId != null && serverId.equalsIgnoreCase(backendId);
-    }
 }
