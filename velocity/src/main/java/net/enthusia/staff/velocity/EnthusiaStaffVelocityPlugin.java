@@ -1192,24 +1192,33 @@ public final class EnthusiaStaffVelocityPlugin {
 
     private void enforceModerationSwitchSafety(ServerPreConnectEvent event) {
         FreezeStore freezes = freezeStore;
-        StaffSessionStore sessions = staffSessionStore;
-        if (freezes == null || sessions == null) {
-            denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
+        if (freezes == null) {
+            denyServerSwitchWhenActive(event, "Server switching is unavailable while freeze status is verified.");
             return;
         }
+        UUID playerId = event.getPlayer().getUniqueId();
         try {
-            UUID playerId = event.getPlayer().getUniqueId();
             if (freezes.active(playerId, Clock.systemUTC().instant()).isPresent()) {
                 denyServerSwitch(event, "You cannot switch servers while frozen by staff.");
                 return;
             }
-            var session = sessions.active(playerId);
-            if (session.isPresent()) {
-                enforceStaffSessionSwitch(event, sessions, session.orElseThrow());
-            }
         } catch (RuntimeException exception) {
-            logger.error("Moderation safety lookup failed during server switch", exception);
-            denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
+            logger.error("Freeze safety lookup failed during server switch", exception);
+            denyServerSwitchWhenActive(event, "Server switching is unavailable while freeze status is verified.");
+            return;
+        }
+
+        StaffSessionStore sessions = staffSessionStore;
+        if (sessions == null) {
+            return;
+        }
+        try {
+            sessions.active(playerId).ifPresent(session ->
+                    enforceStaffSessionSwitch(event, sessions, session));
+        } catch (RuntimeException exception) {
+            // Staff Mode lifecycle must not trap a player on one backend. Paper restores/detaches
+            // on disconnect and the destination retries durable rebind on join.
+            logger.warn("Staff Mode handoff lookup failed; allowing backend switch for {}", playerId, exception);
         }
     }
 
@@ -1221,34 +1230,37 @@ public final class EnthusiaStaffVelocityPlugin {
         String current = event.getPreviousServer().getServerInfo().getName();
         String requested = event.getResult().getServer()
                 .orElse(event.getOriginalServer()).getServerInfo().getName();
-        if (StaffSessionTransferPolicy.recoveryReturnAllowed(
-                session.serverId(), session.state(), current, requested)) {
-            return;
-        }
         if (!StaffSessionTransferPolicy.activeHandoffAllowed(
                 session.serverId(), session.state(), current, requested)) {
-            denyServerSwitch(event, "You cannot switch backends while this Staff Mode snapshot requires recovery.");
             return;
         }
+
         UUID playerId = event.getPlayer().getUniqueId();
         UUID transferId = UUID.randomUUID();
         if (!staffHandoffs.begin(playerId, current, requested, transferId, Clock.systemUTC().instant())) {
-            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
             return;
         }
-        StaffModeBackendHandoffCoordinator coordinator = handoffCoordinator(sessions);
-        var decision = coordinator.transfer(
-                playerId, session, current, requested, transferId, transferSnapshots::take);
-        if (!decision.allowed()) {
-            if (decision.reconcile()) {
-                scheduleStaffHandoffTimeout(playerId, transferId);
-            } else {
-                staffHandoffs.clear(playerId, transferId);
-            }
-            denyServerSwitch(event, decision.message());
-            return;
+
+        try {
+            handoffCoordinator(sessions).transfer(
+                    playerId,
+                    session,
+                    current,
+                    requested,
+                    transferId,
+                    transferSnapshots::take
+            );
+            scheduleStaffHandoffTimeout(playerId, transferId);
+        } catch (RuntimeException exception) {
+            staffHandoffs.clear(playerId, transferId);
+            logger.warn(
+                    "Staff Mode optimized handoff failed; allowing {} to switch {} -> {} and using lifecycle recovery",
+                    playerId,
+                    current,
+                    requested,
+                    exception
+            );
         }
-        scheduleStaffHandoffTimeout(playerId, transferId);
     }
 
     /**
