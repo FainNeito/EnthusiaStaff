@@ -160,12 +160,17 @@ public final class StaffWebPunishmentService {
         if (request.confirmationId() != null) {
             throw new IllegalArgumentException("unexpected confirmation");
         }
-        return Map.of("enabled", dependencies.mode().get() == OperationalMode.ACTIVE
+        List<Reason> configuredReasons = dependencies.policies().all().stream()
+                .filter(policy -> visibleAtRank(actor, policy))
+                .sorted(Comparator.comparing(ReasonPolicy::family).thenComparing(ReasonPolicy::id))
+                .map(StaffWebPunishmentService::reason)
+                .toList();
+        return Map.of(
+                "enabled", dependencies.mode().get() == OperationalMode.ACTIVE
                         && dependencies.workflows().get() != null,
-                "reasons", dependencies.policies().all().stream()
-                        .filter(policy -> visibleAtRank(actor, policy))
-                        .sorted(Comparator.comparing(ReasonPolicy::family).thenComparing(ReasonPolicy::id))
-                        .map(StaffWebPunishmentService::reason).toList());
+                "reasons", configuredReasons.stream().filter(Reason::minecraftSupported).toList(),
+                "configuredReasons", configuredReasons
+        );
     }
 
     private PlayerIdentity authorizedTarget(Request request, Actor actor) {
