@@ -126,7 +126,10 @@ function renderMinecraftPrepare(workflow, body, footer) {
   const target = element('input',{id:'minecraftTarget',value:workflow.target,placeholder:'Minecraft username or UUID',attrs:{maxlength:36,autocomplete:'off'}});
   target.addEventListener('input',() => { workflow.target = target.value.trim(); });
   body.appendChild(fieldLabel('Minecraft player',target));
-  const reasons = Array.isArray(liveActionCapabilities.minecraftReasons) ? liveActionCapabilities.minecraftReasons : [];
+  const configured = liveActionCapabilities?.configuredReasons;
+  const reasons = Array.isArray(configured)
+    ? configured
+    : Array.isArray(liveActionCapabilities.minecraftReasons) ? liveActionCapabilities.minecraftReasons : [];
   if (!workflow.family) {
     renderMinecraftReasonFamilies(workflow,body,reasons);
     return;
@@ -137,6 +140,12 @@ function renderMinecraftPrepare(workflow, body, footer) {
   if (selected && typeof catalogLadderCard === 'function') {
     body.appendChild(catalogLadderCard(selected,{relevantCount:typeof realRelevantHistoryCount === 'function'
       ? realRelevantHistoryCount(selected.family) : 0}));
+  }
+  if (selected?.minecraftSupported === false) {
+    body.appendChild(element('div',{className:'alert warning'},
+      element('strong',{text:'In-game workflow required'}),
+      element('span',{text:'This exact reason includes a configured consequence the website is not allowed to execute. The full ladder is shown for reference; issue it through the in-game punishment workflow.'})));
+    return;
   }
   const explanation = element('textarea',{id:'minecraftExplanation',value:workflow.explanation,attrs:{maxlength:4000,rows:5},placeholder:'Internal explanation and evidence references'});
   explanation.addEventListener('input',() => { workflow.explanation = explanation.value; });
