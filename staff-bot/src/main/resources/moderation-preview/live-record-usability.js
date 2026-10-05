@@ -295,7 +295,7 @@ function durationAwareWorkflowReviewStatus(workflow) {
   const status = baseWorkflowReviewStatus(workflow);
   const durationReady = workflowDurationReady(workflow);
   if (durationReady) return {...status, durationReady};
-  const errors = [...status.errors, 'Enter a duration such as 60 days, 12 hours, 90 minutes, or Permanent.'];
+  const errors = [...status.errors, 'Choose a valid punishment duration or Permanent.'];
   return {...status, durationReady, errors, ready:false};
 }
 
