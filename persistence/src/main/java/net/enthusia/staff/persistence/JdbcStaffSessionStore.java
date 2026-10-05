@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
+import net.enthusia.staff.domain.staff.StaffSessionOwnership;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 
@@ -80,8 +81,22 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
     ) throws SQLException {
         StaffSessionSnapshot existing = active(connection, staffId, true);
         if (existing != null) {
+            if (StaffSessionOwnership.detached(existing.serverId())
+                    && existing.state() == StaffSessionState.ACTIVE) {
+                StaffSessionSnapshot rebound = rebindDetached(
+                        connection,
+                        existing,
+                        serverId,
+                        schemaVersion,
+                        checksum,
+                        snapshot,
+                        now
+                );
+                connection.commit();
+                return rebound;
+            }
             connection.rollback();
-            if (!existing.serverId().equals(serverId)) {
+            if (!existing.serverId().equalsIgnoreCase(serverId)) {
                 throw new SQLException(
                         "active staff session is still owned by backend " + existing.serverId()
                 );
@@ -116,6 +131,124 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         } catch (SQLException exception) {
             throw new ModerationPersistenceException("Unable to read active staff session", exception);
         }
+    }
+
+    @Override
+    public Optional<StaffSessionSnapshot> detach(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    ) {
+        if (staffId == null || expectedSessionId == null || expectedRevision < 0
+                || expectedServerId == null || expectedServerId.isBlank()
+                || restoredChecksum == null || !restoredChecksum.matches("[0-9a-f]{64}")
+                || now == null) {
+            throw new IllegalArgumentException("valid staff backend detach fields are required");
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                StaffSessionSnapshot current = active(connection, staffId, true);
+                if (current == null
+                        || !current.sessionId().equals(expectedSessionId)
+                        || current.revision() != expectedRevision
+                        || current.state() != StaffSessionState.ACTIVE
+                        || !current.serverId().equalsIgnoreCase(expectedServerId)) {
+                    connection.rollback();
+                    return Optional.empty();
+                }
+                if (!current.checksum().equals(restoredChecksum)) {
+                    connection.rollback();
+                    throw new SQLException("backend detach restoration checksum did not match the saved snapshot");
+                }
+                try (PreparedStatement statement = connection.prepareStatement("""
+                        UPDATE staff_sessions
+                        SET server_id = ?, revision = revision + 1
+                        WHERE session_id = ? AND state = 'ACTIVE' AND revision = ? AND server_id = ?
+                        """)) {
+                    statement.setString(1, StaffSessionOwnership.DETACHED_SERVER_ID);
+                    statement.setBytes(2, UuidBytes.toBytes(expectedSessionId));
+                    statement.setLong(3, expectedRevision);
+                    statement.setString(4, current.serverId());
+                    if (statement.executeUpdate() != 1) {
+                        connection.rollback();
+                        return Optional.empty();
+                    }
+                }
+                insertAudit(
+                        connection,
+                        staffId,
+                        expectedSessionId,
+                        "STAFF_MODE_BACKEND_DETACHED",
+                        "Restored backend " + expectedServerId + " and retained network Staff Mode",
+                        now
+                );
+                StaffSessionSnapshot detached = active(connection, staffId, true);
+                connection.commit();
+                return Optional.ofNullable(detached);
+            } catch (SQLException exception) {
+                rollback(connection, exception);
+                throw exception;
+            } finally {
+                restoreAutoCommit(connection);
+            }
+        } catch (SQLException exception) {
+            throw new ModerationPersistenceException("Unable to detach Staff Mode backend ownership", exception);
+        }
+    }
+
+    private static StaffSessionSnapshot rebindDetached(
+            Connection connection,
+            StaffSessionSnapshot existing,
+            String serverId,
+            int schemaVersion,
+            String checksum,
+            byte[] snapshot,
+            Instant now
+    ) throws SQLException {
+        try (PreparedStatement session = connection.prepareStatement("""
+                UPDATE staff_sessions
+                SET server_id = ?, revision = revision + 1
+                WHERE session_id = ? AND state = 'ACTIVE' AND server_id = ? AND revision = ?
+                """);
+             PreparedStatement state = connection.prepareStatement("""
+                UPDATE staff_state_snapshots
+                SET schema_version = ?, checksum = ?, snapshot_blob = ?, created_at = ?
+                WHERE session_id = ?
+                """)) {
+            session.setString(1, serverId);
+            session.setBytes(2, UuidBytes.toBytes(existing.sessionId()));
+            session.setString(3, StaffSessionOwnership.DETACHED_SERVER_ID);
+            session.setLong(4, existing.revision());
+            if (session.executeUpdate() != 1) {
+                throw new SQLException("detached Staff Mode session lost its rebind fence");
+            }
+
+            state.setInt(1, schemaVersion);
+            state.setString(2, checksum);
+            state.setBytes(3, snapshot);
+            state.setTimestamp(4, Timestamp.from(now));
+            state.setBytes(5, UuidBytes.toBytes(existing.sessionId()));
+            if (state.executeUpdate() != 1) {
+                throw new SQLException("detached Staff Mode snapshot is missing during rebind");
+            }
+        }
+        insertAudit(
+                connection,
+                existing.staffId(),
+                existing.sessionId(),
+                "STAFF_MODE_BACKEND_ATTACHED",
+                "Captured backend " + serverId + " while retaining network Staff Mode",
+                now
+        );
+        StaffSessionSnapshot rebound = active(connection, existing.staffId(), true);
+        if (rebound == null || !rebound.serverId().equalsIgnoreCase(serverId)) {
+            throw new SQLException("Staff Mode backend rebind did not become authoritative");
+        }
+        return rebound;
     }
 
     @Override
