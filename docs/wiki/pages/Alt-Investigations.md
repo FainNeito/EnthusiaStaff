@@ -4,6 +4,8 @@ Alt accounts are allowed on the Enthusia Network. Staff investigate related acco
 
 This page explains the protected network-identity model, staff judgment, and privacy boundaries. Production deployment/cutover is separate from repository implementation status.
 
+Pending investigation-tools PR: `/alts <player>` and both player arguments in `/alt <operation> <player1> <player2> <reason>` support case-insensitive known-player completion, including offline accounts. Completion runs asynchronously, rechecks permissions and hides identities outside the viewer's vanish visibility. Reopen suggestions require the separate reopen permission. Names are not offered in reason arguments, and storage/queue failures return no suggestions.
+
 ## Quick navigation
 
 - General privacy: [[Privacy and Data Handling]]

@@ -1,5 +1,24 @@
 # Confirm-player fork handoff
 
+## Owner investigation reconciliation requirement, 2026-10-05
+
+Same owner bug-fix package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
+Start owner 33db2038; canonical main 72529729 (merged PR #326) adds investigation
+tools, player-name completion and fresh staff-entry vanish. Incorporate these
+base changes while preserving known-name output, namespace routing, inspection
+authority, applied duty profiles, explicit exit disabling vanish for all ranks,
+operation-ticket recovery and backend-local transfer snapshots. Entry failure
+must retain upstream session-scoped rollback; temporary restoration must not
+persist a vanished selection. Resolve source/state overlaps without overwrites.
+
+Review new command completion/GUI authorization, asynchronous owner scheduling,
+patrol cancellation and migration V24 compatibility. Run focused command,
+visibility, staff and Velocity tests, then freeze and run clean Java 25 checks,
+runtime integrity/provider exclusions and Wiki. Database migration/lifecycle,
+hosted/static and live runtime acceptance remain unverified; unchanged Docker
+unavailability is not retried. EARS/state helpers are absent; this bounded record
+is the requirement/task/evidence fallback. No product merge or deployment.
+
 ## Owner transfer reconciliation verification, 2026-10-05
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.

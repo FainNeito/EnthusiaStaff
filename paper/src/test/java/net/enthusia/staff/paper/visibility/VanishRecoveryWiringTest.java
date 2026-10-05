@@ -32,7 +32,7 @@ class VanishRecoveryWiringTest {
         for (String[] boundaries : new String[][] {
                 {"public void staffModeExited(", "public void beginPluginGameModeApplication("},
                 {"public void applyTransferSnapshot(", "public boolean canSee("},
-                {"private void set(", "private void persistSet("},
+                {"private java.util.concurrent.CompletableFuture<Boolean> set(", "private boolean persistSet("},
                 {"private void rememberCommittedState(", "private void persistState("},
                 {"private void applyReconciledMemoryState(", "private void reconcileDurableState("},
                 {"private void reconcileDurableState(", "private void reconciliationFailed("},

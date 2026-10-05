@@ -1,5 +1,24 @@
 # Package registry
 
+## Owner investigation reconciliation requirement, 2026-10-05
+
+Same owner bug-fix package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
+Start owner 33db2038; canonical main 72529729 (merged PR #326) adds investigation
+tools, player-name completion and fresh staff-entry vanish. Incorporate these
+base changes while preserving known-name output, namespace routing, inspection
+authority, applied duty profiles, explicit exit disabling vanish for all ranks,
+operation-ticket recovery and backend-local transfer snapshots. Entry failure
+must retain upstream session-scoped rollback; temporary restoration must not
+persist a vanished selection. Resolve source/state overlaps without overwrites.
+
+Review new command completion/GUI authorization, asynchronous owner scheduling,
+patrol cancellation and migration V24 compatibility. Run focused command,
+visibility, staff and Velocity tests, then freeze and run clean Java 25 checks,
+runtime integrity/provider exclusions and Wiki. Database migration/lifecycle,
+hosted/static and live runtime acceptance remain unverified; unchanged Docker
+unavailability is not retried. EARS/state helpers are absent; this bounded record
+is the requirement/task/evidence fallback. No product merge or deployment.
+
 ## Owner transfer reconciliation verification, 2026-10-05
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
@@ -265,6 +284,9 @@ Remaining acceptance: reproduce freeze movement/reconnect on the current build (
 
 A thread heartbeat checks commits, CI and review findings every 30 minutes; it stays quiet without meaningful changes and continues authorized actionable repairs. Public records contain sanitized technical findings only, with no private report transcripts, player evidence or private channel links. Next action: validate and push this checkpoint, publish this partial state through a docs-only PR, then address concrete review failures or newly reproducible in-scope defects. Preserve upstream routing and the implementation PR.
 
+2026-10-05 owner routing extension: `OWNER-INVESTIGATION-TOOLS` / PR #322 remains the selected partial package. Add automatic fresh-entry vanish and permission/visibility-aware player argument completion, explicitly `/alts` and both `/alt` targets. Refetched current main `ba6dcabc9a731e7e3e21c8405778764abdc626f4` (merged #321) is normally incorporated. Other packages remain untouched; new exact-head gates must supersede prior GUI-only head results.
+
+2026-10-05 owner routing extension: continue `OWNER-INVESTIGATION-TOOLS` / PR #322 with the staff GUI cleanup (IT-06..08). Current main refetched and verified at `18d4f4b05af94ee325842c68d482feedabe5d27f`; existing clean isolated implementation branch reused. Player investigation shortcuts reuse existing services; no second product package, new persistence or provider integration. Status remains PARTIAL / ACTIONABLE_CONTINUATION pending exact-head validation and reviewed delivery.
 
 Last updated: 2026-09-24
 
@@ -279,6 +301,10 @@ Live GitHub overrides stale text. Detailed historical evidence remains in packag
 - Issue #43 remains open/deferred and LiteBans remains authoritative until separately approved.
 - A parked package does not block selection of an unrelated dependency-complete `READY` package.
 - Required package gates come from the authoritative package contract at selection, current validation policy, actually applicable configured checks, and explicit owner direction. A worker cannot create a new blocker merely by adding an optional/diagnostic gate to later tracking text.
+
+## Owner-directed current assignment — 2026-10-04
+
+The owner explicitly assigned `OWNER-INVESTIGATION-TOOLS` after the LuxStaff review. Status `PARTIAL` / `ACTIONABLE_CONTINUATION`; one internal COMP-STAFF PR on `package/owner-investigation-tools`, based on authoritative main `18d4f4b05af94ee325842c68d482feedabe5d27f`. Contract: [OWNER-INVESTIGATION-TOOLS](packages/OWNER-INVESTIGATION-TOOLS.md). This assignment does not complete, reassign or change the existing Market/Discord packages. V24 flags are proposed; reconcile outstanding V22/V23 ownership before release.
 
 ## Canonical current state
 

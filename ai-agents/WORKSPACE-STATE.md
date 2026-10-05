@@ -1,5 +1,24 @@
 # Workspace state
 
+## Owner investigation reconciliation requirement, 2026-10-05
+
+Same owner bug-fix package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
+Start owner 33db2038; canonical main 72529729 (merged PR #326) adds investigation
+tools, player-name completion and fresh staff-entry vanish. Incorporate these
+base changes while preserving known-name output, namespace routing, inspection
+authority, applied duty profiles, explicit exit disabling vanish for all ranks,
+operation-ticket recovery and backend-local transfer snapshots. Entry failure
+must retain upstream session-scoped rollback; temporary restoration must not
+persist a vanished selection. Resolve source/state overlaps without overwrites.
+
+Review new command completion/GUI authorization, asynchronous owner scheduling,
+patrol cancellation and migration V24 compatibility. Run focused command,
+visibility, staff and Velocity tests, then freeze and run clean Java 25 checks,
+runtime integrity/provider exclusions and Wiki. Database migration/lifecycle,
+hosted/static and live runtime acceptance remain unverified; unchanged Docker
+unavailability is not retried. EARS/state helpers are absent; this bounded record
+is the requirement/task/evidence fallback. No product merge or deployment.
+
 ## Owner transfer reconciliation verification, 2026-10-05
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
@@ -265,10 +284,17 @@ Remaining acceptance: reproduce freeze movement/reconnect on the current build (
 
 A thread heartbeat checks commits, CI and review findings every 30 minutes; it stays quiet without meaningful changes and continues authorized actionable repairs. Public records contain sanitized technical findings only, with no private report transcripts, player evidence or private channel links. Next action: validate and push this checkpoint, publish this partial state through a docs-only PR, then address concrete review failures or newly reproducible in-scope defects. Preserve upstream routing and the implementation PR.
 
+2026-10-05 owner extension: continue the same PR #322 with automatic fresh-entry vanish and player-name completion (IT-09..10). Current main `ba6dcabc9a731e7e3e21c8405778764abdc626f4` includes merged cross-server PR #321 and is normally incorporated as `ebff2f09`; previous assumptions that #321 is unmerged are historical. Preserve transfer/recovery visibility and existing exit policy. No new migration/provider API; validation remains pending for the new product head.
 
 Last updated: 2026-09-22
 
 Live GitHub overrides stale records. Detailed package evidence remains in the registries, selected package record, canonical handoff, and PR verification ledgers.
+
+## Explicit owner assignment — 2026-10-04
+
+2026-10-05 owner extension: streamline the same package's menu workflow in PR #322. Add fixed grouped Staff Dashboard slots, player investigation shortcuts, permission-aware command help, and separate close/confirmed exit controls. No new ownership/handoff persistence, schema or companion API is introduced by this GUI slice. EARS/state helpers remain unavailable; IT-06..08 and regression evidence are recorded in the existing package. Other packages are preserved.
+
+`OWNER-INVESTIGATION-TOOLS` is active in isolated `EnthusiaStaff-investigation-tools` on `package/owner-investigation-tools`, base `18d4f4b05af94ee325842c68d482feedabe5d27f`. See its package record and handoff for patrol/activity/flags/join-alert/slot scope. Existing user checkout and other open package work remain preserved. No merge/deployment authorization is implied.
 
 ## Current routing
 

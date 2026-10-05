@@ -1,5 +1,24 @@
 # Latest agent handoff
 
+## Owner investigation reconciliation requirement, 2026-10-05
+
+Same owner bug-fix package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
+Start owner 33db2038; canonical main 72529729 (merged PR #326) adds investigation
+tools, player-name completion and fresh staff-entry vanish. Incorporate these
+base changes while preserving known-name output, namespace routing, inspection
+authority, applied duty profiles, explicit exit disabling vanish for all ranks,
+operation-ticket recovery and backend-local transfer snapshots. Entry failure
+must retain upstream session-scoped rollback; temporary restoration must not
+persist a vanished selection. Resolve source/state overlaps without overwrites.
+
+Review new command completion/GUI authorization, asynchronous owner scheduling,
+patrol cancellation and migration V24 compatibility. Run focused command,
+visibility, staff and Velocity tests, then freeze and run clean Java 25 checks,
+runtime integrity/provider exclusions and Wiki. Database migration/lifecycle,
+hosted/static and live runtime acceptance remain unverified; unchanged Docker
+unavailability is not retried. EARS/state helpers are absent; this bounded record
+is the requirement/task/evidence fallback. No product merge or deployment.
+
 ## Owner transfer reconciliation verification, 2026-10-05
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
@@ -272,6 +291,13 @@ product head `b22ce0077f4059a73de847dd09ecc84862c88a44`. Canonical fork handoff:
 `ai-agents/reports/package-handoffs/2026-10-03-owner-punish-confirm-player.md`.
 Local unit/build verification passed; hosted/integration acceptance remains
 unverified. The upstream handoff below is retained as historical upstream routing.
+
+2026-10-05 current extension: same investigation-tools package now includes fresh-entry automatic vanish and player-name completion, based on normally incorporated `ba6dcabc` / merged #321. Use IT-09..10 and the canonical handoff; old GUI-only heads remain historical.
+
+2026-10-05: owner extended the same investigation-tools package with GUI streamlining. Follow the canonical investigation handoff and IT-06..08. New work stays in PR #322; no merge/deployment authorization.
+
+Owner-directed current work: **OWNER-INVESTIGATION-TOOLS — PARTIAL / ACTIONABLE_CONTINUATION**. See [canonical handoff](../package-handoffs/2026-10-04-owner-investigation-tools.md) and [contract](../../work-packages/packages/OWNER-INVESTIGATION-TOOLS.md). This supersedes routing for this worker only; the historical Market handoff below is preserved. No merge or deployment authorization.
+
 
 Current handoff: **ES-X03 — EnthusiaMarket destructive provider** — **PARTIAL / ACTIONABLE_CONTINUATION**.
 

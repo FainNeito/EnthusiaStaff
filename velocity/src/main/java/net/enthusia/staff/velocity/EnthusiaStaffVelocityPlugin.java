@@ -157,6 +157,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private VelocitabStaffBridge staffTabBridge;
     private volatile SanctionLookup sanctionLookup;
     private volatile PlayerDirectory playerDirectory;
+    private final VelocityPlayerSuggestions playerSuggestions;
     private volatile FreezeStore freezeStore;
     private volatile StaffSessionStore staffSessionStore;
     private volatile InventoryJournalStore inventoryJournalStore;
@@ -181,6 +182,8 @@ public final class EnthusiaStaffVelocityPlugin {
     @Inject
     public EnthusiaStaffVelocityPlugin(ProxyServer proxy, Logger logger, @DataDirectory Path dataDirectory) {
         this.proxy = proxy;
+        this.playerSuggestions = new VelocityPlayerSuggestions(proxy, () -> playerDirectory,
+                () -> databaseRuntime == null ? null : databaseRuntime.vanishStore(), () -> workers);
         this.logger = logger;
         this.dataDirectory = dataDirectory;
         this.securityEventDispatcher = new VelocitySecurityEventDispatcher(() -> workers, shuttingDown::get);
@@ -1697,6 +1700,15 @@ public final class EnthusiaStaffVelocityPlugin {
 
     private final class AltsCommand implements SimpleCommand {
         @Override
+        public CompletableFuture<List<String>> suggestAsync(Invocation invocation) {
+            String[] args = invocation.arguments();
+            return args.length <= 1
+                    ? playerSuggestions.suggest(invocation.source(), args.length == 0 ? "" : args[0],
+                            "enthusiastaff.alts.view")
+                    : CompletableFuture.completedFuture(List.of());
+        }
+
+        @Override
         public void execute(Invocation invocation) {
             CommandSource source = invocation.source();
             String[] arguments = invocation.arguments();
@@ -1778,9 +1790,22 @@ public final class EnthusiaStaffVelocityPlugin {
 
         @Override
         public List<String> suggest(Invocation invocation) {
-            return invocation.arguments().length <= 1
-                    ? List.of("link", "approve", "household", "notrelated", "unlink", "reopen")
-                    : List.of();
+            String[] args = invocation.arguments();
+            return hasPermission(invocation) && args.length <= 1
+                    ? VelocityPlayerSuggestions.operations(args.length == 0 ? "" : args[0],
+                            invocation.source().hasPermission("enthusiastaff.alts.reopen")) : List.of();
+        }
+
+        @Override
+        public CompletableFuture<List<String>> suggestAsync(Invocation invocation) {
+            String[] args = invocation.arguments();
+            if (!hasPermission(invocation) || (args.length > 0 && args[0].equalsIgnoreCase("reopen")
+                    && !invocation.source().hasPermission("enthusiastaff.alts.reopen"))) {
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return VelocityPlayerSuggestions.targetPosition(args)
+                    ? playerSuggestions.suggest(invocation.source(), args[args.length - 1], "enthusiastaff.alts.manage")
+                    : CompletableFuture.completedFuture(suggest(invocation));
         }
 
         @Override
