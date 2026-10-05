@@ -229,7 +229,7 @@ async function fasterLoadMessageRequest(params, mode, pendingButton = null) {
 }
 
 function dropdownDurationField(workflow) {
-  const parts = punishmentDurationParts(workflow.duration);
+  const parts = punishmentDurationParts(workflow.duration) || {amount:3,unit:'days'};
   const amount = element('select',{id:'customDurationAmount',disabled:parts.unit === 'permanent'});
   populateDurationAmountOptions(amount, parts.unit, parts.amount);
   const unit = element('select',{id:'customDurationUnit'},
@@ -248,7 +248,7 @@ function punishmentDurationParts(raw) {
   if (!value || value === '—') return {amount:3,unit:'days'};
   if (value.toLowerCase() === 'permanent') return {amount:1,unit:'permanent'};
   const match = /^([1-9][0-9]*)\s+(minutes?|hours?|days?|months?)$/i.exec(value);
-  if (!match) return {amount:3,unit:'days'};
+  if (!match) return null;
   const unit = match[2].toLowerCase().replace(/s?$/,'') + 's';
   return {amount:Number(match[1]),unit};
 }
@@ -267,17 +267,19 @@ function populateDurationAmountOptions(select, unit, selected) {
 }
 
 function updateDurationFromDropdowns(workflow) {
-  const unit = $('#customDurationUnit')?.value || punishmentDurationParts(workflow.duration).unit;
+  const current = punishmentDurationParts(workflow.duration) || {amount:3,unit:'days'};
+  const unit = $('#customDurationUnit')?.value || current.unit;
   if (unit === 'permanent') {
     workflow.duration = 'Permanent';
     return;
   }
-  const amount = Number($('#customDurationAmount')?.value || punishmentDurationParts(workflow.duration).amount);
+  const amount = Number($('#customDurationAmount')?.value || current.amount);
   workflow.duration = normalizePunishmentDuration(`${amount} ${unit}`) || workflow.duration;
 }
 
 function normalizePunishmentDuration(raw) {
   const parts = punishmentDurationParts(raw);
+  if (!parts) return null;
   if (parts.unit === 'permanent') return 'Permanent';
   if (!Number.isSafeInteger(parts.amount) || parts.amount < 1 || parts.amount > (DURATION_LIMITS[parts.unit] || 0)) return null;
   const singular = parts.unit.slice(0,-1);
@@ -334,7 +336,8 @@ function durationAwareBindCustomOptionEvents(workflow) {
     const amount = $('#customDurationAmount');
     if (amount) {
       amount.disabled = unit === 'permanent';
-      populateDurationAmountOptions(amount, unit, punishmentDurationParts(workflow.duration).amount);
+      const current = punishmentDurationParts(workflow.duration) || {amount:3,unit:'days'};
+      populateDurationAmountOptions(amount, unit, current.amount);
     }
     updateDurationFromDropdowns(workflow);
     workflow.approvalConfirmed = false;
