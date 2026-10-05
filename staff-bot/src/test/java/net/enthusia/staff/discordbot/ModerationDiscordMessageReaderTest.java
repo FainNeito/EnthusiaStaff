@@ -40,6 +40,9 @@ class ModerationDiscordMessageReaderTest {
     void textAuthorAndDateFiltersUseServerSideHistorySearch() {
         assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.of("older phrase"), Optional.empty(), Optional.empty())));
         assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.of("222"), Optional.empty())));
+        assertTrue(ModerationDiscordMessageReader.searchRequested(new ModerationReadApiModel.MessageQuery(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of("alice"), Optional.empty(), 50)));
         assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.empty(), Optional.of("2026-09-01"))));
         assertFalse(ModerationDiscordMessageReader.searchRequested(query(Optional.of("   "), Optional.empty(), Optional.empty())));
         assertFalse(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.empty(), Optional.empty())));
@@ -52,6 +55,20 @@ class ModerationDiscordMessageReaderTest {
     ) {
         return new ModerationReadApiModel.MessageQuery(
                 Optional.empty(), Optional.empty(), Optional.empty(), text, author, date, 50);
+    }
+
+    @Test
+    void authorNameFiltersMatchHistoricalDiscordNames() {
+        ModerationReadApiModel.MessageQuery query = new ModerationReadApiModel.MessageQuery(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of("alice"), Optional.empty(), 50);
+        List<Message> source = List.of(
+                message("matching", 222L, "Alice Example", "needle", "2026-09-01T10:00:00Z"),
+                message("other", 333L, "Bob Example", "needle", "2026-09-01T09:00:00Z"));
+
+        List<Message> result = ModerationDiscordMessageReader.filterAndLimit(source, query, 50);
+
+        assertEquals(List.of("matching"), result.stream().map(Message::getId).toList());
     }
 
     @Test
@@ -73,12 +90,18 @@ class ModerationDiscordMessageReaderTest {
     }
 
     private static Message message(String id, long authorId, String content, String createdAt) {
+        return message(id, authorId, "Tester", content, createdAt);
+    }
+
+    private static Message message(String id, long authorId, String authorName, String content, String createdAt) {
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         User author = (User) Proxy.newProxyInstance(
                 loader,
                 new Class<?>[] {User.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getIdLong" -> authorId;
+                    case "getName" -> authorName;
+                    case "getGlobalName" -> null;
                     default -> throw new UnsupportedOperationException(method.getName());
                 });
         return (Message) Proxy.newProxyInstance(
