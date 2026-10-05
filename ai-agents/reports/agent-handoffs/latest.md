@@ -1,5 +1,18 @@
 # Latest agent handoff
 
+## GUI cleanup verification, 2026-10-05
+
+Owner extended the same package with GUI streamlining; implementation PR #322 remains draft/open/unmerged at frozen product head `85d4db419ee6dcf0266a3cf686a89fb5b96c1e9e`, based on freshly verified main `18d4f4b05af94ee325842c68d482feedabe5d27f`. Fixed grouped Staff Dashboard tools, player investigation shortcuts, permission-aware help, loading Back, and separate Close/confirmed Exit are implemented. Existing command/service checks remain authoritative; no schema/provider API was added by this GUI slice. Delayed delivery checks the original inventory, active session, inspector/action permissions and visibility. Other owner/transfer/Discord package work is preserved.
+
+Manual requirements IT-06..08: permission filtering retains fixed slots and prevents hidden routing; Close keeps Staff Mode; Exit requires confirmation; player shortcuts expose only permitted existing workflows; delayed actions recheck authority/visibility; evidence save and punishment confirmation stay explicit; help shows authorized shortcuts. Two new fixed-slot/filter assertions failed on previous code, then all eight routing/view tests passed. No EARS/state helpers exist.
+
+Java 25.0.3 clean test/check/runtimeJars passes for the frozen product tree: 1,629 discovered, 1,627 passed, two existing Windows symlink skips, zero failures/errors. Wiki passes 41 pages; four runtime JAR CRCs pass; 31 contract source paths checked with zero provider leaks. Local artifacts use `0.1.0-investigation-gui-local-test` and are unmerged test artifacts. Paper SHA-256 `419b628063e9c0729ca1b0297694fa5711d6ac841eb25aa9fa4ef73f580d1451`.
+
+Status: PARTIAL / ACTIONABLE_CONTINUATION. Exact-head Codacy/hosted/review evidence is pending; prior-head Codacy success is historical only. MariaDB integration was excluded (prior Docker unavailability), staging/runtime providers and Java/Bedrock usability remain unverified. Existing unchanged orchestration baseline remains 460 findings, not a pass. Proposed V24 migration sequencing across pending V22/V23 remains unresolved. Next: address real exact-head findings, obtain missing hosted/database/runtime evidence and reviewed delivery. Unified timeline, durable ownership/handoffs, follow-up inbox and evidence bundles remain future work.
+
+This docs-only status delta does not change product code or rerun product gates; executable results belong to the frozen product head. It supersedes older current-head summaries below while retaining historical evidence. No merge, deployment, restart, production or player-data change is authorized. Canonical status publication remains unfinished until docs PR #323 reaches main.
+
+
 Owner-directed current work: **OWNER-INVESTIGATION-TOOLS — PARTIAL / ACTIONABLE_CONTINUATION**. See [canonical handoff](../package-handoffs/2026-10-04-owner-investigation-tools.md) and [contract](../../work-packages/packages/OWNER-INVESTIGATION-TOOLS.md). This supersedes routing for this worker only; the historical Market handoff below is preserved. No merge or deployment authorization.
 
 
