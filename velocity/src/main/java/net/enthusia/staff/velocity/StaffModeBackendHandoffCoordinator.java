@@ -41,14 +41,7 @@ final class StaffModeBackendHandoffCoordinator {
         }
     }
 
-    private enum CloseResult {
-        CLOSED,
-        FAILED,
-        UNCERTAIN
-    }
-
     private final Supplier<Transport> transport;
-    private final Function<UUID, Optional<StaffSessionSnapshot>> sessions;
 
     static Transport channelTransport(PersistentChannelServer channel) {
         if (channel == null) {
@@ -78,7 +71,7 @@ final class StaffModeBackendHandoffCoordinator {
             Function<UUID, Optional<StaffSessionSnapshot>> sessions
     ) {
         this.transport = java.util.Objects.requireNonNull(transport, "transport");
-        this.sessions = java.util.Objects.requireNonNull(sessions, "sessions");
+        java.util.Objects.requireNonNull(sessions, "sessions");
     }
 
     Decision transfer(
@@ -167,42 +160,6 @@ final class StaffModeBackendHandoffCoordinator {
         Transport channel = transport.get();
         return channel != null && abortSource(channel, playerId, transferId, source)
                 == PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED;
-    }
-
-    private record SnapshotClose(CloseResult result, Optional<StaffTransferSnapshot> snapshot) {
-    }
-
-    private SnapshotClose closeSource(
-            Transport channel,
-            UUID playerId,
-            StaffSessionSnapshot session,
-            UUID transferId,
-            String current,
-            BiFunction<UUID, UUID, Optional<StaffTransferSnapshot>> snapshotTake
-    ) {
-        var status = channel.send(current, UUID.randomUUID(), EXIT_REQUEST,
-                exitPayload(playerId, session, transferId), CHANNEL_TIMEOUT);
-        // The transfer snapshot contains visibility/game-mode metadata only. It must never
-        // authorize a backend switch while the durable source Staff Mode session still owns
-        // the exact saved inventory/player-state snapshot.
-        Optional<StaffTransferSnapshot> snapshot = snapshotTake.apply(playerId, transferId);
-        Optional<StaffSessionSnapshot> remaining = sessions.apply(playerId);
-        if (remaining.isEmpty()) {
-            return new SnapshotClose(CloseResult.CLOSED, snapshot);
-        }
-        if (status == PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED) {
-            return new SnapshotClose(CloseResult.FAILED, snapshot);
-        }
-        var abort = abortSource(channel, playerId, transferId, current);
-        if (sessions.apply(playerId).isEmpty()) {
-            return new SnapshotClose(CloseResult.CLOSED, snapshot);
-        }
-        return new SnapshotClose(
-                abort == PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED
-                        ? CloseResult.FAILED
-                        : CloseResult.UNCERTAIN,
-                snapshot
-        );
     }
 
     private boolean prepareDestination(
