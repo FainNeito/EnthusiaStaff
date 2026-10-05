@@ -266,11 +266,27 @@ async function runDiscordHistorySearch() {
   const params = discordHistorySearchParams();
   if (!hasDiscordHistorySearchCriteria(params)) {
     state.remoteSearchActive = false;
-    renderWorkspace();
+    state.remoteSearchCriteria = null;
+    await loadChannelPage();
     return;
   }
+  const previousActive = state.remoteSearchActive;
+  const previousCriteria = state.remoteSearchCriteria;
   state.remoteSearchActive = true;
-  await loadMessageRequest(params, 'replace');
+  state.remoteSearchCriteria = submittedHistorySearchCriteria(params);
+  const loaded = await loadMessageRequest(params, 'replace');
+  if (!loaded) {
+    state.remoteSearchActive = previousActive;
+    state.remoteSearchCriteria = previousCriteria;
+  }
+}
+
+function submittedHistorySearchCriteria(params) {
+  return Object.freeze({
+    text:params.get('text') || '',
+    author:params.get('author') || '',
+    date:params.get('date') || ''
+  });
 }
 
 function discordHistorySearchParams() {
@@ -309,6 +325,7 @@ function handleChannelFilterChange(event) {
   state.contextId = null;
   state.contextReturn = null;
   state.remoteSearchActive = false;
+  state.remoteSearchCriteria = null;
   loadChannelPage();
 }
 
@@ -329,11 +346,13 @@ function clearLocalMessageFilters() {
   state.contextId = null;
   state.contextReturn = null;
   state.remoteSearchActive = false;
+  state.remoteSearchCriteria = null;
 }
 
 state.dateFrom = state.dateFrom || '';
 state.dateTo = state.dateTo || '';
 state.remoteSearchActive = state.remoteSearchActive || false;
+state.remoteSearchCriteria = state.remoteSearchCriteria || null;
 installMessageMapperHardening();
 window.renderTargetHeader = hardenedRenderTargetHeader;
 window.renderContextPanel = hardenedRenderContextPanel;
