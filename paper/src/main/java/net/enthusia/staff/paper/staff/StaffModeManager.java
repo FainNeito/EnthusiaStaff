@@ -321,7 +321,7 @@ public final class StaffModeManager implements Listener {
         }
         CombatStatusAdapter.Status combatStatus = combat.status(player);
         if (combatStatus != CombatStatusAdapter.Status.CLEAR) {
-            transitions.remove(playerId);
+            failEntry(playerId);
             player.sendMessage(StaffMessageStyle.style(Component.text(combatStatus == CombatStatusAdapter.Status.TAGGED
                     ? "You cannot enter staff mode while combat tagged."
                     : "Combat state could not be verified; staff mode entry failed safely.")));
@@ -331,7 +331,7 @@ public final class StaffModeManager implements Listener {
         try {
             captured = codec.capture(player, serverId);
         } catch (RuntimeException exception) {
-            transitions.remove(playerId);
+            failEntry(playerId);
             plugin.getLogger().log(Level.SEVERE, "Staff state snapshot capture failed", exception);
             player.sendMessage(StaffMessageStyle.style(Component.text("Your state could not be snapshotted; staff mode was not entered.")));
             return;
@@ -339,7 +339,7 @@ public final class StaffModeManager implements Listener {
         if (!submit(() -> {
             StaffSessionStore loaded = store.get();
             if (loaded == null) {
-                transitions.remove(playerId);
+                failEntry(playerId);
                 message(playerId, "Staff session storage is not ready; your inventory was not changed.");
                 return;
             }
@@ -348,6 +348,11 @@ public final class StaffModeManager implements Listener {
                         playerId, serverId, captured.schemaVersion(), captured.checksum(),
                         captured.snapshot(), clock.instant()
                 );
+                if (!serverId.equals(session.serverId()) || session.state() != StaffSessionState.ACTIVE) {
+                    throw new IllegalStateException(
+                            "staff session entry returned a snapshot not actively owned by this backend"
+                    );
+                }
                 onEntity(playerId, current -> activateDurableSession(
                         playerId,
                         session,
@@ -358,12 +363,12 @@ public final class StaffModeManager implements Listener {
                         "Staff mode entered after durable snapshot commit."
                 ));
             } catch (RuntimeException exception) {
-                transitions.remove(playerId);
+                failEntry(playerId);
                 plugin.getLogger().log(Level.SEVERE, "Staff session entry failed", exception);
                 message(playerId, "Staff mode entry failed before your inventory was changed.");
             }
         })) {
-            transitions.remove(playerId);
+            failEntry(playerId);
             player.sendMessage(StaffMessageStyle.style(Component.text("The bounded work queue is full; staff mode was not entered.")));
         }
     }
@@ -1120,6 +1125,11 @@ public final class StaffModeManager implements Listener {
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.WARNING, "Post-exit staff-mode cleanup callback failed", exception);
         }
+    }
+
+    private void failEntry(UUID playerId) {
+        transitions.remove(playerId);
+        abandonHandoffGap(playerId);
     }
 
     private void abandonHandoffGap(UUID playerId) {
