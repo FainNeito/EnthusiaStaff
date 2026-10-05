@@ -146,7 +146,7 @@ function productRenderCompleteStep() {
 
 const LIVE_MESSAGE_PAGE_LIMIT = '50';
 const DURATION_UNITS = Object.freeze(['minutes','hours','days','months','permanent']);
-const DURATION_LIMITS = Object.freeze({minutes:1440,hours:240,days:365,months:120});
+const DURATION_LIMITS = Object.freeze({minutes:120,hours:168,days:365,months:120});
 const baseWorkflowReviewStatus = window.workflowReviewStatus;
 const baseCaptureOptions = window.captureOptions;
 const baseFocusFirstMissingReviewField = window.focusFirstMissingReviewField;
