@@ -13,6 +13,7 @@ import java.sql.Statement;
 import java.util.UUID;
 import net.enthusia.staff.domain.player.PlayerPlatform;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
+import net.enthusia.staff.domain.staff.StaffSessionOwnership;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 import net.enthusia.staff.persistence.MariaDb;
@@ -28,6 +29,70 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
     private static final String ROLLBACK_SERVER = "smp_shutdown_rollback";
     private static final String SHUTDOWN_REASON =
             "Paper runtime disabled before normal staff-mode exit";
+
+    @Test
+    void detachedNetworkSessionRebindsWithDestinationLocalSnapshot() {
+        UUID staffId = identifier("staff-detach-rebind");
+        byte[] destinationSnapshot = new byte[]{9};
+        String destinationChecksum = "9".repeat(64);
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 7);
+
+            StaffSessionSnapshot detached = store.detach(
+                    staffId,
+                    source.sessionId(),
+                    source.revision(),
+                    OTHER_SERVER,
+                    source.checksum(),
+                    NOW.plusSeconds(1)
+            ).orElseThrow();
+
+            assertEquals(source.sessionId(), detached.sessionId());
+            assertEquals(StaffSessionOwnership.DETACHED_SERVER_ID, detached.serverId());
+            assertEquals(StaffSessionState.ACTIVE, detached.state());
+
+            StaffSessionSnapshot rebound = store.begin(
+                    staffId,
+                    SCOPED_SERVER,
+                    1,
+                    destinationChecksum,
+                    destinationSnapshot,
+                    NOW.plusSeconds(2)
+            );
+
+            assertEquals(source.sessionId(), rebound.sessionId());
+            assertEquals(SCOPED_SERVER, rebound.serverId());
+            assertEquals(StaffSessionState.ACTIVE, rebound.state());
+            assertEquals(destinationChecksum, rebound.checksum());
+            assertEquals(1, rebound.schemaVersion());
+            assertTrue(java.util.Arrays.equals(destinationSnapshot, rebound.snapshot()));
+        }
+    }
+
+    @Test
+    void detachRejectsWrongRevisionWithoutChangingOwner() {
+        UUID staffId = identifier("staff-detach-fence");
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 6);
+
+            assertTrue(store.detach(
+                    staffId,
+                    source.sessionId(),
+                    source.revision() + 1,
+                    OTHER_SERVER,
+                    source.checksum(),
+                    NOW.plusSeconds(1)
+            ).isEmpty());
+
+            StaffSessionSnapshot remaining = store.active(staffId).orElseThrow();
+            assertEquals(OTHER_SERVER, remaining.serverId());
+            assertEquals(source.revision(), remaining.revision());
+        }
+    }
 
     @Test
     void beginRejectsSnapshotOwnedByAnotherBackend() {
