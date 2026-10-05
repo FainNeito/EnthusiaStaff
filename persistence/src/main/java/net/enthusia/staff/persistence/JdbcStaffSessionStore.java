@@ -170,12 +170,29 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             String restoredChecksum,
             Instant now
     ) {
-        if (staffId == null || expectedSessionId == null || expectedRevision < 0
-                || expectedServerId == null || expectedServerId.isBlank()
-                || restoredChecksum == null || !restoredChecksum.matches("[0-9a-f]{64}")
-                || now == null) {
+        if (!validDetachIdentity(staffId, expectedSessionId, expectedRevision, expectedServerId)
+                || !validDetachVerification(restoredChecksum, now)) {
             throw new IllegalArgumentException("valid staff backend detach fields are required");
         }
+    }
+
+    private static boolean validDetachIdentity(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId
+    ) {
+        return staffId != null
+                && expectedSessionId != null
+                && expectedRevision >= 0
+                && expectedServerId != null
+                && !expectedServerId.isBlank();
+    }
+
+    private static boolean validDetachVerification(String restoredChecksum, Instant now) {
+        return restoredChecksum != null
+                && restoredChecksum.matches("[0-9a-f]{64}")
+                && now != null;
     }
 
     private static Optional<StaffSessionSnapshot> detachTransaction(
@@ -264,7 +281,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             session.setBytes(3, UuidBytes.toBytes(existing.sessionId()));
             session.setString(4, StaffSessionOwnership.DETACHED_SERVER_ID);
             session.setLong(5, existing.revision());
-            if (session.executeUpdate() != 1) {
+            if (session.executeUpdate() != SINGLE_ROW_UPDATE) {
                 throw new SQLException("detached Staff Mode session lost its rebind fence");
             }
 
@@ -273,7 +290,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             state.setBytes(3, snapshot);
             state.setTimestamp(4, Timestamp.from(now));
             state.setBytes(5, UuidBytes.toBytes(existing.sessionId()));
-            if (state.executeUpdate() != 1) {
+            if (state.executeUpdate() != SINGLE_ROW_UPDATE) {
                 throw new SQLException("detached Staff Mode snapshot is missing during rebind");
             }
         }
