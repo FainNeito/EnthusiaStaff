@@ -15,6 +15,7 @@ public final class PlayerArgumentRoutes {
     private static final String REMOVE_PERMISSION = "enthusiastaff.remove";
     private static final String INVENTORY_PERMISSION = "enthusiastaff.inventory.view";
     private static final String FREEZE_PERMISSION = "enthusiastaff.freeze";
+    private static final int SECOND_ARGUMENT_POSITION = 2;
     private static final int THIRD_ARGUMENT = 3;
     private static final Map<String, String> DIRECT = Map.ofEntries(
             Map.entry(PUNISH_COMMAND, PUNISH_PERMISSION), Map.entry("ban", PUNISH_PERMISSION),
@@ -47,7 +48,7 @@ public final class PlayerArgumentRoutes {
     }
 
     private static Route nested(String name, String first, String[] args) {
-        if (args.length == 2) {
+        if (args.length == SECOND_ARGUMENT_POSITION) {
             return secondArgument(name, first);
         }
         if (args.length == THIRD_ARGUMENT && name.equals(CHEAT_TESTER_COMMAND) && first.equals(BASE_ACTION)
