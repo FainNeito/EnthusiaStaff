@@ -13,6 +13,19 @@ class StaffModeRestorationWiringTest {
     );
 
     @Test
+    void savedStateRestoreChecksBackendOwnershipBeforeMutation() throws IOException {
+        String method = method("private boolean restoreSavedState", "private void completeRestoration");
+
+        int ownership = method.indexOf("serverId.equals(session.serverId())");
+        int removeTools = method.indexOf("removeStaffTools(player)");
+        int restore = method.indexOf("codec.restore");
+
+        assertTrue(ownership >= 0);
+        assertTrue(removeTools > ownership);
+        assertTrue(restore > ownership);
+    }
+
+    @Test
     void savedStateRestoreIsAuthorizedAndClearsSpectatorTarget() throws IOException {
         String method = method("private boolean restoreSavedState", "private void completeRestoration");
 
