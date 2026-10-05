@@ -1,3 +1,4 @@
+# Triggered after workflow registration so GitHub sees it on the parent commit.
 name: Temporary obsolete branch cleanup
 
 on:
