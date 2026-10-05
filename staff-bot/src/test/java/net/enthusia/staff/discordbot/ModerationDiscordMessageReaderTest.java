@@ -14,7 +14,7 @@ import net.dv8tion.jda.api.entities.User;
 import org.junit.jupiter.api.Test;
 
 class ModerationDiscordMessageReaderTest {
-    private static final String SEARCH_NEEDLE = SEARCH_NEEDLE;
+    private static final String SEARCH_NEEDLE = "needle";
     @Test
     void messageReadsRequireActorAndBotChannelAccess() {
         assertFalse(ModerationDiscordMessageReader.hasReadPermissions(false, false, true, true));
