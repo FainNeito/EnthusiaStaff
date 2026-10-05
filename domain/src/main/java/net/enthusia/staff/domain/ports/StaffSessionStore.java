@@ -21,14 +21,16 @@ public interface StaffSessionStore {
      * Releases the backend-local saved-state lease after that exact state has been restored,
      * while keeping network Staff Mode intent active for reconnect/transfer.
      */
-    Optional<StaffSessionSnapshot> detach(
+    default Optional<StaffSessionSnapshot> detach(
             UUID staffId,
             UUID expectedSessionId,
             long expectedRevision,
             String expectedServerId,
             String restoredChecksum,
             Instant now
-    );
+    ) {
+        throw new UnsupportedOperationException("backend Staff Mode detach is not supported");
+    }
 
     Optional<StaffSessionSnapshot> beginExit(UUID staffId, Instant now);
 
