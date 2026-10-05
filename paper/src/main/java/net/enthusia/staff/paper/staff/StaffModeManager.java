@@ -550,12 +550,45 @@ public final class StaffModeManager implements Listener {
             StaffSessionSnapshot session,
             StaffSessionStore loaded
     ) {
-        Instant now = clock.instant();
-        loaded.recoveryRequired(session.sessionId(), "Server process restarted before staff-mode exit", now);
-        StaffSessionSnapshot restoring = loaded.beginExit(playerId, now).orElseThrow(() ->
-                new IllegalStateException("stale active staff session disappeared during crash recovery"));
-        message(playerId, "A previous staff-mode session did not exit cleanly; restoring your saved state.");
-        restoreAndVerify(playerId, restoring, loaded);
+        // A backend restart is not an intentional Staff Mode exit. Recover the backend-local
+        // native state, detach the stale lease, then immediately capture this runtime's native
+        // state and reapply the still-active network Staff Mode session.
+        onEntity(playerId, player -> {
+            try {
+                if (!restoreSavedState(player, session)) {
+                    recoveryGate.retry(playerId);
+                    return;
+                }
+                String checksum = codec.verifiedRestorationChecksum(
+                        player, session.serverId(), session.snapshot(), session.checksum());
+                if (!submit(() -> {
+                    try {
+                        if (loaded.detach(
+                                playerId,
+                                session.sessionId(),
+                                session.revision(),
+                                session.serverId(),
+                                checksum,
+                                clock.instant()
+                        ).isEmpty()) {
+                            recoveryGate.retry(playerId);
+                            scheduleRecoveryRetry(playerId);
+                            return;
+                        }
+                        onEntity(playerId, current -> resumeDetachedSession(playerId, loaded, current));
+                    } catch (RuntimeException exception) {
+                        recoveryGate.retry(playerId);
+                        plugin.getLogger().log(Level.SEVERE, "Staff Mode restart rebind failed", exception);
+                        scheduleRecoveryRetry(playerId);
+                    }
+                })) {
+                    recoveryGate.retry(playerId);
+                }
+            } catch (RuntimeException exception) {
+                recoveryGate.retry(playerId);
+                plugin.getLogger().log(Level.SEVERE, "Staff Mode restart restoration failed", exception);
+            }
+        }, () -> recoveryGate.retry(playerId));
     }
 
     private void finishActiveRecovery(
