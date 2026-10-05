@@ -108,6 +108,17 @@ class StaffModeRestorationWiringTest {
     }
 
     @Test
+    void staffExitRequiresAnActiveSessionOwnedByThisBackend() throws IOException {
+        String method = method("public void exit(Player player)", "// Handoff resume must snapshot");
+
+        assertTrue(method.contains("active.get(playerId)"));
+        assertTrue(method.contains("localSession.state() != StaffSessionState.ACTIVE"));
+        assertTrue(method.contains("!serverId.equalsIgnoreCase(localSession.serverId())"));
+        assertTrue(method.indexOf("localSession.state() != StaffSessionState.ACTIVE")
+                < method.indexOf("beginDurableExit(playerId"));
+    }
+
+    @Test
     void cleanExitSuccessMessageIsOnlyEmittedAfterVerificationPasses() throws IOException {
         String method = method("private void completeRestoration", "private void retainRecoveryAfterRuntimeExit");
         int mismatch = method.indexOf("if (!closed)");
