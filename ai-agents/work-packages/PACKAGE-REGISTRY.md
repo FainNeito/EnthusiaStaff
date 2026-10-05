@@ -1,5 +1,7 @@
 # Package registry
 
+2026-10-05 owner routing extension: `OWNER-INVESTIGATION-TOOLS` / PR #322 remains the selected partial package. Add automatic fresh-entry vanish and permission/visibility-aware player argument completion, explicitly `/alts` and both `/alt` targets. Refetched current main `ba6dcabc9a731e7e3e21c8405778764abdc626f4` (merged #321) is normally incorporated. Other packages remain untouched; new exact-head gates must supersede prior GUI-only head results.
+
 2026-10-05 owner routing extension: continue `OWNER-INVESTIGATION-TOOLS` / PR #322 with the staff GUI cleanup (IT-06..08). Current main refetched and verified at `18d4f4b05af94ee325842c68d482feedabe5d27f`; existing clean isolated implementation branch reused. Player investigation shortcuts reuse existing services; no second product package, new persistence or provider integration. Status remains PARTIAL / ACTIONABLE_CONTINUATION pending exact-head validation and reviewed delivery.
 
 Last updated: 2026-09-24

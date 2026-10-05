@@ -81,7 +81,9 @@ Freeze state is designed to survive ordinary runtime transitions rather than bei
 
 ## Staff mode and tools
 
-`/staff` enters/exits durable staff mode.
+`/staff` enters/exits durable staff mode. Fresh entry automatically enables durable vanish; entering while already vanished never toggles it off. If automatic vanish cannot be saved, the same newly entered session exits through normal snapshot restoration. Recovery and cross-server resumes retain their existing visibility state, and existing rank-specific exit behavior remains intact.
+
+Player-name arguments use bounded, case-insensitive completion with permission and visibility filtering. This includes direct moderation/report/history/client/inventory commands, inspector sub-actions, freeze targets, staff flags, staff-tool follow/spectate, tester/fake-base targets, and console-only staff recovery/API targets. Paper suggests visible local online names and retains its existing offline inventory cache. Velocity `/alts` and both `/alt` player arguments asynchronously suggest known network names, including offline accounts. Reason, case-ID, draft-ID and confirmation inputs retain their existing completion. These changes are unmerged proposals; live Java/Bedrock acceptance remains pending.
 
 `/stafftools` opens the Staff Dashboard. Investigation tools occupy the upper row; patrol and session tools occupy the lower row. Authorized tools keep fixed positions when other tools are hidden. Choosing an inspector target opens a player investigation menu with permission-filtered overview, history, flags/notes, live client evidence, inventory, ender chest and punishment-workflow shortcuts. Other target tools retain their existing command/service paths. Pickers exclude the viewer and vanished players. Menu delivery rechecks permissions, session and visibility; closed or replaced menus cannot deliver delayed investigation actions. Client evidence is review-only until explicitly saved, and punishment selection retains its existing confirmation workflow.
 

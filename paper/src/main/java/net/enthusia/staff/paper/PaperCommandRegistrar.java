@@ -127,6 +127,8 @@ final class PaperCommandRegistrar {
         registerStaffCommands();
         registerInventoryCommands();
         registerInspectionCommands();
+        new net.enthusia.staff.paper.command.PlayerNameCompletion(
+                dependencies.players().vanish()::canSee, dependencies.players().staffMode()).install(plugin());
     }
 
     private void configureEstaff() {

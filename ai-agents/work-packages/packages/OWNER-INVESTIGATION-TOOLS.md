@@ -10,6 +10,12 @@ Existing user checkout and its untracked artifact are preserved.
 
 ## Spec and acceptance boundaries
 
+Owner extension, 2026-10-05: automatic entry vanish and player-name tab completion.
+- IT-09: WHEN a fresh durable Staff Mode entry activates successfully, vanish SHALL be enabled idempotently through its existing persistence path. Failed Staff Mode entry SHALL NOT enable vanish. Recovery and cross-server resume SHALL retain their transferred/recovered visibility; existing exit behavior is preserved.
+- IT-09 failure boundary: IF automatic vanish cannot be saved, only that same fresh session SHALL exit through existing durable snapshot restoration. Queued active-session vanish writes SHALL NOT cross into another session. Existing recovery protections remain on restoration failure.
+- IT-10: WHEN a command expects a player name, tab completion SHALL provide bounded, case-insensitive permitted names at that argument position, including `/alts` and both `/alt` targets. Existing subcommand/reason/confirmation completion SHALL remain available. Unauthorized or hidden identities SHALL NOT be suggested; no synchronous command-thread database work is introduced.
+Current authoritative main `ba6dcabc` contains merged PR #321 and was normally merged into this ongoing isolated branch before edits. Existing GUI/investigation changes and other owner checkouts remain preserved.
+
 Owner extension, 2026-10-05: streamline the existing GUI workflow in this same package/PR.
 - IT-06: WHEN permissions change, authorized tools SHALL retain fixed grouped menu positions; hidden tools SHALL NOT be routable. Close SHALL only close; leaving Staff Mode SHALL require a separate confirmation.
 - IT-07: WHEN a staff viewer selects a player for inspection, a player investigation menu SHALL expose only authorized existing command workflows. Click delivery SHALL recheck the active session, inspector permission, action permission and target visibility. No client evidence is automatically saved and no punishment is automatically issued.

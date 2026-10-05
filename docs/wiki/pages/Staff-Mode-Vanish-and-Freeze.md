@@ -41,6 +41,8 @@ Staff mode durably records the normal player state **before** applying the tempo
 
 Entry should fail closed when combat safety, storage, worker capacity, or durable snapshot creation cannot be proved. A reconnect or restart recovers the existing durable session rather than creating a new “normal” snapshot from temporary staff state.
 
+The pending investigation-tools PR makes fresh Staff Mode entry enable vanish automatically. An already vanished staff member stays vanished. If vanish cannot be saved, the same fresh session leaves Staff Mode through normal snapshot restoration; failed restoration retains the existing recovery protections. Recovery and cross-server resumes preserve their prior visibility choice. This proposal does not change the existing rank-specific vanish behavior on exit.
+
 ### Before entering
 
 - Finish or leave normal combat first.

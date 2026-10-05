@@ -1,5 +1,17 @@
 # OWNER-INVESTIGATION-TOOLS handoff
 
+## Automatic vanish and completion extension, 2026-10-05
+
+Owner requested automatic vanish when entering Staff Mode and completion for all player-name command arguments, explicitly alts. Same package/PR #322; start `85d4db419ee6dcf0266a3cf686a89fb5b96c1e9e`. Refetched main `ba6dcabc9a731e7e3e21c8405778764abdc626f4` contains merged #321 and is normally incorporated as `ebff2f09`. No conflict, reset, user-change overwrite or transfer/recovery policy replacement occurred.
+
+Fresh durable entry invokes an idempotent vanish enable after successful profile publication. Failed activation does not call it; recovered/transferred sessions keep their state. Vanish persistence reports success/failure; failure exits only the same fresh session through existing durable restoration. Queued vanish writes are fenced to their active session when applicable. Existing independent-rank exit semantics remain intact.
+
+Shared Paper player-position routing offers bounded visible local online names, keeps legacy inventory offline completion, delegates non-player inputs, and covers direct and nested moderation/report/inspection/freeze/flag/staff-tool/tester/fake-base plus console-only targets. Folia entity names are cached on owning schedulers/events. Estaff status completer remains unchanged for runtime verification. Velocity alts and both alt targets query bounded known-name/vanish providers on the existing worker executor with eight pending requests maximum, permission rechecks before work/delivery, visibility filtering, invalid-prefix guards, unavailable-provider/rejected-queue empty results and separate reopen gating.
+
+Focused tests cover route positions, reason/confirmation preservation, visibility, revocation, existing offline cache, console restriction, result limits, known offline alts, asynchronous execution, saturation, rejection and provider failure. Vanish entry/failure/session and recovery/handoff wiring is statically verified, not live runtime acceptance. After incorporating #321, its LF-only source-reading test failed on Windows CRLF; normalize read bytes without removing assertions, then the Paper/Velocity tests pass. First compile exposed deprecated metadata API and wrong CommandMap method; corrected using the actual cached Paper API's getKnownCommands contract. No behavioral red/green claim is fabricated for new routing.
+
+Next: freeze current product, run clean local gates and exact-head static/hosted/review, publish the updated partial state via existing docs PR #323. Docker/MariaDB and real Java/Bedrock/Folia/provider/distributed acceptance remain separate, and migration V24 sequencing remains unresolved. No production mutation or merge is authorized.
+
 ## GUI extension, 2026-10-05
 
 Owner requested GUI recommendations and streamlining; continue this same package/PR. Refetched upstream main remains `18d4f4b05af94ee325842c68d482feedabe5d27f`; implementation starts from clean existing `bee3307a3d59b4c5cae6abe411c1f01514c45fae`. Other owner GUI and transfer branches remain untouched.
