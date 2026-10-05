@@ -136,20 +136,24 @@ function hardenedMessagesNode() {
   content.push(messageCoverageNode(), hardenedFiltersNode());
   content.push(element('section', {className:'message-investigation'}, messages.length
     ? groupedMessagesNodes(messages)
-    : emptyState('No loaded messages match these filters', 'Clear a filter or retrieve more Discord history for a specific channel.')));
+    : emptyState(state.remoteSearchActive ? 'No Discord history matches this search' : 'No loaded messages match these filters',
+      state.remoteSearchActive ? 'Try a broader term, channel, author ID, or date.' : 'Clear a filter or run a Discord history search.')));
   content.push(messagePaginationNode());
   return element('div', {}, content);
 }
 
 function messageCoverageNode() {
   const range = loadedMessageRange();
+  const remote = state.remoteSearchActive === true;
   return element('section', {className:'card coverage-card'},
     sectionHeading('Search coverage'),
     summaryList([
-      ['Messages loaded', baseMessages.length],
+      [remote ? 'Search results loaded' : 'Messages loaded', baseMessages.length],
       ['Loaded date range', range],
-      ['Filters search', 'Loaded messages only'],
-      ['Coverage', state.contextId ? 'Complete for the loaded ±2 minute context' : 'Partial until Discord history is fully paged']
+      ['Text search', remote ? 'Server-side Discord history search' : 'Loaded messages only'],
+      ['Coverage', state.contextId ? 'Complete for the loaded ±2 minute context'
+        : remote ? 'Bounded history search beyond the currently loaded page'
+          : 'Partial until Discord history is paged or searched']
     ]),
     element('p', {className:'muted small', text:messageCoverageExplanation()}));
 }
@@ -163,6 +167,11 @@ function loadedMessageRange() {
 
 function messageCoverageExplanation() {
   if (state.contextId) return contextCoverageExplanation();
+  if (state.remoteSearchActive) {
+    return state.channel === 'all'
+      ? 'Search queries Discord history beyond the messages already loaded, scanning a bounded amount of readable history across channels. Narrow to one channel for the deepest search and paging.'
+      : 'Search queries older Discord history in this channel, not just the messages already on screen. Use Load older from Discord to continue the same search behind the oldest result.';
+  }
   if (state.channel === 'all') return initialCoverageExplanation();
   return channelCoverageExplanation();
 }
@@ -176,18 +185,22 @@ function initialCoverageExplanation() {
 }
 
 function channelCoverageExplanation() {
-  return 'A channel page retrieves up to 25 Discord messages at a time. Text, author, and date-range filters do not fetch older history; use Load older/newer from Discord to extend the loaded range.';
+  return 'A normal channel page retrieves recent Discord messages. Enter a term and use Search Discord history to scan older messages without manually loading every page.';
 }
 
 function hardenedFiltersNode() {
   return element('section', {className:'card filters-card'},
     element('div', {className:'filter-row'},
-      filterField('Search loaded messages', element('input', {id:'messageSearch', type:'search', placeholder:'Text in loaded messages', value:state.search})),
+      filterField('Search Discord history', element('input', {
+        id:'messageSearch', type:'search', placeholder:'Search message text beyond the loaded page',
+        value:state.search, attrs:{autocomplete:'off'}
+      })),
       filterField('Author', element('input', {id:'authorFilter', type:'search', placeholder:'Name or Discord ID', value:state.author ?? ''})),
       filterField('Channel', channelFilterNode()),
       filterField('From date', element('input', {id:'dateFromFilter', type:'date', value:state.dateFrom || ''})),
       filterField('To date', element('input', {id:'dateToFilter', type:'date', value:state.dateTo || ''})),
       selectedFilterNode(),
+      buttonNode('Search Discord history', 'button primary filter-search', {runMessageSearch:''}),
       buttonNode('Clear filters', 'button ghost filter-clear', {clearFilters:''})));
 }
 
@@ -206,7 +219,9 @@ function messagePaginationNode() {
   if (state.contextId) return element('div');
   if (state.channel === 'all') {
     return element('div', {className:'pagination-note'},
-      element('span', {text:'Choose a readable channel to retrieve more Discord history.'}));
+      element('span', {text:state.remoteSearchActive
+        ? 'Cross-channel search scans bounded readable history. Choose one channel to page farther back.'
+        : 'Choose a readable channel to retrieve more Discord history.'}));
   }
   const newer = buttonNode('Load newer from Discord', 'button secondary', {loadDirection:'newer'});
   const older = buttonNode('Load older from Discord', 'button secondary', {loadDirection:'older'});
@@ -219,6 +234,7 @@ function hardenedBindMessageEvents() {
   $('[data-exit-context]')?.addEventListener('click', exitLiveContext);
   bindMessageFilters();
   $('#channelFilter')?.addEventListener('change', handleChannelFilterChange);
+  $('[data-run-message-search]')?.addEventListener('click', runDiscordHistorySearch);
   $('[data-clear-filters]')?.addEventListener('click', clearMessageFilters);
   $$('.message-select').forEach((checkbox) => checkbox.addEventListener('click', selectMessage));
   $$('[data-message-action]').forEach((button) => button.addEventListener('click', hardenedHandleMessageAction));
@@ -227,17 +243,47 @@ function hardenedBindMessageEvents() {
 }
 
 function bindMessageFilters() {
-  $('#messageSearch')?.addEventListener('input', (event) => { state.search = event.target.value; renderWorkspace(); });
-  $('#authorFilter')?.addEventListener('input', (event) => { state.author = event.target.value; renderWorkspace(); });
+  const search = $('#messageSearch');
+  const author = $('#authorFilter');
+  search?.addEventListener('input', (event) => { state.search = event.target.value; });
+  author?.addEventListener('input', (event) => { state.author = event.target.value; });
+  search?.addEventListener('keydown', runMessageSearchOnEnter);
+  author?.addEventListener('keydown', runMessageSearchOnEnter);
   $('#dateFromFilter')?.addEventListener('change', (event) => { state.dateFrom = event.target.value; renderWorkspace(); });
   $('#dateToFilter')?.addEventListener('change', (event) => { state.dateTo = event.target.value; renderWorkspace(); });
   $('#selectedFilter')?.addEventListener('change', (event) => { state.selectedOnly = event.target.checked; renderWorkspace(); });
+}
+
+function runMessageSearchOnEnter(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  runDiscordHistorySearch();
+}
+
+async function runDiscordHistorySearch() {
+  state.contextId = null;
+  state.contextReturn = null;
+  const params = new URLSearchParams({limit:'50'});
+  const text = String(state.search || '').trim();
+  const author = String(state.author || '').trim();
+  if (state.channel !== 'all') params.set('channel', state.channel);
+  if (text) params.set('text', text);
+  if (/^[1-9][0-9]{0,19}$/.test(author)) params.set('author', author);
+  if (state.dateFrom && state.dateFrom === state.dateTo) params.set('date', state.dateFrom);
+  if (!text && !params.has('author') && !params.has('date')) {
+    state.remoteSearchActive = false;
+    renderWorkspace();
+    return;
+  }
+  state.remoteSearchActive = true;
+  await loadMessageRequest(params, 'replace');
 }
 
 function handleChannelFilterChange(event) {
   state.channel = event.target.value;
   state.contextId = null;
   state.contextReturn = null;
+  state.remoteSearchActive = false;
   loadChannelPage();
 }
 
@@ -257,10 +303,12 @@ function clearLocalMessageFilters() {
   state.selectedOnly = false;
   state.contextId = null;
   state.contextReturn = null;
+  state.remoteSearchActive = false;
 }
 
 state.dateFrom = state.dateFrom || '';
 state.dateTo = state.dateTo || '';
+state.remoteSearchActive = state.remoteSearchActive || false;
 installMessageMapperHardening();
 window.renderTargetHeader = hardenedRenderTargetHeader;
 window.renderContextPanel = hardenedRenderContextPanel;
