@@ -189,13 +189,35 @@ function staffExplanationNode(w) {
 }
 
 function dmPreviewNode(w) {
-  const detail = w.dm ? actionDmText(w) : 'No DM is included with this action.';
-  return element('div',{className:'dm-preview'},element('span',{text:'Notification message'}),element('p',{text:detail}));
+  return element('div',{className:'dm-preview'},
+    element('span',{text:'Notification message'}),
+    w.dm ? punishmentNotificationPreview(w) : element('p',{text:'No DM is included with this action.'}));
+}
+
+function punishmentNotificationPreview(w) {
+  const action = String(w.actual?.action || 'action').toLowerCase();
+  const duration = w.duration && w.duration !== '—' ? ` for ${w.duration}` : '';
+  const rows = [
+    element('strong',{className:'notification-preview-title',text:'Punishment Alert'}),
+    element('p',{text:`You have been ${action} on the Enthusia SMP Discord${duration}.`}),
+    element('p',{},element('strong',{text:'Reason: '}),document.createTextNode(w.offense?.label || 'Custom')),
+    element('p',{},element('strong',{text:'Staff explanation: '}),document.createTextNode(String(w.reason || '').trim() || 'None provided'))
+  ];
+  if (!['warning','kick'].includes(action)) {
+    rows.push(element('p',{},element('strong',{text:'Expires: '}),
+      document.createTextNode(w.duration === 'Permanent'
+        ? 'Permanent'
+        : 'Discord timestamp and live countdown generated from the confirmed action time')));
+  }
+  rows.push(element('p',{className:'muted small',text:
+    'Appeal: Enthusia Discord appeal channel or Enthusia.info/appeal'}));
+  return element('div',{className:'notification-preview-body'},rows);
 }
 
 function actionDmText(w) {
+  const action = String(w.actual?.action || 'action').toLowerCase();
   const duration = w.duration && w.duration !== '—' ? ` for ${w.duration}` : '';
-  return `Enthusia moderation: ${w.actual.action}${duration} for ${w.offense.label}. Staff explanation: ${String(w.reason || '').trim()}`;
+  return `Punishment Alert — You have been ${action} on the Enthusia SMP Discord${duration}. Reason: ${w.offense?.label || 'Custom'}`;
 }
 
 function testEnvironmentBoundary() {
