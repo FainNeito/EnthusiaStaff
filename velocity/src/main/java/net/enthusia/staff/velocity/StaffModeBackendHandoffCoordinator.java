@@ -94,11 +94,10 @@ final class StaffModeBackendHandoffCoordinator {
     /**
      * Transfers a staff session to another backend (overnight/cross-server).
      *
-     * @param snapshotTake takes (and consumes) the in-memory transfer snapshot the source
-     *                     backend uploaded for this transfer, if any. When present, the
-     *                     snapshot is authoritative: the transfer proceeds on it without
-     *                     waiting for the source's database persist, and it is forwarded to
-     *                     the destination inside the prepare payload.
+     * @param snapshotTake takes (and consumes) the lightweight visibility snapshot the source
+     *                     backend uploaded for this transfer, if any. The snapshot may be
+     *                     forwarded to the destination only after the durable source Staff Mode
+     *                     session has closed; it never substitutes for inventory/session ownership.
      */
     Decision transfer(
             UUID playerId,
@@ -181,31 +180,26 @@ final class StaffModeBackendHandoffCoordinator {
     ) {
         var status = channel.send(current, UUID.randomUUID(), EXIT_REQUEST,
                 exitPayload(playerId, session, transferId), CHANNEL_TIMEOUT);
-        // Fail-open (overnight/cross-server): the source uploads its in-memory transfer snapshot
-        // before any database write, and frames arrive in order, so once the exit request was
-        // sent the snapshot is already cached when present. A cached snapshot is authoritative
-        // for the transfer: the proxy proceeds on it without waiting for the source's database
-        // persist, which continues asynchronously on the source.
+        // The transfer snapshot contains visibility/game-mode metadata only. It must never
+        // authorize a backend switch while the durable source Staff Mode session still owns
+        // the exact saved inventory/player-state snapshot.
         Optional<StaffTransferSnapshot> snapshot = snapshotTake.apply(playerId, transferId);
-        if (snapshot.isPresent()) {
-            return new SnapshotClose(CloseResult.CLOSED, snapshot);
-        }
         Optional<StaffSessionSnapshot> remaining = sessions.apply(playerId);
         if (remaining.isEmpty()) {
-            return new SnapshotClose(CloseResult.CLOSED, Optional.empty());
+            return new SnapshotClose(CloseResult.CLOSED, snapshot);
         }
         if (status == PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED) {
-            return new SnapshotClose(CloseResult.FAILED, Optional.empty());
+            return new SnapshotClose(CloseResult.FAILED, snapshot);
         }
         var abort = abortSource(channel, playerId, transferId, current);
         if (sessions.apply(playerId).isEmpty()) {
-            return new SnapshotClose(CloseResult.CLOSED, Optional.empty());
+            return new SnapshotClose(CloseResult.CLOSED, snapshot);
         }
         return new SnapshotClose(
                 abort == PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED
                         ? CloseResult.FAILED
                         : CloseResult.UNCERTAIN,
-                Optional.empty()
+                snapshot
         );
     }
 
