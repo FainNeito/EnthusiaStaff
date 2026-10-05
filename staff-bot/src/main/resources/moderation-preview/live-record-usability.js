@@ -199,14 +199,13 @@ async function fasterLoadMoreMessages(direction) {
 }
 
 function currentMessageRequestParams() {
-  const params = new URLSearchParams({channel:state.channel, limit:LIVE_MESSAGE_PAGE_LIMIT});
-  if (!state.remoteSearchActive) return params;
-  const text = String(state.search || '').trim();
-  const author = String(state.author || '').trim();
-  if (text) params.set('text', text);
-  if (/^[1-9][0-9]{0,19}$/.test(author)) params.set('author', author);
-  if (state.dateFrom && state.dateFrom === state.dateTo) params.set('date', state.dateFrom);
-  return params;
+  if (state.remoteSearchActive) {
+    const params = discordHistorySearchParams();
+    params.set('channel', state.channel);
+    params.set('limit', LIVE_MESSAGE_PAGE_LIMIT);
+    return params;
+  }
+  return new URLSearchParams({channel:state.channel, limit:LIVE_MESSAGE_PAGE_LIMIT});
 }
 
 async function fasterLoadMessageRequest(params, mode, pendingButton = null) {
