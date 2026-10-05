@@ -30,6 +30,30 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             "Paper runtime disabled before normal staff-mode exit";
 
     @Test
+    void beginRejectsSnapshotOwnedByAnotherBackend() {
+        UUID staffId = identifier("staff-cross-backend-ownership");
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 7);
+
+            assertThrows(ModerationPersistenceException.class, () -> store.begin(
+                    staffId,
+                    SCOPED_SERVER,
+                    1,
+                    "8".repeat(64),
+                    new byte[]{8},
+                    NOW.plusSeconds(1)
+            ));
+
+            StaffSessionSnapshot remaining = store.active(staffId).orElseThrow();
+            assertEquals(source.sessionId(), remaining.sessionId());
+            assertEquals(OTHER_SERVER, remaining.serverId());
+            assertEquals(StaffSessionState.ACTIVE, remaining.state());
+        }
+    }
+
+    @Test
     void marksOnlyOpenSessionsForTheStoppingServerAndIsIdempotent() throws Exception {
         UUID activeStaff = identifier("staff-shutdown-active");
         UUID exitingStaff = identifier("staff-shutdown-exiting");
