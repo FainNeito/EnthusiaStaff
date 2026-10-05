@@ -57,7 +57,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             } catch (SQLException exception) {
                 rollback(connection, exception);
                 StaffSessionSnapshot existing = activeAfterConflict(staffId);
-                if (existing != null) {
+                if (existing != null && existing.serverId().equals(serverId)) {
                     return existing;
                 }
                 throw new ModerationPersistenceException("Staff session entry transaction failed", exception);
@@ -81,6 +81,11 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         StaffSessionSnapshot existing = active(connection, staffId, true);
         if (existing != null) {
             connection.rollback();
+            if (!existing.serverId().equals(serverId)) {
+                throw new SQLException(
+                        "active staff session is still owned by backend " + existing.serverId()
+                );
+            }
             return existing;
         }
         UUID sessionId = UUID.randomUUID();
