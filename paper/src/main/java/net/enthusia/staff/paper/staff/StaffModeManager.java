@@ -382,7 +382,9 @@ public final class StaffModeManager implements Listener {
         beginDurableExit(playerId, "Staff mode exit");
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    // Handoff resume must snapshot the destination backend's native player state before
+    // transferred vanish can force spectator later in the same join event.
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
