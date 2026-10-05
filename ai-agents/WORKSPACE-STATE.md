@@ -1,5 +1,25 @@
 # Workspace state
 
+## Owner tester handoff reconciliation requirement, 2026-10-05
+
+Same bug-fix owner package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
+Starting owner fa4792d1; authoritative main 4651cc77 includes relevant tester
+ownership repair d545d9a9 (PR #329) and unrelated Discord role-sync/console bridge
+PR #330. Incorporate the tester repair by normal merge; PR #330 adds separate
+integration/authority scope and is inspected but not required by this package.
+Do not activate authority or replace independent work. Preserve all prior names,
+vanish, duty, transfer, confirmation and occupied-offhand repairs.
+
+Resolve tester conflict by combining upstream current-player Consumer handoff
+with owner capture failure marker and finally-based checkpoint/restoration guard.
+Recovery/start/finish/restoration/fake-base continuations must perform live reads
+only on owning schedulers, and retired/rejected work settles once. Run focused
+handoff/tester plus restoration wiring, freeze, clean Java 25 gates, runtime JAR
+integrity/provider exclusion and Wiki. Keep database, hosted/static, staging,
+provider and live client acceptance separate. EARS/state helpers remain absent;
+this bounded requirement/task/evidence record is retained. No product merge,
+production mutation, permission changes or authority activation.
+
 ## Owner investigation reconciliation verification, 2026-10-05
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
