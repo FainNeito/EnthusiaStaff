@@ -94,9 +94,11 @@ function productReviewEvidenceNode(workflow) {
 }
 
 function productNotificationMessageNode(workflow) {
-  const detail = workflow.dm ? actionDmText(workflow) : 'No DM is included with this action.';
   return element('div',{className:'dm-preview'},
-    element('span',{text:'Notification message'}), element('p',{text:detail}));
+    element('span',{text:'Notification message'}),
+    workflow.dm
+      ? punishmentNotificationPreview(workflow)
+      : element('p',{text:'No DM is included with this action.'}));
 }
 
 function productReviewFooterNode(stale) {
