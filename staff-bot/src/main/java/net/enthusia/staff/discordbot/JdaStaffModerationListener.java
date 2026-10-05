@@ -50,6 +50,7 @@ final class JdaStaffModerationListener extends ListenerAdapter {
     private static final String SCOPE_ID_OPTION = "scope-id";
     private static final String MODE_OPTION = "mode";
     private static final String MODERATE = "moderate";
+    private static final String PUNISH = "punish";
     private static final String MODERATE_MINECRAFT = "moderate-minecraft";
     private static final String LINKED = "linked";
     private static final String HISTORY = "history";
@@ -170,7 +171,7 @@ final class JdaStaffModerationListener extends ListenerAdapter {
 
     private void dispatchReadCommand(SlashCommandInteractionEvent event, long actorId, String actorName) {
         switch (event.getName()) {
-            case MODERATE -> dispatchModerate(event, actorId, actorName);
+            case MODERATE, PUNISH -> dispatchModerate(event, actorId, actorName);
             case LINKED -> dispatchDiscordTarget(event, actorId, actorName, controller::linkedDiscord);
             case HISTORY -> dispatchDiscordTarget(event, actorId, actorName, controller::historyDiscord);
             case NOTES -> dispatchDiscordTarget(event, actorId, actorName, controller::notesDiscord);
@@ -665,11 +666,8 @@ final class JdaStaffModerationListener extends ListenerAdapter {
     static List<CommandData> commands(boolean includePunishments, boolean webEnabled) {
         DefaultMemberPermissions discovery = DefaultMemberPermissions.DISABLED;
         List<CommandData> commands = new ArrayList<>(List.of(
-                webEnabled
-                        ? Commands.slash(MODERATE, "Open the private moderation workspace")
-                                .addOption(OptionType.USER, USER_OPTION, "Optional Discord user to inspect", false)
-                                .setDefaultPermissions(discovery)
-                        : userSlash(MODERATE, "Open a moderation profile for a Discord user", discovery),
+                moderateSlash(MODERATE, webEnabled, discovery),
+                moderateSlash(PUNISH, webEnabled, discovery),
                 Commands.user(MODERATE_USER).setDefaultPermissions(discovery),
                 Commands.message(MODERATE_MESSAGE).setDefaultPermissions(discovery),
                 stringSlash(
@@ -688,6 +686,19 @@ final class JdaStaffModerationListener extends ListenerAdapter {
             commands.addAll(punishmentCommands(discovery));
         }
         return List.copyOf(commands);
+    }
+
+    private static CommandData moderateSlash(
+            String name,
+            boolean webEnabled,
+            DefaultMemberPermissions discovery
+    ) {
+        if (webEnabled) {
+            return Commands.slash(name, "Open the private moderation workspace")
+                    .addOption(OptionType.USER, USER_OPTION, "Optional Discord user to inspect", false)
+                    .setDefaultPermissions(discovery);
+        }
+        return userSlash(name, "Open a moderation profile for a Discord user", discovery);
     }
 
     private static List<CommandData> punishmentCommands(DefaultMemberPermissions discovery) {
