@@ -20,7 +20,7 @@ class StaffModeRestorationWiringTest {
 
         int ownership = method.indexOf("serverId.equals(session.serverId())");
         int removeTools = method.indexOf("removeStaffTools(player)");
-        int restore = method.indexOf("codec.restore");
+        int restore = method.indexOf(CODEC_RESTORE);
 
         assertTrue(ownership >= 0);
         assertTrue(removeTools > ownership);
@@ -31,9 +31,9 @@ class StaffModeRestorationWiringTest {
     void savedStateRestoreIsAuthorizedAndClearsSpectatorTarget() throws IOException {
         String method = method("private boolean restoreSavedState", COMPLETE_RESTORATION);
 
-        assertTrue(method.indexOf("profileApplications.add(playerId)") < method.indexOf("codec.restore"));
-        assertTrue(method.indexOf("setSpectatorTarget(null)") < method.indexOf("codec.restore"));
-        assertTrue(method.indexOf("codec.restore") < method.indexOf("profileApplications.remove(playerId)"));
+        assertTrue(method.indexOf("profileApplications.add(playerId)") < method.indexOf(CODEC_RESTORE));
+        assertTrue(method.indexOf("setSpectatorTarget(null)") < method.indexOf(CODEC_RESTORE));
+        assertTrue(method.indexOf(CODEC_RESTORE) < method.indexOf("profileApplications.remove(playerId)"));
     }
 
     @Test
