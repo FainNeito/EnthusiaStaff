@@ -1119,8 +1119,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private void enforceStaffReconnectOwnership(ServerPreConnectEvent event) {
         StaffSessionStore sessions = staffSessionStore;
         if (sessions == null) {
-            // Staff lifecycle state should not make the proxy unavailable. Paper will recover
-            // the session when storage becomes reachable.
+            // Do not make the proxy unavailable solely because Staff lifecycle storage is
+            // temporarily missing. Paper will reconcile once storage is reachable.
             return;
         }
         try {
@@ -1131,28 +1131,46 @@ public final class EnthusiaStaffVelocityPlugin {
             }
 
             var snapshot = session.orElseThrow();
+            String requested = event.getOriginalServer().getServerInfo().getName();
+
             if (snapshot.state() == net.enthusia.staff.domain.staff.StaffSessionState.ACTIVE) {
-                // ACTIVE is network-wide intent, not a command to force the player back to the
-                // last backend. The requested backend captures/rebinds its own local snapshot.
-                staffReconnects.disconnected(event.getPlayer().getUniqueId());
+                if (net.enthusia.staff.domain.staff.StaffSessionOwnership.detached(snapshot.serverId())
+                        || snapshot.serverId().equalsIgnoreCase(requested)) {
+                    staffReconnects.disconnected(event.getPlayer().getUniqueId());
+                    return;
+                }
+
+                // An ACTIVE lease on another backend means that backend still has an
+                // unrecovered local player-state snapshot (typically an extremely fast
+                // reconnect or a backend restart). Recover there first, then STAFF_MODE_READY
+                // automatically continues to the backend the player originally selected.
+                staffReconnects.remember(
+                        event.getPlayer().getUniqueId(),
+                        snapshot,
+                        requested,
+                        Clock.systemUTC().instant()
+                );
+                var backend = proxy.getServer(snapshot.serverId());
+                if (backend.isPresent()) {
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+                } else {
+                    logger.warn(
+                            "Staff snapshot owner {} is unavailable for {}; allowing requested backend {} without blocking login",
+                            snapshot.serverId(),
+                            event.getPlayer().getUniqueId(),
+                            requested
+                    );
+                }
                 return;
             }
 
-            // EXITING/RECOVERY_REQUIRED still owns an exact backend-local restoration and is
-            // the only case where reconnect routing is justified.
-            String requested = event.getOriginalServer().getServerInfo().getName();
-            if (!StaffSessionTransferPolicy.recoveryReturnAllowed(
-                    snapshot.serverId(),
-                    snapshot.state(),
-                    requested,
-                    snapshot.serverId()
-            )) {
-                return;
+            // EXITING/RECOVERY_REQUIRED owns an exact restoration. Route to the owner when
+            // available, but never turn an unavailable Staff backend into a network login ban.
+            if (!snapshot.serverId().equalsIgnoreCase(requested)) {
+                proxy.getServer(snapshot.serverId()).ifPresent(owner ->
+                        event.setResult(ServerPreConnectEvent.ServerResult.allowed(owner)));
             }
-            proxy.getServer(snapshot.serverId()).ifPresent(owner ->
-                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(owner)));
         } catch (RuntimeException exception) {
-            // Never reject login solely because Staff Mode lifecycle lookup failed.
             logger.warn("Staff snapshot ownership lookup failed during reconnect; allowing requested backend", exception);
         }
     }
