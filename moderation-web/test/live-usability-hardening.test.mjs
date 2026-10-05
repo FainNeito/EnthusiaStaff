@@ -114,6 +114,8 @@ test('punishment catalog uses one server-rules entry point and exposes categorie
   assert.match(catalog, /Choose the exact reason/);
   assert.match(catalog, /Configured punishment ladder/);
   assert.match(catalog, /reason\.ladder/);
+  assert.match(catalog, /Punishment catalog unavailable/);
+  assert.match(catalog, /No fallback punishment list is shown/);
   assert.doesNotMatch(review, /View applicable rule|Open applicable rule/);
   assert.doesNotMatch(record, /View rule|Open applicable rule/);
   assert.match(minecraft, /renderMinecraftReasonFamilies/);
