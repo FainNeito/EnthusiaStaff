@@ -1,6 +1,7 @@
 package net.enthusia.staff.velocity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -22,9 +23,9 @@ import net.enthusia.staff.protocol.TransferSnapshotMessages;
 import org.junit.jupiter.api.Test;
 
 /**
- * Snapshot-authoritative cross-server handoff (overnight/cross-server): when the source
- * backend uploaded its in-memory transfer snapshot, the proxy proceeds without waiting for
- * the source's database persist and forwards the snapshot to the destination.
+ * Cross-server handoff keeps the lightweight visibility snapshot separate from durable
+ * Staff Mode inventory/session ownership. A snapshot may be forwarded only after the
+ * source backend's durable session has actually closed.
  */
 class StaffModeTransferSnapshotHandoffTest {
     private static final UUID PLAYER = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -34,9 +35,10 @@ class StaffModeTransferSnapshotHandoffTest {
     private static final String HUB = "HUB";
 
     @Test
-    void snapshotPresentSkipsDatabaseWaitAndAllowsTransfer() {
-        // The source's DB session row still lingers (persist not finished), but the
-        // in-memory snapshot is authoritative, so the transfer must not get stuck.
+    void snapshotDoesNotBypassDurableSourceClosure() {
+        // The visibility snapshot is available, but the source still owns the durable
+        // inventory/player-state session. The transfer must fail closed instead of letting
+        // the destination reuse the source backend's saved snapshot.
         AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
         PayloadTransport transport = new PayloadTransport();
         var coordinator = new StaffModeBackendHandoffCoordinator(() -> transport, ignored -> active.get());
@@ -44,13 +46,13 @@ class StaffModeTransferSnapshotHandoffTest {
         var decision = coordinator.transfer(PLAYER, session(), SMP, HUB, TRANSFER,
                 (playerId, transferId) -> Optional.of(snapshot()));
 
-        assertTrue(decision.allowed(), "transfer must proceed on the uploaded snapshot: " + decision.message());
-        assertTrue(transport.types.contains(StaffModeBackendHandoffCoordinator.PREPARE_RESUME));
+        assertFalse(decision.allowed());
+        assertFalse(transport.types.contains(StaffModeBackendHandoffCoordinator.PREPARE_RESUME));
     }
 
     @Test
-    void snapshotIsForwardedInsidePreparePayload() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
+    void snapshotIsForwardedInsidePreparePayloadAfterDurableSourceClosure() {
+        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.empty());
         PayloadTransport transport = new PayloadTransport();
         var coordinator = new StaffModeBackendHandoffCoordinator(() -> transport, ignored -> active.get());
 
@@ -75,7 +77,7 @@ class StaffModeTransferSnapshotHandoffTest {
         var decision = coordinator.transfer(PLAYER, session(), SMP, HUB, TRANSFER,
                 (playerId, transferId) -> Optional.empty());
 
-        assertTrue(!decision.allowed(), "legacy path must deny when the source never closes");
+        assertFalse(decision.allowed(), "legacy path must deny when the source never closes");
         String prepare = transport.payloadFor(StaffModeBackendHandoffCoordinator.PREPARE_RESUME);
         assertEquals("", prepare, "no prepare may be sent when the transfer is denied");
     }
