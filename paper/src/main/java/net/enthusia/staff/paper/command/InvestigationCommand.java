@@ -159,11 +159,11 @@ public final class InvestigationCommand implements CommandExecutor {
 
     private static Duration parseLifetime(String input) {
         if (input.equalsIgnoreCase("permanent")) { return null; }
-        Duration lifetime = Duration.ofHours(Long.parseLong(input));
-        if (lifetime.isZero() || lifetime.isNegative() || lifetime.compareTo(Duration.ofDays(365)) > 0) {
+        long hours = Long.parseLong(input);
+        if (hours < 1 || hours > 8760) {
             throw new IllegalArgumentException("Expiry hours must be 1..8760, or permanent.");
         }
-        return lifetime;
+        return Duration.ofHours(hours);
     }
 
     private void prepareCreate(Player actor, UUID actorId, FlagInput input) {

@@ -21,7 +21,7 @@ public final class JoinAlertLimiter {
         synchronized (lock) {
             Pair pair = new Pair(viewer, target);
             if (pairs.getOrDefault(pair, Instant.MIN).isAfter(now.minus(Duration.ofMinutes(5)))
-                    || viewers.getOrDefault(viewer, Instant.MIN).isAfter(now.minusSeconds(2))) { return false; }
+                || viewers.getOrDefault(viewer, Instant.MIN).isAfter(now.minusSeconds(2))) { return false; }
             if (!pairs.containsKey(pair) && pairs.size() >= capacity) { pairs.remove(pairs.keySet().iterator().next()); }
             if (!viewers.containsKey(viewer) && viewers.size() >= capacity) { viewers.remove(viewers.keySet().iterator().next()); }
             pairs.put(pair, now);
@@ -31,7 +31,7 @@ public final class JoinAlertLimiter {
     }
     public void clear() {
         synchronized (lock) {
-                    pairs.clear(); viewers.clear();
+            pairs.clear(); viewers.clear();
         }
     }
 }

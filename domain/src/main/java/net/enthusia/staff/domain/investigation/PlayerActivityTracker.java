@@ -43,12 +43,12 @@ public final class PlayerActivityTracker {
 
     public void forget(UUID playerId) {
         synchronized (lock) {
-                    sessions.remove(playerId);
+            sessions.remove(playerId);
         }
     }
     public void clear() {
         synchronized (lock) {
-                    sessions.clear();
+            sessions.clear();
         }
     }
 }
