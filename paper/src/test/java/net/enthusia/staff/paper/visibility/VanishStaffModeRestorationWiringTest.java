@@ -39,6 +39,15 @@ class VanishStaffModeRestorationWiringTest {
     }
 
     @Test
+    void manualVanishDoesNotForceSpectatorDuringStaffRebind() throws IOException {
+        String method = method("private void finishSet(", "private Set<UUID> hiddenPresenceViewers");
+
+        assertTrue(method.contains("!staffMode.transitioning(playerId)"));
+        assertTrue(method.indexOf("!staffMode.transitioning(playerId)")
+                < method.indexOf("enforceVanishSpectator(player)"));
+    }
+
+    @Test
     void independentVanishIsReenforcedAfterStaffModeExit() throws IOException {
         String method = method(
                 "private void disableAfterStaffModeExit",
