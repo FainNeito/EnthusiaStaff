@@ -56,7 +56,7 @@ final class JdaPunishmentNotifier {
         }
     }
 
-    private String appliedMessage(DiscordPunishment punishment) {
+    String appliedMessage(DiscordPunishment punishment) {
         String action = actionName(punishment.intent().type());
         String duration = duration(punishment);
         StringBuilder message = new StringBuilder("# Punishment Alert\n\n")
@@ -69,12 +69,15 @@ final class JdaPunishmentNotifier {
                 .append("**Reason:** ").append(punishment.intent().publicReason()).append("\n\n");
         playerSafeExplanation(punishment.intent().internalExplanation()).ifPresent(explanation ->
                 message.append("**Staff explanation:** ").append(explanation).append("\n\n"));
-        appendExpiry(message, punishment.expiresAt());
+        if (punishment.intent().type() != DiscordConsequenceType.WARNING
+                && punishment.intent().type() != DiscordConsequenceType.KICK) {
+            appendExpiry(message, punishment.expiresAt());
+        }
         appendAppeal(message);
         return message.toString();
     }
 
-    private String removalMessage(DiscordPunishment punishment) {
+    String removalMessage(DiscordPunishment punishment) {
         StringBuilder message = new StringBuilder("# Punishment Update\n\n")
                 .append("Your Enthusia SMP Discord `")
                 .append(actionName(punishment.intent().type()))
