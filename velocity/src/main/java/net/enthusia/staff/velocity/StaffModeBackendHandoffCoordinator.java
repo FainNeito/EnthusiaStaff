@@ -107,29 +107,31 @@ final class StaffModeBackendHandoffCoordinator {
             UUID transferId,
             BiFunction<UUID, UUID, Optional<StaffTransferSnapshot>> snapshotTake
     ) {
+        java.util.Objects.requireNonNull(transferId, "transferId");
+        java.util.Objects.requireNonNull(snapshotTake, "snapshotTake");
+
+        // Staff Mode must never block ordinary backend travel. The optimized handoff is
+        // best-effort: source quit/detach and destination database recovery are authoritative
+        // fallbacks when the control channel or persistence is slow.
         if (!StaffSessionTransferPolicy.activeHandoffAllowed(
                 session.serverId(), session.state(), current, requested)) {
-            return Decision.deny("Staff Mode can only transfer from the backend that owns its active snapshot.");
+            return Decision.allow();
         }
         Transport channel = transport.get();
         if (!ready(channel, current, requested)) {
-            return Decision.deny("Staff Mode transfer is unavailable because a backend control channel is offline.");
-        }
-        java.util.Objects.requireNonNull(transferId, "transferId");
-        java.util.Objects.requireNonNull(snapshotTake, "snapshotTake");
-        SnapshotClose close = closeSource(channel, playerId, session, transferId, current, snapshotTake);
-        if (close.result() == CloseResult.UNCERTAIN) {
-            return Decision.reconcile(
-                    "Staff Mode source closure is still being reconciled; the backend switch was denied safely.");
-        }
-        if (close.result() == CloseResult.FAILED) {
-            return Decision.deny("Staff Mode could not safely restore and close its current snapshot.");
-        }
-        if (prepareDestination(channel, playerId, transferId, requested, close.snapshot())) {
             return Decision.allow();
         }
-        cancelDestination(channel, playerId, transferId, requested);
-        return rollbackSource(channel, playerId, transferId, current);
+
+        channel.send(
+                current,
+                UUID.randomUUID(),
+                EXIT_REQUEST,
+                exitPayload(playerId, session, transferId),
+                CHANNEL_TIMEOUT
+        );
+        Optional<StaffTransferSnapshot> snapshot = snapshotTake.apply(playerId, transferId);
+        prepareDestination(channel, playerId, transferId, requested, snapshot);
+        return Decision.allow();
     }
 
     Decision recoverFailedConnection(
