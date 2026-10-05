@@ -16,4 +16,4 @@ The smoke process must report `staff_bot_smoke_ready environment=production` and
 --environment=production --token-file=tp --moderation-config-file=m
 ```
 
-Keep `discord-enforcement.enabled=false` in `m`. Verify the private HUB authority and MariaDB readiness before any cutover. The production application must be installed in the Enthusia Discord and its moderation commands granted only to the staff role through Discord Integrations. The runtime still checks linked Minecraft staff rank on every staff command.
+For the live moderation cutover, verify the complete `discord-enforcement.*` policy in `m`, then set `discord-enforcement.enabled=true`. Verify the private HUB authority, MariaDB readiness, mute-role/support-scope configuration, bot guild permissions, and configured duration ceilings before the normal restart. The production application must be installed in the Enthusia Discord and its moderation commands granted only to the staff role through Discord Integrations. The runtime still checks linked Minecraft staff rank and target hierarchy on every action.
