@@ -23,8 +23,8 @@ import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.domain.staff.VanishRecord;
 import org.junit.jupiter.api.Test;
 
-// Arrays deliberately exercise each argument position; proxies use the actual API class loader.
-@SuppressWarnings({"PMD.AvoidInstantiatingObjectsInLoops", "PMD.JeeClassLoader"})
+// Arrays deliberately exercise each argument position; proxy creation uses the thread context class loader.
+@SuppressWarnings({"PMD.AvoidInstantiatingObjectsInLoops"})
 class VelocityPlayerSuggestionsTest {
     private static final String ALPHA_NAME = "Alpha";
     private static final String VIEW = "enthusiastaff.alts.view";
@@ -131,7 +131,7 @@ class VelocityPlayerSuggestionsTest {
     }
 
     private static <T> T stub(Class<T> type, java.util.function.BiFunction<String, Object[], Object> calls) {
-        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type},
+        return type.cast(Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class<?>[]{type},
                 (proxy, method, args) -> calls.apply(method.getName(), args)));
     }
 }
