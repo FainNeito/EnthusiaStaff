@@ -118,6 +118,10 @@ public final class StaffModeManager implements Listener {
         return active.containsKey(playerId) || handoffGaps.contains(playerId);
     }
 
+    public boolean transitioning(UUID playerId) {
+        return playerId != null && transitions.contains(playerId);
+    }
+
     public boolean authorityActive(UUID playerId) {
         return playerId != null
                 && active.containsKey(playerId)
