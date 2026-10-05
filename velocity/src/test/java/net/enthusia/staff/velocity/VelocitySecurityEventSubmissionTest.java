@@ -339,7 +339,7 @@ final class VelocitySecurityEventSubmissionTest {
                     player(new AtomicInteger(), new AtomicInteger()), server(HUB), null); // NOPMD - fresh counters isolate each state.
             await(plugin.onServerPreConnect(event));
             assertTrue(event.getResult().isAllowed());
-            assertSame(HUB, event.getResult().getServer().orElseThrow().getServerInfo().getName());
+            assertEquals(HUB, event.getResult().getServer().orElseThrow().getServerInfo().getName());
         } finally {
             executor.shutdownNow();
         }
