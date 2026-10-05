@@ -72,8 +72,8 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
     }
 
     @Test
-    void detachRejectsWrongRevisionWithoutChangingOwner() {
-        UUID staffId = identifier("staff-detach-fence");
+    void detachRejectsWrongBackendWithoutChangingOwner() {
+        UUID staffId = identifier("staff-detach-owner-fence");
 
         try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
             StaffSessionStore store = runtime.staffSessionStore();
@@ -82,15 +82,16 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             assertTrue(store.detach(
                     staffId,
                     source.sessionId(),
-                    source.revision() + 1,
-                    OTHER_SERVER,
+                    source.revision(),
+                    SCOPED_SERVER,
                     source.checksum(),
                     NOW.plusSeconds(1)
             ).isEmpty());
 
             StaffSessionSnapshot remaining = store.active(staffId).orElseThrow();
             assertEquals(OTHER_SERVER, remaining.serverId());
-            assertEquals(source.revision(), remaining.revision());
+            assertEquals(source.sessionId(), remaining.sessionId());
+            assertEquals(StaffSessionState.ACTIVE, remaining.state());
         }
     }
 
