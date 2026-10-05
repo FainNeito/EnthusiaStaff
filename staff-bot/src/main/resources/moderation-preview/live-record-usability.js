@@ -2,7 +2,7 @@
 
 function hardenedHistoryNode() {
   const total = realHistoryTotal();
-  const body = [pageHeading('Moderation record', 'History', 'Live moderation records returned for this player. Rule links open the public Enthusia rules.')];
+  const body = [pageHeading('Moderation record', 'History', 'Live moderation records returned for this player.')];
   if (!liveModeration.bootstrap) body.push(recordUnavailableOrLoading('history'));
   else if (total === 0) body.push(emptyState('No moderation history', 'The live read completed and returned no moderation records.'));
   else if (!state.history.length) body.push(emptyState('History is only partially available', `${total} total record${total === 1 ? '' : 's'} exist, but no history rows were included in this read.`));
@@ -11,12 +11,11 @@ function hardenedHistoryNode() {
 }
 
 function hardenedHistoryTable() {
-  const head = element('thead', {}, element('tr', {}, ['Date / time','Offense','Action','Staff','Status','Rule'].map((label) => element('th',{text:label}))));
+  const head = element('thead', {}, element('tr', {}, ['Date / time','Offense','Action','Staff','Status'].map((label) => element('th',{text:label}))));
   const rows = state.history.map((row) => element('tr', {},
     element('td',{text:formatExact(row.time || `${row.date}T12:00:00Z`)}),
     element('td',{text:row.offense}), element('td',{},element('strong',{text:row.action})),
-    element('td',{text:row.staff}), element('td',{},statusBadge(row.status,'neutral')),
-    element('td',{},policyLinkNode(offensePolicy(row.key), 'View rule'))));
+    element('td',{text:row.staff}), element('td',{},statusBadge(row.status,'neutral'))));
   return element('table', {}, head, element('tbody', {}, rows));
 }
 
@@ -88,7 +87,6 @@ function productReviewEvidenceNode(workflow) {
     sectionHeadingNode('Case readiness','Review every item before confirming the action.'),
     readinessChecklistNode(workflow),
     reviewValidationAlert(status),
-    policyLinkNode(offensePolicy(workflow.offense.key),'Open applicable rule'),
     reviewEvidenceSummaryNode(workflow),
     staffExplanationNode(workflow),
     productNotificationMessageNode(workflow),
