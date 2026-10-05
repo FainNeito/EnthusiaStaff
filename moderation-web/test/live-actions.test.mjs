@@ -29,6 +29,13 @@ test('live action translates exact target, duration and evidence references', ()
   assert.equal(payload.intent.restriction,null);
 });
 
+test('live action normalizes month dropdown durations to bounded Discord day durations', () => {
+  const context = runtime();
+  assert.equal(context.actionDuration('1 month'),'30d');
+  assert.equal(context.actionDuration('12 months'),'360d');
+  assert.equal(context.actionDuration('Permanent'),'permanent');
+});
+
 test('live action refuses unsupported scope, deletion, missing DM and multiple restriction targets', () => {
   const context = runtime();
   assert.throws(() => context.liveActionInput({...workflow,scope:'Minecraft'}),/activation/);
