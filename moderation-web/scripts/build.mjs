@@ -13,7 +13,7 @@ const webAssets = [
   'direct-read.js', 'live-context-page-policy.js', 'live-context-pagination.js', 'live-loading.js',
   'real-policy.js', 'live-enhancements.js', 'live-review-hardening.js', 'live-shell-usability.js',
   'live-message-usability.js', 'live-record-usability.js', 'live-browse-workspace.js',
-  'live-filter-focus.js', 'live-actions.js', 'live-policy-catalog.js', 'live-minecraft-actions.js'
+  'live-actions.js', 'live-policy-catalog.js', 'live-minecraft-actions.js'
 ];
 
 await rm(output, { recursive: true, force: true });
