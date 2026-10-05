@@ -98,29 +98,51 @@ final class ModerationDiscordMessageReader {
             int limit,
             int scanLimit
     ) {
-        if (query.afterMessageId().isPresent() || query.aroundMessageId().isPresent()) {
+        if (forwardOrCentered(query)) {
             return filterAndLimit(page(channel, query, limit), query, limit);
         }
+        return scanOlderHistory(channel, query, limit, scanLimit);
+    }
+
+    private static boolean forwardOrCentered(ModerationReadApiModel.MessageQuery query) {
+        return query.afterMessageId().isPresent() || query.aroundMessageId().isPresent();
+    }
+
+    private static List<Message> scanOlderHistory(
+            TextChannel channel,
+            ModerationReadApiModel.MessageQuery query,
+            int limit,
+            int scanLimit
+    ) {
         List<Message> matches = new ArrayList<>();
         String before = query.beforeMessageId().orElse(null);
         int scanned = 0;
         while (matches.size() < limit && scanned < scanLimit) {
             int batchSize = Math.min(SEARCH_BATCH, scanLimit - scanned);
-            List<Message> batch = before == null
-                    ? channel.getHistory().retrievePast(batchSize).complete()
-                    : channel.getHistoryBefore(before, batchSize).complete().getRetrievedHistory();
+            List<Message> batch = historyBatch(channel, before, batchSize);
             if (batch.isEmpty()) {
                 break;
             }
             scanned += batch.size();
             matches.addAll(ModerationMessageFilter.apply(batch, query));
             String nextBefore = batch.getLast().getId();
-            if (nextBefore.equals(before) || batch.size() < batchSize) {
+            if (searchExhausted(before, nextBefore, batch.size(), batchSize)) {
                 break;
             }
             before = nextBefore;
         }
         return matches.stream().limit(limit).toList();
+    }
+
+    private static List<Message> historyBatch(TextChannel channel, String before, int limit) {
+        if (before == null) {
+            return channel.getHistory().retrievePast(limit).complete();
+        }
+        return channel.getHistoryBefore(before, limit).complete().getRetrievedHistory();
+    }
+
+    private static boolean searchExhausted(String before, String nextBefore, int batchSize, int requested) {
+        return nextBefore.equals(before) || batchSize < requested;
     }
 
     static OptionalLong initialChannel(ModerationReadTarget target) {
