@@ -197,13 +197,13 @@ async function fasterLoadMoreMessages(direction) {
 }
 
 function currentMessageRequestParams() {
-  if (state.remoteSearchActive) {
-    const params = discordHistorySearchParams();
-    params.set('channel', state.channel);
-    params.set('limit', LIVE_MESSAGE_PAGE_LIMIT);
-    return params;
+  const params = new URLSearchParams({channel:state.channel, limit:LIVE_MESSAGE_PAGE_LIMIT});
+  if (!state.remoteSearchActive || !state.remoteSearchCriteria) return params;
+  for (const key of ['text','author','date']) {
+    const value = state.remoteSearchCriteria[key];
+    if (value) params.set(key,value);
   }
-  return new URLSearchParams({channel:state.channel, limit:LIVE_MESSAGE_PAGE_LIMIT});
+  return params;
 }
 
 async function fasterLoadMessageRequest(params, mode, pendingButton = null) {
@@ -219,9 +219,11 @@ async function fasterLoadMessageRequest(params, mode, pendingButton = null) {
     else appendMessagePage(page, mode);
     renderWorkspace();
     renderCounts();
+    return true;
   } catch (error) {
     showToast(error.message || 'Discord messages are temporarily unavailable.', true);
     if (pendingButton?.isConnected) pendingButton.disabled = false;
+    return false;
   }
 }
 
