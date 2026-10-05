@@ -76,6 +76,11 @@ public final class PlayerNameCompletion implements Listener {
         if (!route.allowed(sender::hasPermission, console) || !baseAllowed(sender, command, name)) {
             return List.of();
         }
+        return matches(candidates(sender, command, alias, args, prior, name, route), args[args.length - 1]);
+    }
+
+    private List<String> candidates(CommandSender sender, Command command, String alias, String[] args,
+            TabCompleter prior, String name, PlayerArgumentRoutes.Route route) {
         boolean inventoryRoute = name.equals("invsee") || name.equals("endersee");
         List<String> delegated = inventoryRoute && prior != null
                 ? nonNull(prior.onTabComplete(sender, command, alias, args)) : route.keywords().stream()
@@ -91,7 +96,7 @@ public final class PlayerNameCompletion implements Listener {
         } else {
             candidates.addAll(delegated.stream().filter(route.keywords()::contains).toList());
         }
-        return matches(candidates, args[args.length - 1]);
+        return candidates;
     }
 
     private static boolean keywordAllowed(CommandSender sender, String name, String keyword) {

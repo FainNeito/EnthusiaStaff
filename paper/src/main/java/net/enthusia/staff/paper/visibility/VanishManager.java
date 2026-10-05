@@ -289,6 +289,13 @@ public final class VanishManager implements Listener {
         if (rank != null && staffMode.active(player.getUniqueId()) && !isVanished(player.getUniqueId())) {
             set(player, rank, true, true).thenAccept(enabled -> {
                 if (!enabled) {
+                    exitAfterEntryVanishFailure(playerId, sessionId);
+                }
+            });
+        }
+    }
+
+    private void exitAfterEntryVanishFailure(UUID playerId, UUID sessionId) {
                     audiences.onOwner(playerId, current -> {
                         if (sessionId != null && sessionId.equals(staffMode.activeSessionId(playerId))) {
                             current.sendMessage(StaffMessageStyle.error(
@@ -296,9 +303,6 @@ public final class VanishManager implements Listener {
                             staffMode.exit(current);
                         }
                     });
-                }
-            });
-        }
     }
 
     public void configureSpectatorTab(Player player, boolean appearNormally) {

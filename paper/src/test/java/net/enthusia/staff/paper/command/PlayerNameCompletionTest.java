@@ -12,10 +12,18 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
+// Arrays deliberately exercise each argument position; proxies use the actual API class loader.
+@SuppressWarnings({"PMD.AvoidInstantiatingObjectsInLoops", "PMD.JeeClassLoader"})
 class PlayerNameCompletionTest {
+    private static final String HISTORY_NAME = "history";
+    private static final String INSPECT_NAME = "inspect";
+    private static final String CHEATTESTER_NAME = "cheattester";
+    private static final String FAKEBASE_NAME = "fakebase";
+    private static final String HIDDEN_NAME = "Hidden";
+    private static final String ALICE_NAME = "Alice";
     @Test void allDirectPlayerCommandsHaveRoutesAndDoNotCompleteReasons() {
-        for (String name : List.of("punish", "ban", "mute", "warn", "kick", "ipban", "history", "client",
-                "inspect", "invsee", "endersee", "freeze", "unfreeze", "report", "removepunishment",
+        for (String name : List.of("punish", "ban", "mute", "warn", "kick", "ipban", HISTORY_NAME, "client",
+                INSPECT_NAME, "invsee", "endersee", "freeze", "unfreeze", "report", "removepunishment",
                 "unban", "unmute", "unwarn", "removewarning")) {
             assertNotNull(PlayerArgumentRoutes.find(name, new String[]{"P"}), name);
             assertNull(PlayerArgumentRoutes.find(name, new String[]{"Player", "reason"}), name);
@@ -23,20 +31,20 @@ class PlayerNameCompletionTest {
     }
 
     @Test void nestedPlayerPositionsAreRecognizedAndNonPlayerPositionsStayDelegated() {
-        for (String[] route : List.of(new String[]{"inspect", "inventory"}, new String[]{"inspect", "ender"},
-                new String[]{"inspect", "economy"}, new String[]{"inspect", "items"},
+        for (String[] route : List.of(new String[]{INSPECT_NAME, "inventory"}, new String[]{INSPECT_NAME, "ender"},
+                new String[]{INSPECT_NAME, "economy"}, new String[]{INSPECT_NAME, "items"},
                 new String[]{"freeze", "keep"}, new String[]{"freeze", "status"},
                 new String[]{"punish", "resume"}, new String[]{"stafftools", "follow"},
                 new String[]{"stafftools", "spectate"}, new String[]{"staffflags", "list"},
                 new String[]{"staffflags", "add"}, new String[]{"staff", "recover"},
-                new String[]{"staffapi", "punish"}, new String[]{"cheattester", "run"},
-                new String[]{"cheattester", "cancel"}, new String[]{"fakebase", "create"},
-                new String[]{"fakebase", "extend"}, new String[]{"fakebase", "clear"},
-                new String[]{"fakebase", "teleport"})) {
+                new String[]{"staffapi", "punish"}, new String[]{CHEATTESTER_NAME, "run"},
+                new String[]{CHEATTESTER_NAME, "cancel"}, new String[]{FAKEBASE_NAME, "create"},
+                new String[]{FAKEBASE_NAME, "extend"}, new String[]{FAKEBASE_NAME, "clear"},
+                new String[]{FAKEBASE_NAME, "teleport"})) {
             assertNotNull(PlayerArgumentRoutes.find(route[0], new String[]{route[1], ""}));
         }
-        assertNotNull(PlayerArgumentRoutes.find("cheattester", new String[]{"base", "create", ""}));
-        assertNull(PlayerArgumentRoutes.find("cheattester", new String[]{"base", "status", ""}));
+        assertNotNull(PlayerArgumentRoutes.find(CHEATTESTER_NAME, new String[]{"base", "create", ""}));
+        assertNull(PlayerArgumentRoutes.find(CHEATTESTER_NAME, new String[]{"base", "status", ""}));
         assertNull(PlayerArgumentRoutes.find("staffflags", new String[]{"resolve", ""}));
         assertNull(PlayerArgumentRoutes.find("punish", new String[]{"approve", ""}));
         assertNull(PlayerArgumentRoutes.find("case", new String[]{""}));
@@ -47,36 +55,36 @@ class PlayerNameCompletionTest {
         Set<String> permissions = new HashSet<>(Set.of("enthusiastaff.history.view"));
         Player viewer = player(UUID.randomUUID(), "Viewer", permissions);
         var completion = new PlayerNameCompletion((v, target) -> !hidden.equals(target), null);
-        completion.remember(player(hidden, "Hidden", Set.of()));
-        completion.remember(player(UUID.randomUUID(), "Alice", Set.of()));
-        assertEquals(List.of("Alice"), completion.complete(viewer, command("history"), "history",
+        completion.remember(player(hidden, HIDDEN_NAME, Set.of()));
+        completion.remember(player(UUID.randomUUID(), ALICE_NAME, Set.of()));
+        assertEquals(List.of(ALICE_NAME), completion.complete(viewer, command(HISTORY_NAME), HISTORY_NAME,
                 new String[]{"a"}, null));
-        assertEquals(List.of("Alice"), completion.complete(viewer, command("history"), "history",
-                new String[]{""}, (s, c, a, args) -> List.of("Hidden")));
+        assertEquals(List.of(ALICE_NAME), completion.complete(viewer, command(HISTORY_NAME), HISTORY_NAME,
+                new String[]{""}, (s, c, a, args) -> List.of(HIDDEN_NAME)));
         permissions.clear();
-        assertEquals(List.of(), completion.complete(viewer, command("history"), "history",
+        assertEquals(List.of(), completion.complete(viewer, command(HISTORY_NAME), HISTORY_NAME,
                 new String[]{""}, null));
     }
 
     @Test void publicReportsAndPermissionFilteredInspectorSubcommandsRemainUsable() {
         Player viewer = player(UUID.randomUUID(), "Viewer", Set.of("enthusiastaff.inspect"));
         var completion = new PlayerNameCompletion((v, target) -> true, null);
-        completion.remember(player(UUID.randomUUID(), "Alice", Set.of()));
-        assertEquals(List.of("Alice"), completion.complete(viewer, command("report"), "report",
+        completion.remember(player(UUID.randomUUID(), ALICE_NAME, Set.of()));
+        assertEquals(List.of(ALICE_NAME), completion.complete(viewer, command("report"), "report",
                 new String[]{"A"}, null));
-        assertEquals(List.of("Alice"), completion.complete(viewer, command("inspect"), "inspect",
+        assertEquals(List.of(ALICE_NAME), completion.complete(viewer, command(INSPECT_NAME), INSPECT_NAME,
                 new String[]{""}, null));
         assertEquals(List.of("spam"), completion.complete(viewer, command("report"), "report",
-                new String[]{"Alice", "s"}, (s, c, a, args) -> List.of("spam")));
+                new String[]{ALICE_NAME, "s"}, (s, c, a, args) -> List.of("spam")));
     }
 
     @Test void inventoryOfflineCacheSurvivesButHiddenNamesAreFiltered() {
         UUID hidden = UUID.randomUUID();
         Player viewer = player(UUID.randomUUID(), "Viewer", Set.of("enthusiastaff.inventory.view"));
         var completion = new PlayerNameCompletion((v, target) -> !target.equals(hidden), null);
-        completion.remember(player(hidden, "Hidden", Set.of()));
+        completion.remember(player(hidden, HIDDEN_NAME, Set.of()));
         assertEquals(List.of("Offline"), completion.complete(viewer, command("invsee"), "invsee",
-                new String[]{""}, (s, c, a, args) -> List.of("Hidden", "Offline")));
+                new String[]{""}, (s, c, a, args) -> List.of(HIDDEN_NAME, "Offline")));
     }
 
     @Test void consoleOnlyRoutesAndBoundedCaseInsensitiveMatchesAreEnforced() {
@@ -86,7 +94,7 @@ class PlayerNameCompletionTest {
                 .allowed(ignored -> false, true));
         var names = IntStream.range(0, 100).mapToObj(i -> "Player%03d".formatted(i)).toList();
         assertEquals(50, PlayerNameCompletion.matches(names, "pL").size());
-        assertEquals(List.of("Alice"), PlayerNameCompletion.matches(List.of("Alice", "Alice", "Bob"), "a"));
+        assertEquals(List.of(ALICE_NAME), PlayerNameCompletion.matches(List.of(ALICE_NAME, ALICE_NAME, "Bob"), "a"));
     }
 
     private static Command command(String name) {

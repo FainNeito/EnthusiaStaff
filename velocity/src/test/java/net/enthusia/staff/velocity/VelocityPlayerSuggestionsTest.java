@@ -23,7 +23,10 @@ import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.domain.staff.VanishRecord;
 import org.junit.jupiter.api.Test;
 
+// Arrays deliberately exercise each argument position; proxies use the actual API class loader.
+@SuppressWarnings({"PMD.AvoidInstantiatingObjectsInLoops", "PMD.JeeClassLoader"})
 class VelocityPlayerSuggestionsTest {
+    private static final String ALPHA_NAME = "Alpha";
     private static final String VIEW = "enthusiastaff.alts.view";
     private static final UUID VIEWER = UUID.randomUUID();
     private static final UUID ALPHA = UUID.randomUUID();
@@ -35,7 +38,7 @@ class VelocityPlayerSuggestionsTest {
         assertFalse(result.isDone());
         assertEquals(0, fixture.reads.get());
         fixture.tasks.removeFirst().run();
-        assertEquals(List.of("Alpha"), result.join());
+        assertEquals(List.of(ALPHA_NAME), result.join());
         assertEquals(1, fixture.reads.get());
     }
 
@@ -79,8 +82,8 @@ class VelocityPlayerSuggestionsTest {
     @Test void bothAltTargetsCompleteButReasonsAndUnauthorizedReopenDoNot() {
         for (String action : List.of("link", "approve", "household", "notrelated", "unlink", "reopen")) {
             assertTrue(VelocityPlayerSuggestions.targetPosition(new String[]{action, ""}));
-            assertTrue(VelocityPlayerSuggestions.targetPosition(new String[]{action, "Alpha", ""}));
-            assertFalse(VelocityPlayerSuggestions.targetPosition(new String[]{action, "Alpha", "Beta", ""}));
+            assertTrue(VelocityPlayerSuggestions.targetPosition(new String[]{action, ALPHA_NAME, ""}));
+            assertFalse(VelocityPlayerSuggestions.targetPosition(new String[]{action, ALPHA_NAME, "Beta", ""}));
         }
         assertFalse(VelocityPlayerSuggestions.targetPosition(new String[]{"invalid", ""}));
         assertEquals(List.of("approve"), VelocityPlayerSuggestions.operations("Ap", false));
@@ -109,7 +112,7 @@ class VelocityPlayerSuggestionsTest {
             reads.incrementAndGet();
             if (failure) { throw new IllegalStateException("provider unavailable"); }
             assertEquals(50, args[1]);
-            return List.of(new PlayerIdentity(ALPHA, Optional.of("Alpha"), PlayerPlatform.JAVA,
+            return List.of(new PlayerIdentity(ALPHA, Optional.of(ALPHA_NAME), PlayerPlatform.JAVA,
                     Instant.EPOCH, Instant.EPOCH));
         });
         private final VanishStore vanish = stub(VanishStore.class, (name, args) -> List.of(

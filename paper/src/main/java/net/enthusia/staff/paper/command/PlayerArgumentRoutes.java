@@ -8,19 +8,23 @@ import java.util.function.Predicate;
 
 /** Player argument positions only: reason, case, draft, and confirmation inputs stay delegated. */
 public final class PlayerArgumentRoutes {
+    private static final String PUNISH_PERMISSION = "enthusiastaff.punish";
+    private static final String REMOVE_PERMISSION = "enthusiastaff.remove";
+    private static final String INVENTORY_PERMISSION = "enthusiastaff.inventory.view";
+    private static final String FREEZE_PERMISSION = "enthusiastaff.freeze";
+    private static final int THIRD_ARGUMENT = 3;
     private static final Map<String, String> DIRECT = Map.ofEntries(
-            Map.entry("punish", "enthusiastaff.punish"), Map.entry("ban", "enthusiastaff.punish"),
-            Map.entry("mute", "enthusiastaff.punish"), Map.entry("warn", "enthusiastaff.punish"),
-            Map.entry("kick", "enthusiastaff.punish"), Map.entry("ipban", "enthusiastaff.punish.ip"),
+            Map.entry("punish", PUNISH_PERMISSION), Map.entry("ban", PUNISH_PERMISSION),
+            Map.entry("mute", PUNISH_PERMISSION), Map.entry("warn", PUNISH_PERMISSION),
+            Map.entry("kick", PUNISH_PERMISSION), Map.entry("ipban", "enthusiastaff.punish.ip"),
             Map.entry("history", "enthusiastaff.history.view"), Map.entry("client", "enthusiastaff.client"),
-            Map.entry("inspect", "enthusiastaff.inspect"), Map.entry("invsee", "enthusiastaff.inventory.view"),
-            Map.entry("endersee", "enthusiastaff.inventory.view"), Map.entry("freeze", "enthusiastaff.freeze"),
-            Map.entry("unfreeze", "enthusiastaff.freeze"), Map.entry("report", ""),
-            Map.entry("removepunishment", "enthusiastaff.remove"), Map.entry("unban", "enthusiastaff.remove"),
-            Map.entry("unmute", "enthusiastaff.remove"), Map.entry("unwarn", "enthusiastaff.remove"),
-            Map.entry("removewarning", "enthusiastaff.remove"));
+            Map.entry("inspect", "enthusiastaff.inspect"), Map.entry("invsee", INVENTORY_PERMISSION),
+            Map.entry("endersee", INVENTORY_PERMISSION), Map.entry("freeze", FREEZE_PERMISSION),
+            Map.entry("unfreeze", FREEZE_PERMISSION), Map.entry("report", ""),
+            Map.entry("removepunishment", REMOVE_PERMISSION), Map.entry("unban", REMOVE_PERMISSION),
+            Map.entry("unmute", REMOVE_PERMISSION), Map.entry("unwarn", REMOVE_PERMISSION),
+            Map.entry("removewarning", REMOVE_PERMISSION));
     private static final Set<String> FAKE_BASE_TARGETS = Set.of("create", "extend", "clear", "teleport");
-    private static final Set<String> INSPECT_TARGETS = Set.of("inventory", "ender", "economy", "items");
 
     private PlayerArgumentRoutes() { }
 
@@ -43,49 +47,40 @@ public final class PlayerArgumentRoutes {
         if (args.length == 2) {
             return secondArgument(name, first);
         }
-        if (args.length == 3 && name.equals("cheattester") && first.equals("base")
+        if (args.length == THIRD_ARGUMENT && name.equals("cheattester") && first.equals("base")
                 && FAKE_BASE_TARGETS.contains(args[1].toLowerCase(Locale.ROOT))) {
             return new Route("enthusiastaff.cheattester.fake-base", false, List.of());
         }
         return null;
     }
 
+    private static final Map<String, Map<String, Route>> SECOND_ARGUMENT = Map.ofEntries(
+            Map.entry("inspect", Map.of(
+                    "inventory", route(INVENTORY_PERMISSION),
+                    "ender", route(INVENTORY_PERMISSION),
+                    "economy", route("enthusiastaff.confiscate.economy"),
+                    "items", route("enthusiastaff.confiscate.items"))),
+            Map.entry("freeze", Map.of("keep", route(FREEZE_PERMISSION),
+                    "status", route(FREEZE_PERMISSION))),
+            Map.entry("punish", Map.of("resume", route(PUNISH_PERMISSION))),
+            Map.entry("stafftools", Map.of("follow", route("enthusiastaff.stafftools.spectate"),
+                    "spectate", route("enthusiastaff.stafftools.spectate"))),
+            Map.entry("staffflags", Map.of("list", route("enthusiastaff.investigation.view"),
+                    "add", route("enthusiastaff.investigation.edit"))),
+            Map.entry("staff", Map.of("recover", new Route("enthusiastaff.staffmode", true, List.of()))),
+            Map.entry("staffapi", Map.of("punish", new Route("", true, List.of()))),
+            Map.entry("cheattester", Map.of("run", route("enthusiastaff.cheattester"),
+                    "cancel", route("enthusiastaff.cheattester"))));
+
+    private static Route route(String permission) {
+        return new Route(permission, false, List.of());
+    }
+
     private static Route secondArgument(String name, String first) {
-        return switch (name) {
-            case "inspect" -> INSPECT_TARGETS.contains(first)
-                    ? new Route(inspectPermission(first), false, List.of()) : null;
-            case "freeze" -> Set.of("keep", "status").contains(first)
-                    ? new Route("enthusiastaff.freeze", false, List.of()) : null;
-            case "punish" -> first.equals("resume")
-                    ? new Route("enthusiastaff.punish", false, List.of()) : null;
-            case "stafftools" -> Set.of("follow", "spectate").contains(first)
-                    ? new Route("enthusiastaff.stafftools.spectate", false, List.of()) : null;
-            case "staffflags" -> flagRoute(first);
-            case "staff" -> first.equals("recover")
-                    ? new Route("enthusiastaff.staffmode", true, List.of()) : null;
-            case "staffapi" -> first.equals("punish") ? new Route("", true, List.of()) : null;
-            case "cheattester" -> Set.of("run", "cancel").contains(first)
-                    ? new Route("enthusiastaff.cheattester", false, List.of()) : null;
-            case "fakebase" -> FAKE_BASE_TARGETS.contains(first)
-                    ? new Route("enthusiastaff.cheattester.fake-base", false, List.of()) : null;
-            default -> null;
-        };
-    }
-
-    private static Route flagRoute(String first) {
-        return switch (first) {
-            case "list" -> new Route("enthusiastaff.investigation.view", false, List.of());
-            case "add" -> new Route("enthusiastaff.investigation.edit", false, List.of());
-            default -> null;
-        };
-    }
-
-    private static String inspectPermission(String action) {
-        return switch (action) {
-            case "economy" -> "enthusiastaff.confiscate.economy";
-            case "items" -> "enthusiastaff.confiscate.items";
-            default -> "enthusiastaff.inventory.view";
-        };
+        if (name.equals("fakebase") && FAKE_BASE_TARGETS.contains(first)) {
+            return route("enthusiastaff.cheattester.fake-base");
+        }
+        return SECOND_ARGUMENT.getOrDefault(name, Map.of()).get(first);
     }
 
     private static List<String> rootKeywords(String name) {

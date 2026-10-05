@@ -20,6 +20,7 @@ import net.enthusia.staff.domain.ports.VanishStore;
 
 /** Bounded async known-player lookup; never queries private storage on the command thread. */
 final class VelocityPlayerSuggestions {
+    private static final int MAX_VANISH_RECORDS = 10_000;
     private final ProxyServer proxy;
     private final Supplier<PlayerDirectory> directory;
     private final Supplier<VanishStore> vanish;
@@ -42,14 +43,7 @@ final class VelocityPlayerSuggestions {
         CompletableFuture<List<String>> result = new CompletableFuture<>();
         try {
             executor.execute(() -> {
-                try {
-                    result.complete(source.hasPermission(permission) ? query(source, prefix) : List.of());
-                } catch (RuntimeException exception) {
-                    // Provider unavailable: no identities or private errors are exposed by completion.
-                    result.complete(List.of());
-                } finally {
-                    pending.release();
-                }
+                completeRequest(source, prefix, permission, result);
             });
         } catch (RejectedExecutionException exception) {
             pending.release();
@@ -58,12 +52,24 @@ final class VelocityPlayerSuggestions {
         return result.thenApply(names -> source.hasPermission(permission) ? names : List.of());
     }
 
+    private void completeRequest(CommandSource source, String prefix, String permission,
+            CompletableFuture<List<String>> result) {
+        try {
+            result.complete(source.hasPermission(permission) ? query(source, prefix) : List.of());
+        } catch (RuntimeException exception) {
+            // Provider unavailable: completion exposes neither identities nor private errors.
+            result.complete(List.of());
+        } finally {
+            pending.release();
+        }
+    }
+
     private List<String> query(CommandSource source, String prefix) {
         PlayerDirectory players = directory.get();
         VanishStore hidden = vanish.get();
         if (players == null || hidden == null) { return List.of(); }
-        var records = hidden.active(10_000);
-        if (records.size() >= 10_000) { return List.of(); }
+        var records = hidden.active(MAX_VANISH_RECORDS);
+        if (records.size() >= MAX_VANISH_RECORDS) { return List.of(); }
         Map<UUID, StaffRank> vanished = new HashMap<>();
         records.forEach(record -> vanished.put(record.staffId(), record.rank()));
         Map<UUID, String> names = new HashMap<>();
