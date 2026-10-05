@@ -18,9 +18,10 @@ class JdaStaffModerationListenerTest {
     void staffReadCommandsAreCompleteAndDefaultDisabledForDiscovery() {
         var commands = JdaStaffModerationListener.commands();
 
-        assertEquals(8, commands.size());
+        assertEquals(9, commands.size());
         assertEquals(Set.of(
                 "moderate",
+                "punish",
                 "Moderate User",
                 "Moderate Message",
                 "moderate-minecraft",
@@ -35,25 +36,28 @@ class JdaStaffModerationListenerTest {
         assertEquals(Command.Type.USER, command(commands, "Moderate User").getType());
         assertEquals(Command.Type.MESSAGE, command(commands, "Moderate Message").getType());
         assertEquals(Command.Type.SLASH, command(commands, "moderate").getType());
+        assertEquals(Command.Type.SLASH, command(commands, "punish").getType());
     }
 
     @Test
     void productionWebKeepsStaffCommandsAndAllowsChannelLaunch() {
         var commands = JdaStaffModerationListener.commands(false, true);
-        assertEquals(8, commands.size());
+        assertEquals(9, commands.size());
         assertTrue(commands.stream().allMatch(command ->
                 DefaultMemberPermissions.DISABLED.equals(command.getDefaultPermissions())));
-        SlashCommandData moderate = (SlashCommandData) command(commands, "moderate");
-        assertEquals(1, moderate.getOptions().size());
-        assertEquals(OptionType.USER, moderate.getOptions().getFirst().getType());
-        assertTrue(!moderate.getOptions().getFirst().isRequired());
+        for (String name : java.util.List.of("moderate", "punish")) {
+            SlashCommandData launch = (SlashCommandData) command(commands, name);
+            assertEquals(1, launch.getOptions().size());
+            assertEquals(OptionType.USER, launch.getOptions().getFirst().getType());
+            assertTrue(!launch.getOptions().getFirst().isRequired());
+        }
     }
 
     @Test
     void enforcementRuntimeAddsExactlyTheEightApprovedQuickCommands() {
         var commands = JdaStaffModerationListener.commands(true);
 
-        assertEquals(16, commands.size());
+        assertEquals(17, commands.size());
         assertTrue(names(commands).containsAll(Set.of(
                 "warn", "mute", "unmute", "kick", "ban", "unban", "restrict", "unrestrict"
         )));
