@@ -65,6 +65,7 @@ final class ModerationDiscordMessageReader {
     static boolean searchRequested(ModerationReadApiModel.MessageQuery query) {
         return query.text().filter(value -> !value.isBlank()).isPresent()
                 || query.authorId().isPresent()
+                || query.authorText().filter(value -> !value.isBlank()).isPresent()
                 || query.date().isPresent();
     }
 
@@ -73,23 +74,41 @@ final class ModerationDiscordMessageReader {
             ModerationReadApiModel.MessageQuery query,
             int limit
     ) {
-        if (query.channelId().isPresent()) {
-            long channelId = ModerationReadRequestAuthorizer.snowflake(query.channelId().orElseThrow(), "channel");
-            return mapper.page(context, searchChannel(visibleChannel(context, channelId), query, limit, MAX_SEARCH_SCAN), limit);
+        ModerationReadApiModel.MessageQuery scoped = scopedSearchQuery(context, query);
+        if (scoped.channelId().isPresent()) {
+            long channelId = ModerationReadRequestAuthorizer.snowflake(scoped.channelId().orElseThrow(), "channel");
+            return mapper.page(context, searchChannel(visibleChannel(context, channelId), scoped, limit, MAX_SEARCH_SCAN), limit);
         }
         List<Message> matches = new ArrayList<>();
         for (ModerationReadApiModel.ChannelDto visible : visibleChannels(context).stream().limit(MAX_RECENT_CHANNELS).toList()) {
             TextChannel channel = context.guild().getTextChannelById(visible.id());
-            if (channel == null) {
-                continue;
-            }
-            matches.addAll(searchChannel(channel, query, limit, MAX_SEARCH_SCAN_PER_CHANNEL));
-            if (matches.size() >= limit) {
-                break;
+            if (channel != null) {
+                matches.addAll(searchChannel(channel, scoped, limit, MAX_SEARCH_SCAN_PER_CHANNEL));
             }
         }
         matches.sort(Comparator.comparing(Message::getTimeCreated).reversed());
         return mapper.page(context, matches.stream().limit(limit).toList(), limit);
+    }
+
+    private static ModerationReadApiModel.MessageQuery scopedSearchQuery(
+            ModerationReadContext context,
+            ModerationReadApiModel.MessageQuery query
+    ) {
+        OptionalLong targetUser = context.readTarget().userId();
+        if (targetUser.isEmpty()) {
+            return query;
+        }
+        return new ModerationReadApiModel.MessageQuery(
+                query.channelId(),
+                query.beforeMessageId(),
+                query.afterMessageId(),
+                query.aroundMessageId(),
+                query.text(),
+                Optional.of(Long.toUnsignedString(targetUser.orElseThrow())),
+                Optional.empty(),
+                query.date(),
+                query.limit()
+        );
     }
 
     private static List<Message> searchChannel(
