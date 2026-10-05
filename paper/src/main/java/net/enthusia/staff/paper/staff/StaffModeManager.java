@@ -63,6 +63,7 @@ public final class StaffModeManager implements Listener {
     private final NamespacedKey staffToolOwnerKey;
     private final NamespacedKey staffToolSessionKey;
     private final Map<UUID, StaffSessionSnapshot> active = new ConcurrentHashMap<>();
+    private final Map<UUID, StaffSessionSnapshot> pendingLocalSessions = new ConcurrentHashMap<>();
     private final Map<UUID, StaffRank> ranks = new ConcurrentHashMap<>();
     private final Map<UUID, String> toolSessions = new ConcurrentHashMap<>();
     private final java.util.Set<UUID> transitions = ConcurrentHashMap.newKeySet();
@@ -358,15 +359,20 @@ public final class StaffModeManager implements Listener {
                             "staff session entry returned a snapshot not actively owned by this backend"
                     );
                 }
-                onEntity(playerId, current -> activateDurableSession(
+                pendingLocalSessions.put(playerId, session);
+                onEntity(
                         playerId,
-                        session,
-                        loaded,
-                        current,
-                        rank,
-                        StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
-                        "Staff mode entered after durable snapshot commit."
-                ));
+                        current -> activateDurableSession(
+                                playerId,
+                                session,
+                                loaded,
+                                current,
+                                rank,
+                                StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
+                                "Staff mode entered after durable snapshot commit."
+                        ),
+                        () -> detachUnappliedLease(playerId, session, loaded, captured.checksum())
+                );
             } catch (RuntimeException exception) {
                 failEntry(playerId);
                 plugin.getLogger().log(Level.SEVERE, "Staff session entry failed", exception);
@@ -449,6 +455,7 @@ public final class StaffModeManager implements Listener {
                     scheduleRecoveryRetry(playerId);
                     return;
                 }
+                pendingLocalSessions.put(playerId, session);
                 if (staleFromPriorRuntime(session)) {
                     recoverPriorRuntimeSession(playerId, session, loaded);
                     return;
@@ -517,15 +524,20 @@ public final class StaffModeManager implements Listener {
                         || rebound.state() != StaffSessionState.ACTIVE) {
                     throw new IllegalStateException("detached Staff Mode session did not rebind to this backend");
                 }
-                onEntity(playerId, current -> activateDurableSession(
+                pendingLocalSessions.put(playerId, rebound);
+                onEntity(
                         playerId,
-                        rebound,
-                        loaded,
-                        current,
-                        rank,
-                        StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
-                        "Your network Staff Mode session resumed on this backend."
-                ));
+                        current -> activateDurableSession(
+                                playerId,
+                                rebound,
+                                loaded,
+                                current,
+                                rank,
+                                StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
+                                "Your network Staff Mode session resumed on this backend."
+                        ),
+                        () -> detachUnappliedLease(playerId, rebound, loaded, captured.checksum())
+                );
             } catch (RuntimeException exception) {
                 recoveryGate.retry(playerId);
                 plugin.getLogger().log(Level.SEVERE, "Detached Staff Mode rebind failed", exception);
@@ -668,6 +680,7 @@ public final class StaffModeManager implements Listener {
             toolSessions.remove(playerId);
             return;
         }
+        pendingLocalSessions.remove(playerId, session);
         handoffGaps.remove(playerId);
         try {
             activeSessionListener.accept(session);
@@ -848,12 +861,20 @@ public final class StaffModeManager implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
         StaffSessionSnapshot session = active.get(playerId);
+        if (session == null) {
+            session = pendingLocalSessions.get(playerId);
+        }
 
         // A normal backend disconnect is not a Staff Mode exit. Restore this backend's
         // native state before Minecraft saves the player, then release only the local
         // snapshot lease. Network Staff Mode/vanish intent remains active.
+        boolean pendingLocalLease = pendingLocalSessions.containsKey(playerId);
         if (session != null
-                && (!transitions.contains(playerId) || sourceHandoffs.active(playerId))) {
+                && session.state() == StaffSessionState.ACTIVE
+                && serverId.equalsIgnoreCase(session.serverId())
+                && (!transitions.contains(playerId)
+                        || sourceHandoffs.active(playerId)
+                        || pendingLocalLease)) {
             try {
                 if (restoreSavedState(player, session)) {
                     String checksum = codec.verifiedRestorationChecksum(
@@ -878,6 +899,38 @@ public final class StaffModeManager implements Listener {
         snapshotRestorations.remove(playerId);
         pendingRankChecks.remove(playerId);
         handoffGaps.remove(playerId);
+    }
+
+    private void detachUnappliedLease(
+            UUID playerId,
+            StaffSessionSnapshot session,
+            StaffSessionStore loaded,
+            String capturedChecksum
+    ) {
+        if (!submit(() -> {
+            try {
+                loaded.detach(
+                        playerId,
+                        session.sessionId(),
+                        session.revision(),
+                        session.serverId(),
+                        capturedChecksum,
+                        clock.instant()
+                );
+            } catch (RuntimeException exception) {
+                plugin.getLogger().log(
+                        Level.SEVERE,
+                        "Staff Mode could not detach an unapplied backend lease for " + playerId,
+                        exception
+                );
+            } finally {
+                pendingLocalSessions.remove(playerId, session);
+                transitions.remove(playerId);
+            }
+        })) {
+            pendingLocalSessions.remove(playerId, session);
+            transitions.remove(playerId);
+        }
     }
 
     private void detachAfterQuit(UUID playerId, StaffSessionSnapshot session, String restoredChecksum) {
@@ -1290,6 +1343,7 @@ public final class StaffModeManager implements Listener {
     }
 
     private void failEntry(UUID playerId) {
+        pendingLocalSessions.remove(playerId);
         transitions.remove(playerId);
         abandonHandoffGap(playerId);
     }
@@ -1307,6 +1361,7 @@ public final class StaffModeManager implements Listener {
 
     private void removeRuntimeState(UUID playerId) {
         active.remove(playerId);
+        pendingLocalSessions.remove(playerId);
         ranks.remove(playerId);
         toolSessions.remove(playerId);
     }
