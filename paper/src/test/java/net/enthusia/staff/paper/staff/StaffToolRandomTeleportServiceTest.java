@@ -25,6 +25,7 @@ import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
 final class StaffToolRandomTeleportServiceTest {
+    private static final String FIRST_NAME = "first";
     private static final UUID ACTOR_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID FIRST_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final UUID SECOND_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
@@ -125,7 +126,7 @@ final class StaffToolRandomTeleportServiceTest {
 
     private static void assertFinalSchedulerRetry(EntityBehavior behavior) {
         Harness harness = new Harness();
-        TestTarget first = harness.addTarget(FIRST_ID, "first", 10.0, true);
+        TestTarget first = harness.addTarget(FIRST_ID, FIRST_NAME, 10.0, true);
         harness.addTarget(SECOND_ID, "second", 20.0, true);
         harness.teleportFuture.set(CompletableFuture.completedFuture(true));
         harness.startCollection();
@@ -234,7 +235,7 @@ final class StaffToolRandomTeleportServiceTest {
 
     private static void assertVisitsAfterCompletion(boolean success) {
         Harness harness = new Harness();
-        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        harness.addTarget(FIRST_ID, FIRST_NAME, 10.0, true);
         harness.addTarget(SECOND_ID, "second", 20.0, true);
         harness.teleportFuture.set(CompletableFuture.completedFuture(success));
         harness.startCollection();
@@ -248,7 +249,7 @@ final class StaffToolRandomTeleportServiceTest {
     @Test
     void quittingCancelsQueuedPatrolAndAllowsANewSession() {
         Harness harness = new Harness();
-        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        harness.addTarget(FIRST_ID, FIRST_NAME, 10.0, true);
         harness.teleportFuture.set(CompletableFuture.completedFuture(true));
         harness.startCollection();
         harness.platform.runNextGlobal();
@@ -263,7 +264,7 @@ final class StaffToolRandomTeleportServiceTest {
     @Test
     void lateTeleportCompletionCannotConsumeHistoryOrNotifyAnotherSession() {
         Harness harness = new Harness();
-        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        harness.addTarget(FIRST_ID, FIRST_NAME, 10.0, true);
         CompletableFuture<Boolean> old = new CompletableFuture<>();
         harness.teleportFuture.set(old);
         harness.startCollection();
@@ -281,7 +282,7 @@ final class StaffToolRandomTeleportServiceTest {
     @Test
     void overlappingRequestsDoNotStartAnotherCollection() {
         Harness harness = new Harness();
-        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        harness.addTarget(FIRST_ID, FIRST_NAME, 10.0, true);
         harness.startCollection();
         int tasks = harness.platform.pendingGlobal();
         harness.platform.runOwned(() -> harness.service.begin(harness.actor));

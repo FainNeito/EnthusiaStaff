@@ -25,6 +25,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Explicit in-game flag operations; never a punishment or command execution bypass. */
 public final class InvestigationCommand implements CommandExecutor {
+    private static final int LIST_ARGUMENTS = 2;
+    private static final int MINIMUM_ADD_ARGUMENTS = 6;
+    private static final int MINIMUM_RESOLVE_ARGUMENTS = 3;
     private static final String STORAGE_NOT_READY = "Investigation storage is not ready.";
     public static final String VIEW = "enthusiastaff.investigation.view";
     public static final String EDIT = "enthusiastaff.investigation.edit";
@@ -78,17 +81,17 @@ public final class InvestigationCommand implements CommandExecutor {
     }
 
     private void listRoute(Player actor, String[] args) {
-        if (args.length != 2) { usage(actor); return; }
+        if (args.length != LIST_ARGUMENTS) { usage(actor); return; }
         if (CommandPermissionGate.require(actor, VIEW, "You cannot view investigation flags.")) {
             submit(actor, () -> list(actor, args[1]));
         }
     }
     private void addRoute(Player actor, String[] args) {
-        if (args.length < 6) { usage(actor); return; }
+        if (args.length < MINIMUM_ADD_ARGUMENTS) { usage(actor); return; }
         if (canEdit(actor)) { add(actor, args); }
     }
     private void resolveRoute(Player actor, String[] args) {
-        if (args.length < 3) { usage(actor); return; }
+        if (args.length < MINIMUM_RESOLVE_ARGUMENTS) { usage(actor); return; }
         if (canEdit(actor)) { resolve(actor, args); }
     }
     private static void usage(Player actor) {
