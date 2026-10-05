@@ -37,6 +37,24 @@ class ModerationDiscordMessageReaderTest {
     }
 
     @Test
+    void textAuthorAndDateFiltersUseServerSideHistorySearch() {
+        assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.of("older phrase"), Optional.empty(), Optional.empty())));
+        assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.of("222"), Optional.empty())));
+        assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.empty(), Optional.of("2026-09-01"))));
+        assertFalse(ModerationDiscordMessageReader.searchRequested(query(Optional.of("   "), Optional.empty(), Optional.empty())));
+        assertFalse(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.empty(), Optional.empty())));
+    }
+
+    private static ModerationReadApiModel.MessageQuery query(
+            Optional<String> text,
+            Optional<String> author,
+            Optional<String> date
+    ) {
+        return new ModerationReadApiModel.MessageQuery(
+                Optional.empty(), Optional.empty(), Optional.empty(), text, author, date, 50);
+    }
+
+    @Test
     void recentQueriesApplyAuthorTextDateAndLimitBeforeMapping() {
         ModerationReadApiModel.MessageQuery query = new ModerationReadApiModel.MessageQuery(
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("needle"), Optional.of("222"),
