@@ -19,8 +19,9 @@ function hardenedRenderOffenseStep() {
   if (!w.offenseTab) w.offenseTab = 'discord';
   const offenses = OFFENSES.filter(([key]) => w.offenseTab === 'game' ? key === 'cheating' : key !== 'cheating');
   replaceChildrenOf($('#workflowBody'),
-    stepIntro('What happened?', 'Choose the rule family. Each option links to the public rule staff should apply.'),
+    stepIntro('What happened?', 'Choose the rule family, then review the exact punishment details.'),
     punishmentScopeTabs(w.offenseTab),
+    policyLinkNode({label:'Server rules',href:RULES_BASE_URL},'Open'),
     element('div',{className:'option-grid'},offenses.map(([key,label]) => hardenedOffenseOptionNode(key,label))));
   replaceChildrenOf($('#workflowFooter'),buttonNode('Cancel','button ghost',{cancel:''}));
   $$('[data-offense-tab]').forEach((button) => button.addEventListener('click', () => { w.offenseTab = button.dataset.offenseTab; renderWorkflow(); }));
@@ -31,17 +32,16 @@ function hardenedRenderOffenseStep() {
 function hardenedOffenseOptionNode(key, label) {
   const choice = buttonNode('', 'choice-card', {offense:key});
   choice.append(element('strong',{text:label}),element('span',{text:offenseHint(key)}));
-  return element('div',{className:'choice-card-wrap'},choice,policyLinkNode(offensePolicy(key),'View applicable rule'));
+  return choice;
 }
 
 function hardenedRecommendationCard(recommendation) {
-  const policy = offensePolicy(state.workflow?.offense?.key || 'other');
   const approval = approvalFor(recommendation.action,recommendation.duration);
   const card = element('section',{className:'recommendation-card'},
     element('div',{className:'eyebrow',text:'Recommended'}),
     element('div',{className:'recommendation-action',text:recommendation.action}),
     element('div',{className:'recommendation-duration',text:`${recommendation.duration} · ${recommendation.scope}`}),
-    element('p',{text:recommendation.explanation}), policyLinkNode(policy,'Open rule'));
+    element('p',{text:recommendation.explanation}));
   if (approval !== 'None') card.append(element('div',{className:'approval-note',text:approval}));
   return card;
 }
@@ -133,11 +133,9 @@ function focusFirstMissingReviewField(status) {
 }
 
 function hardenedReviewGridNode(w, recommendation) {
-  const policy = offensePolicy(w.offense.key);
   const items = [
     ['Target',`${identity.displayName} · ${identity.minecraft}`],
     ['Offense',w.offense.label],
-    ['Rule',policy.label],
     ['Ladder recommendation',`${recommendation.action} · ${recommendation.duration}`],
     ['Action',`${w.actual.action}${w.custom ? ' · Custom override' : ''}`],
     ['Scope / platform',w.scope],
@@ -147,7 +145,8 @@ function hardenedReviewGridNode(w, recommendation) {
     ['DM',w.dm ? 'Included' : 'Not included'],
     ['Approval',approvalReviewText(w)]
   ];
-  if (w.duration !== '—') items.splice(5,0,['Duration',w.duration]);
+  if (w.exactReasonId) items.splice(2,0,['Configured reason ID',w.exactReasonId]);
+  if (w.duration !== '—') items.splice(w.exactReasonId ? 6 : 5,0,['Duration',w.duration]);
   return element('div',{className:'review-grid'},items.map(([label,value]) => reviewItemNode(label,value)));
 }
 
@@ -162,7 +161,6 @@ function hardenedReviewEvidenceNode(w) {
     sectionHeadingNode('Case readiness','Review every item before confirming the action.'),
     readinessChecklistNode(w),
     reviewValidationAlert(status),
-    policyLinkNode(offensePolicy(w.offense.key),'Open applicable rule'),
     reviewEvidenceSummaryNode(w),
     staffExplanationNode(w),
     dmPreviewNode(w),
