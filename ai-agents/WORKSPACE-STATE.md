@@ -1,5 +1,42 @@
 # Workspace state
 
+## Owner tester handoff reconciliation verification, 2026-10-05
+
+Same bug-fix owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
+Frozen executable head a5841e005e20786e6e15b7f02d9021ac4f8d50a0 normally merges
+relevant canonical tester repair d545d9a9404d8da94c42021bbc5628ccdee1a8fd (#329)
+from owner fa4792d1. Authoritative main 4651cc77 was inspected; later PR #330
+Discord role-sync/authenticated console bridge is separate integration scope,
+not required by this bug-fix package, and is deliberately not incorporated.
+A future affected change must re-evaluate that base delta; no authority activation.
+
+Tester begin/finish/recovery/restoration and fake-base continuations use current
+players on owning schedulers. Retired, rejected, offline and duplicate completion
+paths settle once. Conflict resolution retains owner evidence failure markers
+and finally-based checkpoint/restoration priority while adopting the upstream
+current-player Consumer callback; stale captured Player references are removed.
+Existing offhand, known-name, confirmation, applied-duty, explicit-exit, vanish
+operation-ticket and transfer fixes are preserved. Added wiring assertions retain
+the restoration wrapper around the new callback; helper tests exercise deferred
+online reads, offline retirement, rejection, duplicates and scheduler exceptions.
+This is local helper/wiring proof, not historical red/green or live Folia acceptance.
+
+Focused tester suite and full exact frozen-head Java 25.0.3 clean test/check/
+runtimeJars pass: 1,699 tests, zero failures/errors, two Windows symlink skips.
+Wiki validates 41 pages; whitespace, JAR CRC and RoseChat provider exclusion pass.
+Test.11 artifacts are unmerged/local only. Root aggregate owns the build; no new
+migration, dependency pin, provider interface or runtime configuration changes.
+Existing canonical V24 release/migration sequencing, Docker/MariaDB execution,
+hosted/static, staging, provider and Java/Bedrock/Folia acceptance remain open.
+Prior integration classes compiled at b96453c7; none changed in this reconciliation.
+EARS/state helpers remain absent. Orchestration remains FAILED at the previously
+compared 460 canonical/owner findings; substantive validator inputs are unchanged,
+so it and unavailable gates were not repeated. Bounded requirements/evidence stay
+in this package. Next: inspect exact-head CI/reviews and obtain missing acceptance
+through normal reviewed delivery. No product merge, deployment or permission
+change. Exact delivery heads/hashes are recorded in PR #1. This supersedes earlier
+build verification for this selected package.
+
 ## Owner tester handoff reconciliation requirement, 2026-10-05
 
 Same bug-fix owner package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
