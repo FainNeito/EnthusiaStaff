@@ -144,55 +144,65 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void vanishOn(Player player) {
         try {
             setVanish(player, true);
-            state(player, "VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
+            state(player, "VANISH_ON_CREATIVE", true, GameMode.CREATIVE);
             selectWhileVanished(
                     player,
                     GameMode.SURVIVAL,
                     "VANISHED_SELECT_SURVIVAL",
-                    () -> geometryMatrix(player, "VANISHED", () -> vanishOffToSurvival(player))
+                    () -> adminVanishOffSurvival(player)
             );
         } catch (Exception exception) {
             fail("VANISH_ON", exception);
         }
     }
 
-    private void vanishOffToSurvival(Player player) {
+    private void adminVanishOffSurvival(Player player) {
         try {
             setVanish(player, false);
             state(player, "VANISH_OFF_SURVIVAL", false, GameMode.SURVIVAL);
-            transition(player, GameMode.CREATIVE, "VISIBLE_CREATIVE_3", false, () -> secondAdminVanish(player));
+            setVanish(player, true);
+            state(player, "VANISH_ON_SURVIVAL", true, GameMode.SURVIVAL);
+            selectWhileVanished(
+                    player,
+                    GameMode.SPECTATOR,
+                    "VANISHED_SELECT_SPECTATOR",
+                    () -> geometryMatrix(player, "VANISHED", () -> adminVanishOffSpectator(player))
+            );
         } catch (Exception exception) {
-            fail("VANISH_OFF_SURVIVAL", exception);
+            fail("VANISH_SURVIVAL_TOGGLE", exception);
         }
     }
 
-    private void secondAdminVanish(Player player) {
+    private void adminVanishOffSpectator(Player player) {
         try {
+            setVanish(player, false);
+            state(player, "VANISH_OFF_SPECTATOR", false, GameMode.SPECTATOR);
             setVanish(player, true);
-            state(player, "VANISH_ON_SPECTATOR_2", true, GameMode.SPECTATOR);
+            state(player, "VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
             selectWhileVanished(
                     player,
                     GameMode.CREATIVE,
                     "VANISHED_SELECT_CREATIVE",
-                    () -> rejectAdventure(player)
+                    () -> selectAdventureWhileVanished(player)
             );
         } catch (Exception exception) {
-            fail("VANISH_ON_SECOND", exception);
+            fail("VANISH_SPECTATOR_TOGGLE", exception);
         }
     }
 
-    private void rejectAdventure(Player player) {
+    private void selectAdventureWhileVanished(Player player) {
         player.setGameMode(GameMode.ADVENTURE);
         later(2L, () -> {
-            state(player, "ADVENTURE_REJECTED", true, GameMode.SPECTATOR);
-            vanishOffToCreative(player);
+            state(player, "VANISHED_SELECT_ADVENTURE", true, GameMode.ADVENTURE);
+            marker(player, "STATE:VANISHED_SELECT_ADVENTURE");
+            later(2L, () -> vanishOffToAdventure(player));
         });
     }
 
-    private void vanishOffToCreative(Player player) {
+    private void vanishOffToAdventure(Player player) {
         try {
             setVanish(player, false);
-            state(player, "VANISH_OFF_CREATIVE", false, GameMode.CREATIVE);
+            state(player, "VANISH_OFF_ADVENTURE", false, GameMode.ADVENTURE);
             transition(player, GameMode.SPECTATOR, "VISIBLE_SPECTATOR_FINAL", false,
                     () -> {
                         Location base = chamber(player);
@@ -206,7 +216,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
                         );
                     });
         } catch (Exception exception) {
-            fail("VANISH_OFF_CREATIVE", exception);
+            fail("VANISH_OFF_ADVENTURE", exception);
         }
     }
 
@@ -218,63 +228,76 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
         transition(player, GameMode.CREATIVE, "FOUNDER_VISIBLE_CREATIVE", false,
                 () -> transition(player, GameMode.SURVIVAL, "FOUNDER_VISIBLE_SURVIVAL", false,
                         () -> transition(player, GameMode.SPECTATOR, "FOUNDER_VISIBLE_SPECTATOR", false,
-                                () -> transition(player, GameMode.CREATIVE, "FOUNDER_VISIBLE_CREATIVE_2", false,
-                                        () -> founderVanishOn(player)))));
+                                () -> transition(player, GameMode.ADVENTURE, "FOUNDER_VISIBLE_ADVENTURE", false,
+                                        () -> transition(player, GameMode.CREATIVE, "FOUNDER_VISIBLE_CREATIVE_2", false,
+                                                () -> founderVanishOn(player))))));
     }
 
     private void founderVanishOn(Player player) {
         try {
             setVanish(player, true);
-            state(player, "FOUNDER_VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
+            state(player, "FOUNDER_VANISH_ON_CREATIVE", true, GameMode.CREATIVE);
             selectWhileVanished(
                     player,
                     GameMode.SURVIVAL,
                     "FOUNDER_VANISHED_SELECT_SURVIVAL",
-                    () -> founderVanishOffToSurvival(player)
+                    () -> founderVanishOffSurvival(player)
             );
         } catch (Exception exception) {
             fail("FOUNDER_VANISH_ON", exception);
         }
     }
 
-    private void founderVanishOffToSurvival(Player player) {
+    private void founderVanishOffSurvival(Player player) {
         try {
             setVanish(player, false);
             state(player, "FOUNDER_VANISH_OFF_SURVIVAL", false, GameMode.SURVIVAL);
-            transition(
+            setVanish(player, true);
+            state(player, "FOUNDER_VANISH_ON_SURVIVAL", true, GameMode.SURVIVAL);
+            selectWhileVanished(
                     player,
-                    GameMode.CREATIVE,
-                    "FOUNDER_VISIBLE_CREATIVE_3",
-                    false,
-                    () -> founderSecondVanish(player)
+                    GameMode.SPECTATOR,
+                    "FOUNDER_VANISHED_SELECT_SPECTATOR",
+                    () -> founderVanishOffSpectator(player)
             );
         } catch (Exception exception) {
-            fail("FOUNDER_VANISH_OFF_SURVIVAL", exception);
+            fail("FOUNDER_VANISH_SURVIVAL_TOGGLE", exception);
         }
     }
 
-    private void founderSecondVanish(Player player) {
+    private void founderVanishOffSpectator(Player player) {
         try {
+            setVanish(player, false);
+            state(player, "FOUNDER_VANISH_OFF_SPECTATOR", false, GameMode.SPECTATOR);
             setVanish(player, true);
-            state(player, "FOUNDER_VANISH_ON_SPECTATOR_2", true, GameMode.SPECTATOR);
+            state(player, "FOUNDER_VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
             selectWhileVanished(
                     player,
                     GameMode.CREATIVE,
                     "FOUNDER_VANISHED_SELECT_CREATIVE",
-                    () -> founderVanishOffToCreative(player)
+                    () -> founderAdventureWhileVanished(player)
             );
         } catch (Exception exception) {
-            fail("FOUNDER_VANISH_ON_SECOND", exception);
+            fail("FOUNDER_VANISH_SPECTATOR_TOGGLE", exception);
         }
     }
 
-    private void founderVanishOffToCreative(Player player) {
+    private void founderAdventureWhileVanished(Player player) {
+        player.setGameMode(GameMode.ADVENTURE);
+        later(2L, () -> {
+            state(player, "FOUNDER_VANISHED_SELECT_ADVENTURE", true, GameMode.ADVENTURE);
+            marker(player, "STATE:FOUNDER_VANISHED_SELECT_ADVENTURE");
+            later(2L, () -> founderVanishOffAdventure(player));
+        });
+    }
+
+    private void founderVanishOffAdventure(Player player) {
         try {
             setVanish(player, false);
-            state(player, "FOUNDER_VANISH_OFF_CREATIVE", false, GameMode.CREATIVE);
-            finish();
+            state(player, "FOUNDER_VANISH_OFF_ADVENTURE", false, GameMode.ADVENTURE);
+            transition(player, GameMode.CREATIVE, "FOUNDER_VISIBLE_CREATIVE_FINAL", false, this::finish);
         } catch (Exception exception) {
-            fail("FOUNDER_VANISH_OFF_CREATIVE", exception);
+            fail("FOUNDER_VANISH_OFF_ADVENTURE", exception);
         }
     }
 
@@ -286,7 +309,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     ) {
         player.setGameMode(selected);
         later(2L, () -> {
-            state(player, label, true, GameMode.SPECTATOR);
+            state(player, label, true, selected);
             marker(player, "STATE:" + label);
             later(2L, next);
         });

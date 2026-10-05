@@ -186,6 +186,17 @@ public final class PunishmentGuiController implements Listener {
         });
     }
 
+    public void showPreparedDraft(
+            Player viewer,
+            PlayerIdentity target,
+            String commandName,
+            Actor actor,
+            PunishmentDraftEvaluation.Prepared prepared
+    ) {
+        PunishmentGuiOverview overview = loadOverview(target.playerId());
+        showPrepared(viewer, target, commandName, actor, overview, prepared);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player viewer)) {
@@ -1017,8 +1028,7 @@ public final class PunishmentGuiController implements Listener {
         Actor actor = PaperActorResolver.resolve(viewer).orElse(null);
         if (actor == null || !actor.id().equals(viewer.getUniqueId())
                 || (!authorization.permits(actor, ModerationAction.ISSUE_POLICY_SANCTION)
-                && !authorization.permits(actor, ModerationAction.REQUEST_POLICY_SANCTION))
-                || !viewer.hasPermission("enthusiastaff.punish.configured")) {
+                && !authorization.permits(actor, ModerationAction.REQUEST_POLICY_SANCTION))) {
             viewer.sendMessage(StaffMessageStyle.style(Component.text("You do not have punishment authority.")));
             return null;
         }

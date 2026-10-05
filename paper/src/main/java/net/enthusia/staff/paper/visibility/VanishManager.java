@@ -213,6 +213,30 @@ public final class VanishManager implements Listener {
     }
 
     /**
+     * Updates the staff member's real selected gameplay mode independently from vanish.
+     *
+     * <p>Vanish is only a visibility/privacy state. Developer/Admin/Founder may use any real
+     * vanilla game mode; Helper/Mod may use protected Survival or real Spectator.</p>
+     */
+    public boolean selectGameplayMode(Player player, GameMode selected) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(selected, "selected");
+        UUID playerId = player.getUniqueId();
+        StaffRank rank = resolveLiveRank(player);
+        if (!staffMode.active(playerId) || !isSelectableGameMode(rank, selected)) {
+            return false;
+        }
+        selectedGameModes.put(playerId, selected);
+        if (visibility.isVanished(playerId)) {
+            persistSelectedGameMode(playerId, rank, selected);
+        }
+        if (player.getGameMode() != selected) {
+            player.setGameMode(selected);
+        }
+        return player.getGameMode() == selected;
+    }
+
+    /**
      * Cross-server transfer hook (overnight/cross-server). Applies a vanish state snapshot
      * carried from the source backend, before the join-message logic runs on arrival.
      *
@@ -254,7 +278,7 @@ public final class VanishManager implements Listener {
         }
         visibility.setVanished(playerId, rank, true);
         if (!staffMode.transitioning(playerId)) {
-            enforceVanishSpectator(player);
+            reconcileVanishedGameMode(player);
         }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshViewer(playerId);
@@ -362,9 +386,8 @@ public final class VanishManager implements Listener {
     }
 
     /**
-     * Marks a game-mode change as plugin-initiated so {@link #onGameModeChange} does not cancel
-     * it for vanished staff (C1: staff-mode profile transitions, e.g. forcing a vanished Mod to
-     * Survival on duty-enter, must not be mistaken for the player leaving vanish-spectator).
+     * Marks a game-mode change as plugin-initiated so {@link #onGameModeChange} can distinguish
+     * Staff Mode profile transitions from player-selected changes while vanish is active.
      */
     public void beginPluginGameModeApplication(UUID playerId) {
         vanishGameModeApplications.add(Objects.requireNonNull(playerId, "playerId"));
@@ -384,10 +407,9 @@ public final class VanishManager implements Listener {
         }
         if (!requiresStaffMode(rank)) {
             pendingStaffModeExitDisables.remove(playerId);
-            // Admin/Founder vanish is independent of Staff Mode. Saved-state restoration is
-            // allowed to restore the exact pre-staff game mode for checksum verification while
-            // visibility remains vanished; only after the Staff Mode session closes do we force
-            // the authoritative server-side Spectator state again.
+            // Admin/Founder vanish and real game mode are independent. Saved-state restoration
+            // may restore the exact pre-staff mode while visibility remains vanished; reconciliation
+            // must preserve that real mode rather than forcing Spectator.
             reconcileVanishGameMode(player);
             return;
         }
@@ -525,7 +547,7 @@ public final class VanishManager implements Listener {
         UUID playerId = player.getUniqueId();
         if (vanished) {
             if (!staffMode.transitioning(playerId)) {
-                enforceVanishSpectator(player);
+                reconcileVanishedGameMode(player);
             }
         } else if (restoreSelectedMode) {
             restoreSelectedGameMode(player);
@@ -775,7 +797,7 @@ public final class VanishManager implements Listener {
         if (vanished) {
             selectedGameModes.computeIfAbsent(playerId, ignored -> selectedGameModeForEnable(player, rank));
             hiddenSpectators.remove(playerId);
-            enforceVanishSpectator(player);
+            reconcileVanishedGameMode(player);
         } else {
             if (pendingStaffModeExitDisables.contains(playerId)) {
                 selectedGameModes.remove(playerId);
@@ -859,7 +881,7 @@ public final class VanishManager implements Listener {
                 selectedGameModes.put(playerId, event.getNewGameMode());
                 persistSelectedGameMode(playerId, rank, event.getNewGameMode());
             }
-            if (event.getNewGameMode() != GameMode.SPECTATOR) {
+            if (!isSelectableGameMode(rank, event.getNewGameMode())) {
                 event.setCancelled(true);
                 return;
             }
@@ -1185,7 +1207,7 @@ public final class VanishManager implements Listener {
         rememberPersistedGameMode(record);
         visibility.setVanished(playerId, record.rank(), true);
         if (!staffMode.transitioning(playerId)) {
-            enforceVanishSpectator(player);
+            reconcileVanishedGameMode(player);
         }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshViewer(playerId);
@@ -1215,7 +1237,7 @@ public final class VanishManager implements Listener {
             selectedGameModes.put(playerId, selected);
             persistSelectedGameMode(playerId, rank, selected);
         }
-        enforceVanishSpectator(player);
+        reconcileVanishedGameMode(player);
     }
 
     private GameMode selectedGameModeForEnable(Player player, StaffRank rank) {
@@ -1224,30 +1246,43 @@ public final class VanishManager implements Listener {
     }
 
     private static GameMode defaultSelectedGameMode(StaffRank rank) {
-        return rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER
+        return rank == StaffRank.DEVELOPER || rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER
                 ? GameMode.CREATIVE
                 : GameMode.SPECTATOR;
     }
 
     private static boolean isSelectableGameMode(StaffRank rank, GameMode mode) {
-        if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
-            return mode == GameMode.SURVIVAL || mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR;
+        if (rank == StaffRank.DEVELOPER || rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
+            return true;
         }
-        return rank != null && rank != StaffRank.SYSTEM && mode == GameMode.SPECTATOR;
+        if (rank == StaffRank.HELPER || rank == StaffRank.MOD) {
+            return mode == GameMode.SURVIVAL || mode == GameMode.SPECTATOR;
+        }
+        return rank == StaffRank.SYSTEM && mode == GameMode.SPECTATOR;
     }
 
-    private void enforceVanishSpectator(Player player) {
-        if (player.getGameMode() == GameMode.SPECTATOR) {
+    private void reconcileVanishedGameMode(Player player) {
+        StaffRank rank = resolveLiveRank(player);
+        UUID playerId = player.getUniqueId();
+        GameMode selected = selectedGameModes.getOrDefault(
+                playerId,
+                selectedGameModeForEnable(player, rank)
+        );
+        if (!isSelectableGameMode(rank, selected)) {
+            selected = defaultSelectedGameMode(rank);
+        }
+        if (player.getGameMode() == selected) {
             return;
         }
-        UUID playerId = player.getUniqueId();
         vanishGameModeApplications.add(playerId);
         try {
-            player.setGameMode(GameMode.SPECTATOR);
-            if (player.getGameMode() != GameMode.SPECTATOR) {
-                throw new IllegalStateException("server-side spectator transition was rejected");
+            if (player.getGameMode() == GameMode.SPECTATOR) {
+                player.setSpectatorTarget(null);
             }
-            player.setSpectatorTarget(null);
+            player.setGameMode(selected);
+            if (player.getGameMode() != selected) {
+                throw new IllegalStateException("vanished selected game mode transition was rejected");
+            }
         } finally {
             vanishGameModeApplications.remove(playerId);
         }

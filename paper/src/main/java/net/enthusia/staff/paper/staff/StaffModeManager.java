@@ -227,7 +227,7 @@ public final class StaffModeManager implements Listener {
 
     /**
      * Writes one staff-action audit line for an allowed on-duty world/inventory interaction
-     * (Mod logged-not-blocked, Admin/Founder unrestricted-but-logged). Never throws.
+     * (Mod logged-not-blocked, Developer/Admin/Founder unrestricted-but-logged). Never throws.
      */
     public void logStaffAction(Player player, String action, String detail) {
         try {
@@ -424,7 +424,7 @@ public final class StaffModeManager implements Listener {
     }
 
     // Handoff resume must snapshot the destination backend's native player state before
-    // transferred vanish can force spectator later in the same join event.
+    // transferred vanish state is applied later in the same join event.
     @EventHandler(priority = EventPriority.LOWEST)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -1038,19 +1038,37 @@ public final class StaffModeManager implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
-        if (event.getEntity() instanceof Player player && protectedMode(player.getUniqueId())) {
-            event.setCancelled(true);
+        if (!(event.getEntity() instanceof Player player) || !protectedMode(player.getUniqueId())) {
+            return;
         }
+        StaffRank rank = rankForAction(player);
+        if (StaffModeAccessPolicy.allowsCombatTesting(rank)) {
+            audit(player, rank, "damage-received",
+                    event.getCause() + " damage=" + event.getFinalDamage());
+            return;
+        }
+        event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDamageByEntity(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player player && protectedMode(player.getUniqueId())) {
-            event.setCancelled(true);
+        Player actor = null;
+        if (event.getDamager() instanceof Player player) {
+            actor = player;
         } else if (event.getDamager() instanceof Projectile projectile
-                && projectile.getShooter() instanceof Player player && protectedMode(player.getUniqueId())) {
-            event.setCancelled(true);
+                && projectile.getShooter() instanceof Player player) {
+            actor = player;
         }
+        if (actor == null || !protectedMode(actor.getUniqueId())) {
+            return;
+        }
+        StaffRank rank = rankForAction(actor);
+        if (StaffModeAccessPolicy.allowsCombatTesting(rank)) {
+            audit(actor, rank, "damage-dealt",
+                    event.getEntityType() + " damage=" + event.getFinalDamage());
+            return;
+        }
+        event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -1065,7 +1083,7 @@ public final class StaffModeManager implements Listener {
             event.setCancelled(true);
             return;
         }
-        // Mod: logged-not-blocked. Admin/Founder: unrestricted but logged.
+        // Mod/Developer: logged-not-blocked. Admin/Founder: unrestricted but logged.
         audit(player, rank, "item-drop", describe(event.getItemDrop().getItemStack()));
     }
 
@@ -1080,7 +1098,7 @@ public final class StaffModeManager implements Listener {
             event.setCancelled(true);
             return;
         }
-        // Mod: logged-not-blocked. Admin/Founder: unrestricted but logged.
+        // Mod/Developer: logged-not-blocked. Admin/Founder: unrestricted but logged.
         audit(player, rank, "item-pickup", describe(event.getItem().getItemStack()));
     }
 
@@ -1096,7 +1114,7 @@ public final class StaffModeManager implements Listener {
             event.setCancelled(true);
             return;
         }
-        // Mod: logged-not-blocked (staff/empty inventory toggle). Admin/Founder: logged.
+        // Mod/Developer: logged-not-blocked (staff/empty inventory toggle). Admin/Founder: logged.
         audit(player, rank, "inventory-swap-hands",
                 describe(event.getMainHandItem()) + " <-> " + describe(event.getOffHandItem()));
     }
@@ -1113,7 +1131,7 @@ public final class StaffModeManager implements Listener {
             return;
         }
         StaffDutyTier tier = StaffDutyTier.of(rank);
-        if (tier == StaffDutyTier.MOD || tier == StaffDutyTier.ADMIN) {
+        if (tier == StaffDutyTier.MOD || tier == StaffDutyTier.DEVELOPER || tier == StaffDutyTier.ADMIN) {
             audit(player, rank, "inventory-edit",
                     event.getClick() + " container=" + event.getView().getTopInventory().getType()
                             + " item=" + describe(event.getCurrentItem()));
@@ -1134,7 +1152,7 @@ public final class StaffModeManager implements Listener {
             return;
         }
         StaffDutyTier tier = StaffDutyTier.of(rank);
-        if (tier == StaffDutyTier.MOD || tier == StaffDutyTier.ADMIN) {
+        if (tier == StaffDutyTier.MOD || tier == StaffDutyTier.DEVELOPER || tier == StaffDutyTier.ADMIN) {
             audit(player, rank, "inventory-edit",
                     "drag container=" + event.getView().getTopInventory().getType()
                             + " cursor=" + describe(event.getOldCursor()));
@@ -1454,9 +1472,10 @@ public final class StaffModeManager implements Listener {
             player.setHealth(maximumHealth.getValue());
             player.setFireTicks(0);
             player.setFallDistance(0);
-            player.setInvulnerable(true);
-            player.setCollidable(false);
-            player.setCanPickupItems(false);
+            boolean technicalTesting = rank == StaffRank.DEVELOPER;
+            player.setInvulnerable(!technicalTesting);
+            player.setCollidable(technicalTesting);
+            player.setCanPickupItems(technicalTesting);
             gameModeTransitionGuardBegin.accept(playerId);
             try {
                 player.setGameMode(targetGameMode);

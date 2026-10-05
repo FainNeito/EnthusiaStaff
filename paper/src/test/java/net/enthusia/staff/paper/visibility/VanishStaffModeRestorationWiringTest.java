@@ -35,7 +35,7 @@ class VanishStaffModeRestorationWiringTest {
 
         assertTrue(method.contains("staffMode.transitioning(playerId)"));
         assertTrue(method.indexOf("staffMode.transitioning(playerId)")
-                < method.indexOf("enforceVanishSpectator(player)"));
+                < method.indexOf("reconcileVanishedGameMode(player)"));
     }
 
     @Test
@@ -44,11 +44,41 @@ class VanishStaffModeRestorationWiringTest {
 
         assertTrue(method.contains("!staffMode.transitioning(playerId)"));
         assertTrue(method.indexOf("!staffMode.transitioning(playerId)")
-                < method.indexOf("enforceVanishSpectator(player)"));
+                < method.indexOf("reconcileVanishedGameMode(player)"));
     }
 
     @Test
-    void independentVanishIsReenforcedAfterStaffModeExit() throws IOException {
+    void vanishUsesRankAllowedRealModesInsteadOfForcingSpectator() throws IOException {
+        String change = method(
+                "public void onGameModeChange",
+                "@EventHandler(priority = EventPriority.HIGHEST)\n    public void onJoin"
+        );
+        assertTrue(change.contains("!isSelectableGameMode(rank, event.getNewGameMode())"));
+
+        String reconcile = method(
+                "private void reconcileVanishedGameMode",
+                "private void restoreSelectedGameMode"
+        );
+        assertTrue(reconcile.contains("selectedGameModeForEnable(player, rank)"));
+        assertTrue(reconcile.contains("player.setGameMode(selected)"));
+        assertFalse(reconcile.contains("player.setGameMode(GameMode.SPECTATOR)"));
+    }
+
+    @Test
+    void selectedRankAllowedModeIsAppliedEvenWhileVanished() throws IOException {
+        String method = method(
+                "public boolean selectGameplayMode",
+                "/**\n     * Cross-server transfer hook"
+        );
+
+        assertTrue(method.contains("!isSelectableGameMode(rank, selected)"));
+        assertTrue(method.contains("persistSelectedGameMode(playerId, rank, selected)"));
+        assertTrue(method.contains("player.setGameMode(selected)"));
+        assertFalse(method.contains("GameMode.SPECTATOR;"));
+    }
+
+    @Test
+    void independentVanishIsReconciledAfterStaffModeExit() throws IOException {
         String method = method(
                 "private void disableAfterStaffModeExit",
                 "private static boolean requiresStaffMode"

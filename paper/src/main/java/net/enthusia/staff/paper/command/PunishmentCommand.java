@@ -51,7 +51,6 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
     private static final String MUTE_COMMAND = "mute";
     private static final String BAN_COMMAND = "ban";
     private static final String IP_BAN_COMMAND = "ipban";
-    private static final String PERMISSION = "enthusiastaff.punish.configured";
     private static final String PRIVATE_FLAG = "--private";
     private static final Set<String> LEGACY_MUTE_UNITS = Set.of(
             "second",
@@ -166,7 +165,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean requireDraftPermission(CommandSender sender, Actor actor) {
-        if (sender.hasPermission(PERMISSION) && permitsPunishmentDraft(actor)) {
+        if (permitsPunishmentDraft(actor)) {
             return true;
         }
         sender.sendMessage(StaffMessageStyle.style(Component.text(
@@ -282,7 +281,12 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
             send(sender, Component.text(rejected.code() + ": " + rejected.message(), NamedTextColor.RED));
             return;
         }
-        sendPrepared(sender, target, (PunishmentDraftEvaluation.Prepared) evaluation);
+        PunishmentDraftEvaluation.Prepared prepared = (PunishmentDraftEvaluation.Prepared) evaluation;
+        if (sender instanceof Player player) {
+            gui.showPreparedDraft(player, target, route, actor, prepared);
+        } else {
+            sendPrepared(sender, target, prepared);
+        }
     }
 
     private static PreparePunishmentDraftRequest prepareRequest(
@@ -597,7 +601,9 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
                 NamedTextColor.YELLOW
         )));
         sender.sendMessage(StaffMessageStyle.style(Component.text(
-                "Draft controls: /punish resume <target> | /punish confirm <draft-id>",
+                sender instanceof Player
+                        ? "Draft controls: /punish resume <target> opens the confirmation menu."
+                        : "Draft controls: /punish resume <target> | /punish confirm <draft-id>",
                 NamedTextColor.GRAY
         )));
         if (CENTRAL_COMMAND.equals(route)) {

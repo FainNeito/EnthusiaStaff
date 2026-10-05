@@ -198,7 +198,7 @@ public final class PunishmentService {
         if (requiresApproval(request.actor(), allowed.assessment())) {
             return new PunishmentEvaluation.Rejected(
                     "APPROVAL_REQUIRED",
-                    "This punishment must be approved by a moderator or higher before it can be applied"
+                    "This punishment requires approval before it can be applied"
             );
         }
         return allowed;
@@ -218,7 +218,10 @@ public final class PunishmentService {
     public boolean requiresApproval(Actor actor, PunishmentAssessment assessment) {
         Objects.requireNonNull(actor);
         Objects.requireNonNull(assessment);
-        return PunishmentApprovalRules.requiresApproval(actor.rank(), assessment.sanctions());
+        return PunishmentApprovalRules.requiresApproval(
+                actor.rank(),
+                PunishmentApprovalRules.isCustomDuration(assessment.policy(), assessment.sanctions())
+        );
     }
 
     private PunishmentEvaluation evaluate(
@@ -335,10 +338,14 @@ public final class PunishmentService {
         boolean configuredTypes = policy.steps().stream()
                 .map(PunishmentStep::sanctions)
                 .anyMatch(configured -> sameTypeShape(configured, requested));
-        ModerationAction action = configuredTypes
-                ? ModerationAction.USE_CUSTOM_DURATION
-                : ModerationAction.USE_CUSTOM_COMBINATION;
-        return authorization.permits(request.actor(), action) ? requested : null;
+        if (configuredTypes) {
+            boolean allowed = authorization.permits(request.actor(), ModerationAction.USE_CUSTOM_DURATION)
+                    || authorization.permits(request.actor(), ModerationAction.REQUEST_CUSTOM_DURATION);
+            return allowed ? requested : null;
+        }
+        return authorization.permits(request.actor(), ModerationAction.USE_CUSTOM_COMBINATION)
+                ? requested
+                : null;
     }
 
     private static boolean sameTypeShape(List<SanctionSpec> left, List<SanctionSpec> right) {
