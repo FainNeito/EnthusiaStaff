@@ -12,9 +12,9 @@ import net.enthusia.staff.domain.staff.StaffTransferSnapshot;
  * Cross-server staff transfer snapshot messages exchanged over the persistent backend channel.
  *
  * <ul>
- *   <li>{@value #UPLOAD}: backend -&gt; proxy. The source backend captures its in-memory
- *   vanish/staff-mode state and uploads it <em>before</em> any database write, so the proxy
- *   can proceed with the transfer without waiting on persistence.</li>
+ *   <li>{@value #UPLOAD}: backend -&gt; proxy. The source backend captures lightweight
+ *   vanish/staff-mode presentation metadata before the durable close. Receipt of this message
+ *   never authorizes a backend switch by itself; the source Staff Mode session must close first.</li>
  *   <li>Snapshots travel proxy -&gt; destination nested inside the existing
  *   {@code STAFF_MODE_HANDOFF_PREPARE} payload under {@value #PAYLOAD_FIELD}, so no extra
  *   round trip or new message type is needed on that leg.</li>
