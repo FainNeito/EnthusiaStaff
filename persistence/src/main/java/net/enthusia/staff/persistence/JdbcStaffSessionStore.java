@@ -154,7 +154,6 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
                 StaffSessionSnapshot current = active(connection, staffId, true);
                 if (current == null
                         || !current.sessionId().equals(expectedSessionId)
-                        || current.revision() != expectedRevision
                         || current.state() != StaffSessionState.ACTIVE
                         || !current.serverId().equalsIgnoreCase(expectedServerId)) {
                     connection.rollback();
@@ -167,12 +166,11 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE staff_sessions
                         SET server_id = ?, revision = revision + 1
-                        WHERE session_id = ? AND state = 'ACTIVE' AND revision = ? AND server_id = ?
+                        WHERE session_id = ? AND state = 'ACTIVE' AND server_id = ?
                         """)) {
                     statement.setString(1, StaffSessionOwnership.DETACHED_SERVER_ID);
                     statement.setBytes(2, UuidBytes.toBytes(expectedSessionId));
-                    statement.setLong(3, expectedRevision);
-                    statement.setString(4, current.serverId());
+                    statement.setString(3, current.serverId());
                     if (statement.executeUpdate() != 1) {
                         connection.rollback();
                         return Optional.empty();
@@ -211,7 +209,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
     ) throws SQLException {
         try (PreparedStatement session = connection.prepareStatement("""
                 UPDATE staff_sessions
-                SET server_id = ?, revision = revision + 1
+                SET server_id = ?, started_at = ?, revision = revision + 1
                 WHERE session_id = ? AND state = 'ACTIVE' AND server_id = ? AND revision = ?
                 """);
              PreparedStatement state = connection.prepareStatement("""
@@ -220,9 +218,10 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
                 WHERE session_id = ?
                 """)) {
             session.setString(1, serverId);
-            session.setBytes(2, UuidBytes.toBytes(existing.sessionId()));
-            session.setString(3, StaffSessionOwnership.DETACHED_SERVER_ID);
-            session.setLong(4, existing.revision());
+            session.setTimestamp(2, Timestamp.from(now));
+            session.setBytes(3, UuidBytes.toBytes(existing.sessionId()));
+            session.setString(4, StaffSessionOwnership.DETACHED_SERVER_ID);
+            session.setLong(5, existing.revision());
             if (session.executeUpdate() != 1) {
                 throw new SQLException("detached Staff Mode session lost its rebind fence");
             }
