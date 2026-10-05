@@ -23,4 +23,18 @@ Local review additionally fixed queued/late patrol work crossing reconnects and 
 
 Hosted initial-head build runs Coverage `37258967704`, Sentinel artifact `37258967699`, Wiki `37258967689`, and state-reset proof `37258967687` all stop at `ACTION_REQUIRED` for maintainer approval of fork workflows. No hosted product execution or pass is claimed. Initial live review threads: zero. Database/staging and migration-order gates remain pending. No merge is authorized, including the repository-requested separate docs-only status-publication merge; publish that reviewable PR without merging.
 
-Status-publication proposal: docs-only branch package/owner-investigation-status. Current implementation product head f7dc0964 is on draft PR #322. This PR contains only routing/contract/handoff records; no product activation or merge is authorized. Static reanalysis, fork workflow approval, MariaDB/staging and migration sequencing remain required.
+Status-publication proposal: docs-only branch package/owner-investigation-status. Current implementation product head bee3307a3d59b4c5cae6abe411c1f01514c45fae is on draft PR #322. This PR contains only routing/contract/handoff records; no product activation or merge is authorized. Static reanalysis, fork workflow approval, MariaDB/staging and migration sequencing remain required.
+
+## Frozen product evidence and exact next action
+
+Product head `bee3307a3d59b4c5cae6abe411c1f01514c45fae`, draft [PR #322](https://github.com/wsg138/EnthusiaStaff/pull/322), is clean and mergeable but remains validation-incomplete. Clean build with build/configuration caches disabled passed 1,624 unit tests; two existing Windows symlink tests skipped, zero failures/errors (1,626 discovered). All four runtime JARs passed ZIP CRC and provider API leak checks (27 contract types, zero leaks), with own class version 65. MariaDB integration tests compile; execution/staging remains NOT PASSED/NOT RUN.
+
+Exact-head Codacy check `111604879327` PASS, zero annotations after all 26 initial and four follow-up findings were repaired. No human approval is claimed; live inline review threads were zero. Wiki validator PASS, 41 pages. `git diff --check` PASS. Full local diff review checked authorization, bounded state, scheduler ownership, session cancellation, expiry validation and transaction rollback paths.
+
+Exact-head hosted runs Coverage `37259881945`, Sentinel artifact `37259881953`, Wiki `37259882001` and state-reset proof `37259881963` require maintainer approval of fork workflows; Coverage has no jobs, so no hosted product result exists. Pi supersession is skipped. Existing orchestration errors remain 460, identical to canonical starting main; zero introduced errors, not a pass.
+
+Local test artifact SHA-256: Paper `912d002a8150e5ca0d9415b4c50357809bdaa539bc8cf5cf607547ce2df49d8f`; Velocity `08fcbe0e7bb78ad58917a211310e0afc8bbe1c18f529a3d4a9dbd51df09cd5c6`. These unmerged artifacts were not uploaded or activated.
+
+Status publication is draft [PR #323](https://github.com/wsg138/EnthusiaStaff/pull/323), documentation only. Runtime/Pi checks are not applicable to this status PR because it changes only routing, contract and handoff records. Neither PR is merged: the owner's standing agreement withholds merge authorization, overriding the repository's automatic status-merge instruction.
+
+Next action: maintainer approves exact-head fork workflows; inspect resulting tests/static/review; reconcile V22/V23/V24 sequencing with the owning PRs and complete authorized staging/Java-Bedrock acceptance. Preserve frozen product head, other packages and production state until those gates and separate merge/deployment authorizations are satisfied.

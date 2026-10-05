@@ -39,3 +39,7 @@ New flag schema uses V24. This is an unmerged proposal: migration ordering must 
 - [x] Publish draft aggregate [PR #322](https://github.com/wsg138/EnthusiaStaff/pull/322). Staging/live player acceptance remains separate.
 
 Completion requires normal reviewed merge and applicable validation. Merge/deployment remain owner-controlled.
+
+## Current evidence
+
+Product head `bee3307a3d59b4c5cae6abe411c1f01514c45fae`, draft PR #322: clean unit/build proof (1,624 passed, two skipped), four JAR integrity/API checks, Wiki and Codacy zero findings. Hosted fork workflows, MariaDB/staging and migration ordering remain pending; status PR #323 records exact evidence. No merge/deployment authorization.
