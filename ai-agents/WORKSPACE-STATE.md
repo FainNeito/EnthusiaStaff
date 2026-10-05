@@ -1,5 +1,36 @@
 # Workspace state
 
+## Owner transfer reconciliation verification, 2026-10-05
+
+Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
+Frozen executable head 00c5c6481e46b1ec5c3c7d823eafc6257e5a0d11 incorporates
+canonical upstream ba6dcabc (PR #321) from owner 61d0712c. Backend-local native
+snapshots now detach/rebind with ownership fences; normal travel stays unblocked.
+Owner reconciliation retains applied duty-rank mode authority, friendly names,
+explicit exit disabling vanish for all ranks, and operation-ticket recovery.
+Vanish mode application and selected-mode persistence defer during staff-state
+capture/restoration, preserving destination native state and saved selections.
+
+Focused Paper staff/visibility and Velocity handoff tests pass. Full exact-head
+Java 25.0.3 clean test/check/runtimeJars passes: 1,646 tests, zero failures/errors,
+two Windows symlink skips. Wiki validates 41 pages; whitespace, runtime ZIP
+integrity and RoseChat provider exclusion pass. Test.9 artifacts are unmerged/local
+tests only. Review covers transaction detach/rebind ownership, rollback, join
+ordering, quit/restart recovery, metadata-only protocol transfers and preservation
+of prior owner repairs. No migration or external component pin changed; root
+aggregate remains the canonical core build. New JDBC integration tests were not
+run: Docker/MariaDB remains unavailable. This is not live transfer acceptance.
+
+EARS/state helpers remain absent; bounded requirements/tasks/evidence are retained.
+Orchestration baseline remains FAILED with 460 previously unchanged findings;
+its inputs/validator are unchanged and the unavailable/baseline gates were not
+repeated. Hosted/static checks, database lifecycle integration, staging, provider
+runtime and Java/Bedrock client acceptance remain unverified. Next: inspect exact
+head review/checks and obtain missing acceptance evidence through normal reviewed
+delivery. No product merge, deployment, permission change or authority activation.
+Exact delivery heads and artifact hashes are recorded in PR #1. This verification
+supersedes the preceding transfer requirement and older build evidence.
+
 ## Owner transfer reconciliation requirement, 2026-10-05
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
