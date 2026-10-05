@@ -22,15 +22,14 @@ import org.bukkit.plugin.java.JavaPlugin;
 /**
  * Coordinates cross-server vanish/staff-mode state transfer on a Paper backend.
  *
- * <p>Source side: captures the live vanish/staff-mode state into a small in-memory snapshot
- * (fast, non-blocking reads only) and uploads it to the proxy over the persistent channel.
- * The upload is fire-and-forget: the transfer must never wait for it, let alone for a
- * database write.</p>
+ * <p>Source side: captures live vanish/staff-mode presentation metadata into a small in-memory
+ * snapshot and uploads it to the proxy without blocking the source close. The snapshot is only
+ * supplemental metadata; the backend switch still requires the durable Staff Mode session and
+ * exact saved player-state snapshot to close successfully first.</p>
  *
  * <p>Destination side: stashes snapshots that arrive inside {@code STAFF_MODE_HANDOFF_PREPARE}
- * payloads so the join listener can apply them before the join-message logic runs. The
- * transferred snapshot is authoritative for the session; the database remains the fallback
- * when no snapshot arrived.</p>
+ * payloads so join-message/vanish presentation can be applied immediately. Durable Staff Mode
+ * inventory ownership always comes from a fresh destination-local session.</p>
  */
 public final class StaffTransferSnapshotCoordinator {
     private static final Duration UPLOAD_TIMEOUT = Duration.ofSeconds(5);
@@ -142,7 +141,7 @@ public final class StaffTransferSnapshotCoordinator {
                             if (logger.isLoggable(Level.WARNING)) {
                                 logger.log(Level.WARNING,
                                         "Cross-server transfer snapshot upload was not acknowledged for " + playerId
-                                                + "; the destination will fall back to the database");
+                                                + "; durable source-session closure remains required");
                             }
                         }
                     });
