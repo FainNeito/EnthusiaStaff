@@ -57,53 +57,39 @@ final class JdaPunishmentNotifier {
     }
 
     String appliedMessage(DiscordPunishment punishment) {
-        String action = actionName(punishment.intent().type());
-        String duration = duration(punishment);
-        StringBuilder message = new StringBuilder("# Punishment Alert\n\n")
-                .append("You have been `").append(action).append("` on the Enthusia SMP Discord");
-        if (punishment.intent().type() != DiscordConsequenceType.WARNING
-                && punishment.intent().type() != DiscordConsequenceType.KICK) {
-            message.append(" for `").append(duration).append("`");
-        }
-        message.append(".\n\n")
-                .append("**Reason:** ").append(punishment.intent().publicReason()).append("\n\n");
-        playerSafeExplanation(punishment.intent().internalExplanation()).ifPresent(explanation ->
-                message.append("**Staff explanation:** ").append(explanation).append("\n\n"));
-        if (punishment.intent().type() != DiscordConsequenceType.WARNING
-                && punishment.intent().type() != DiscordConsequenceType.KICK) {
-            appendExpiry(message, punishment.expiresAt());
-        }
-        appendAppeal(message);
-        return message.toString();
+        DiscordConsequenceType type = punishment.intent().type();
+        String durationClause = hasExpiry(type) ? " for `%s`".formatted(duration(punishment)) : "";
+        String explanation = playerSafeExplanation(punishment.intent().internalExplanation())
+                .map(value -> "**Staff explanation:** " + value + "\n\n")
+                .orElse("");
+        String expiry = hasExpiry(type) ? expiryText(punishment.expiresAt()) : "";
+        return "# Punishment Alert\n\n"
+                + "You have been `" + actionName(type) + "` on the Enthusia SMP Discord"
+                + durationClause + ".\n\n"
+                + "**Reason:** " + punishment.intent().publicReason() + "\n\n"
+                + explanation
+                + expiry
+                + appealText();
     }
 
     String removalMessage(DiscordPunishment punishment) {
-        StringBuilder message = new StringBuilder("# Punishment Update\n\n")
-                .append("Your Enthusia SMP Discord `")
-                .append(actionName(punishment.intent().type()))
-                .append("` has been ")
-                .append(removalAction(punishment))
-                .append(".\n\n")
-                .append("**Original reason:** ").append(punishment.intent().publicReason()).append("\n\n");
-        appendAppeal(message);
-        return message.toString();
+        return "# Punishment Update\n\n"
+                + "Your Enthusia SMP Discord `" + actionName(punishment.intent().type())
+                + "` has been " + removalAction(punishment) + ".\n\n"
+                + "**Original reason:** " + punishment.intent().publicReason() + "\n\n"
+                + appealText();
     }
 
     static String minecraftBanMessage(MinecraftBanNotification notification) {
-        StringBuilder message = new StringBuilder("# Punishment Alert\n\n")
-                .append("Your Minecraft account `")
-                .append(notification.minecraftName())
-                .append("` has been `banned` from the Enthusia SMP");
-        if (notification.expiresAt().isPresent()) {
-            message.append(" until the time shown below");
-        } else {
-            message.append(" permanently");
-        }
-        message.append(".\n\n")
-                .append("**Reason:** ").append(notification.publicReason()).append("\n\n");
-        appendExpiry(message, notification.expiresAt());
-        appendAppeal(message);
-        return message.toString();
+        String timing = notification.expiresAt().isPresent()
+                ? " until the time shown below"
+                : " permanently";
+        return "# Punishment Alert\n\n"
+                + "Your Minecraft account `" + notification.minecraftName()
+                + "` has been `banned` from the Enthusia SMP" + timing + ".\n\n"
+                + "**Reason:** " + notification.publicReason() + "\n\n"
+                + expiryText(notification.expiresAt())
+                + appealText();
     }
 
     private static Optional<String> playerSafeExplanation(String internal) {
@@ -120,20 +106,22 @@ final class JdaPunishmentNotifier {
         return result.isEmpty() ? Optional.empty() : Optional.of(result);
     }
 
-    private static void appendExpiry(StringBuilder message, Optional<Instant> expiresAt) {
-        if (expiresAt.isEmpty()) {
-            message.append("**Expires:** Permanent\n\n");
-            return;
-        }
-        long epoch = expiresAt.orElseThrow().getEpochSecond();
-        message.append("**Expires:** <t:").append(epoch).append(":F> (<t:")
-                .append(epoch).append(":R>)\n\n");
+    private static boolean hasExpiry(DiscordConsequenceType type) {
+        return type != DiscordConsequenceType.WARNING && type != DiscordConsequenceType.KICK;
     }
 
-    private static void appendAppeal(StringBuilder message) {
-        message.append("If you believe this punishment is incorrect, you can appeal in ")
-                .append("[the Enthusia appeal channel](").append(APPEAL_CHANNEL).append(")")
-                .append(" or at [Enthusia.info/appeal](").append(APPEAL_SITE).append(").");
+    private static String expiryText(Optional<Instant> expiresAt) {
+        if (expiresAt.isEmpty()) {
+            return "**Expires:** Permanent\n\n";
+        }
+        long epoch = expiresAt.orElseThrow().getEpochSecond();
+        return "**Expires:** <t:%d:F> (<t:%d:R>)\n\n".formatted(epoch, epoch);
+    }
+
+    private static String appealText() {
+        return "If you believe this punishment is incorrect, you can appeal in "
+                + "[the Enthusia appeal channel](" + APPEAL_CHANNEL + ")"
+                + " or at [Enthusia.info/appeal](" + APPEAL_SITE + ").";
     }
 
     private static String removalAction(DiscordPunishment punishment) {
