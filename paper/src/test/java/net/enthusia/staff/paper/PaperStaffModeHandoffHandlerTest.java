@@ -59,7 +59,7 @@ class PaperStaffModeHandoffHandlerTest {
     }
 
     @Test
-    void timedOutExitIsFailOpen() {
+    void timedOutExitStillAcknowledgesTransferWithoutCancellingRestore() {
         RecordingOperations operations = new RecordingOperations();
         ImmediateTimeoutFuture future = new ImmediateTimeoutFuture();
         operations.closeFuture = future;
