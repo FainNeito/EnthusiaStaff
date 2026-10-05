@@ -1,5 +1,66 @@
 # Package registry
 
+## Owner investigation reconciliation verification, 2026-10-05
+
+Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
+Frozen executable head b96453c7282024ab54b520b660da8a94791d534c incorporates
+canonical main 72529729983d01b700bad2de3956d64c1286f101 (PR #326) from owner
+33db2038. Investigation tools, configurable layouts, patrol/activity safeguards,
+name completion and automatic fresh-entry vanish are retained. Reconciliation
+preserves activeRank plus activeSessionId, owner vanish operation-ticket
+invalidation alongside session-scoped writes, explicit exit for all ranks,
+duty-mode authority, native transfer snapshots and known-name output. Upstream
+and owner status sections are retained, with this selected owner package first.
+
+Confirmed completion regression: shared root completion omitted confirm and its
+second argument delegated to the old unfiltered completer. Two added tests fail
+against the merged pre-fix routing and pass after routing confirm through bounded,
+permission/visibility-filtered names and retaining the root keyword. Exact draft
+ID execution fallback remains unchanged. This is local completion proof, not
+client acceptance. Existing recovery wiring tests track the new future-returning
+set/persist method signatures without weakening lifecycle assertions.
+
+Focused Paper command/staff/visibility, Velocity and domain investigation tests
+pass. Full frozen-head Java 25.0.3 clean test/check/runtimeJars passes: 1,692 tests,
+zero failures/errors, two Windows symlink skips. Integration test classes compile;
+Docker/MariaDB execution was not retried and is NOT PASSED. Wiki 41 pages,
+whitespace, runtime ZIP CRC and RoseChat provider exclusions pass. Test.10 JARs
+are unmerged/local test artifacts only. Review includes command/GUI authorization,
+owner scheduling, patrol cancellation, bounded completion, transaction rollback
+and previous owner repairs. Core build remains root aggregate; provider interfaces
+and component pins are unchanged. Canonical added V24 is incorporated byte-for-
+byte; prior migration files are unchanged. Its cross-PR migration ordering/release
+gate remains open; no upgrade or production migration acceptance is claimed.
+
+Changed package-state inputs justified a new orchestration comparison: owner and
+isolated canonical main each report 460 findings, with zero introduced/missing
+findings. The validator is FAILED, not passed. EARS/state helpers remain absent;
+bounded requirements/tasks/evidence remain the fallback. Hosted/static, database,
+staging, provider runtime and Java/Bedrock/Folia acceptance remain unverified.
+Next: inspect exact-head CI/reviews and obtain missing acceptance through normal
+reviewed delivery. No product merge, production deployment, permission change or
+authority activation. Exact delivery heads/hashes are recorded in PR #1. This
+section supersedes earlier verification/build records for the selected package.
+
+## Owner investigation reconciliation requirement, 2026-10-05
+
+Same owner bug-fix package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
+Start owner 33db2038; canonical main 72529729 (merged PR #326) adds investigation
+tools, player-name completion and fresh staff-entry vanish. Incorporate these
+base changes while preserving known-name output, namespace routing, inspection
+authority, applied duty profiles, explicit exit disabling vanish for all ranks,
+operation-ticket recovery and backend-local transfer snapshots. Entry failure
+must retain upstream session-scoped rollback; temporary restoration must not
+persist a vanished selection. Resolve source/state overlaps without overwrites.
+
+Review new command completion/GUI authorization, asynchronous owner scheduling,
+patrol cancellation and migration V24 compatibility. Run focused command,
+visibility, staff and Velocity tests, then freeze and run clean Java 25 checks,
+runtime integrity/provider exclusions and Wiki. Database migration/lifecycle,
+hosted/static and live runtime acceptance remain unverified; unchanged Docker
+unavailability is not retried. EARS/state helpers are absent; this bounded record
+is the requirement/task/evidence fallback. No product merge or deployment.
+
 ## Owner transfer reconciliation verification, 2026-10-05
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
@@ -265,6 +326,9 @@ Remaining acceptance: reproduce freeze movement/reconnect on the current build (
 
 A thread heartbeat checks commits, CI and review findings every 30 minutes; it stays quiet without meaningful changes and continues authorized actionable repairs. Public records contain sanitized technical findings only, with no private report transcripts, player evidence or private channel links. Next action: validate and push this checkpoint, publish this partial state through a docs-only PR, then address concrete review failures or newly reproducible in-scope defects. Preserve upstream routing and the implementation PR.
 
+2026-10-05 owner routing extension: `OWNER-INVESTIGATION-TOOLS` / PR #322 remains the selected partial package. Add automatic fresh-entry vanish and permission/visibility-aware player argument completion, explicitly `/alts` and both `/alt` targets. Refetched current main `ba6dcabc9a731e7e3e21c8405778764abdc626f4` (merged #321) is normally incorporated. Other packages remain untouched; new exact-head gates must supersede prior GUI-only head results.
+
+2026-10-05 owner routing extension: continue `OWNER-INVESTIGATION-TOOLS` / PR #322 with the staff GUI cleanup (IT-06..08). Current main refetched and verified at `18d4f4b05af94ee325842c68d482feedabe5d27f`; existing clean isolated implementation branch reused. Player investigation shortcuts reuse existing services; no second product package, new persistence or provider integration. Status remains PARTIAL / ACTIONABLE_CONTINUATION pending exact-head validation and reviewed delivery.
 
 Last updated: 2026-09-24
 
@@ -279,6 +343,10 @@ Live GitHub overrides stale text. Detailed historical evidence remains in packag
 - Issue #43 remains open/deferred and LiteBans remains authoritative until separately approved.
 - A parked package does not block selection of an unrelated dependency-complete `READY` package.
 - Required package gates come from the authoritative package contract at selection, current validation policy, actually applicable configured checks, and explicit owner direction. A worker cannot create a new blocker merely by adding an optional/diagnostic gate to later tracking text.
+
+## Owner-directed current assignment — 2026-10-04
+
+The owner explicitly assigned `OWNER-INVESTIGATION-TOOLS` after the LuxStaff review. Status `PARTIAL` / `ACTIONABLE_CONTINUATION`; one internal COMP-STAFF PR on `package/owner-investigation-tools`, based on authoritative main `18d4f4b05af94ee325842c68d482feedabe5d27f`. Contract: [OWNER-INVESTIGATION-TOOLS](packages/OWNER-INVESTIGATION-TOOLS.md). This assignment does not complete, reassign or change the existing Market/Discord packages. V24 flags are proposed; reconcile outstanding V22/V23 ownership before release.
 
 ## Canonical current state
 
