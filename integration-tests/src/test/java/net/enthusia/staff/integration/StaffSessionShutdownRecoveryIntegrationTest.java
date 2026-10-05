@@ -13,6 +13,7 @@ import java.sql.Statement;
 import java.util.UUID;
 import net.enthusia.staff.domain.player.PlayerPlatform;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
+import net.enthusia.staff.domain.staff.StaffSessionOwnership;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 import net.enthusia.staff.persistence.MariaDb;
@@ -30,7 +31,121 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             "Paper runtime disabled before normal staff-mode exit";
 
     @Test
-    void marksOnlyOpenSessionsForTheStoppingServerAndIsIdempotent() throws Exception {
+    void detachedNetworkSessionRebindsWithDestinationLocalSnapshot() {
+        UUID staffId = identifier("staff-detach-rebind");
+        byte[] destinationSnapshot = new byte[]{9};
+        String destinationChecksum = "9".repeat(64);
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 7);
+
+            StaffSessionSnapshot detached = store.detach(
+                    staffId,
+                    source.sessionId(),
+                    source.revision(),
+                    OTHER_SERVER,
+                    source.checksum(),
+                    NOW.plusSeconds(1)
+            ).orElseThrow();
+
+            assertEquals(source.sessionId(), detached.sessionId());
+            assertEquals(StaffSessionOwnership.DETACHED_SERVER_ID, detached.serverId());
+            assertEquals(StaffSessionState.ACTIVE, detached.state());
+
+            StaffSessionSnapshot rebound = store.begin(
+                    staffId,
+                    SCOPED_SERVER,
+                    1,
+                    destinationChecksum,
+                    destinationSnapshot,
+                    NOW.plusSeconds(2)
+            );
+
+            assertEquals(source.sessionId(), rebound.sessionId());
+            assertEquals(SCOPED_SERVER, rebound.serverId());
+            assertEquals(StaffSessionState.ACTIVE, rebound.state());
+            assertEquals(destinationChecksum, rebound.checksum());
+            assertEquals(1, rebound.schemaVersion());
+            assertTrue(java.util.Arrays.equals(destinationSnapshot, rebound.snapshot()));
+        }
+    }
+
+    @Test
+    void detachAllowsUnrelatedVanishRevisionBump() {
+        UUID staffId = identifier("staff-detach-vanish-revision");
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 5);
+
+            assertTrue(store.setVanish(staffId, true, NOW.plusSeconds(1)));
+            assertTrue(store.active(staffId).orElseThrow().revision() > source.revision());
+
+            StaffSessionSnapshot detached = store.detach(
+                    staffId,
+                    source.sessionId(),
+                    source.revision(),
+                    OTHER_SERVER,
+                    source.checksum(),
+                    NOW.plusSeconds(2)
+            ).orElseThrow();
+
+            assertEquals(StaffSessionOwnership.DETACHED_SERVER_ID, detached.serverId());
+            assertEquals(StaffSessionState.ACTIVE, detached.state());
+        }
+    }
+
+    @Test
+    void detachRejectsWrongBackendWithoutChangingOwner() {
+        UUID staffId = identifier("staff-detach-owner-fence");
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 6);
+
+            assertTrue(store.detach(
+                    staffId,
+                    source.sessionId(),
+                    source.revision(),
+                    SCOPED_SERVER,
+                    source.checksum(),
+                    NOW.plusSeconds(1)
+            ).isEmpty());
+
+            StaffSessionSnapshot remaining = store.active(staffId).orElseThrow();
+            assertEquals(OTHER_SERVER, remaining.serverId());
+            assertEquals(source.sessionId(), remaining.sessionId());
+            assertEquals(StaffSessionState.ACTIVE, remaining.state());
+        }
+    }
+
+    @Test
+    void beginRejectsSnapshotOwnedByAnotherBackend() {
+        UUID staffId = identifier("staff-cross-backend-ownership");
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 7);
+
+            assertThrows(ModerationPersistenceException.class, () -> store.begin(
+                    staffId,
+                    SCOPED_SERVER,
+                    1,
+                    "8".repeat(64),
+                    new byte[]{8},
+                    NOW.plusSeconds(1)
+            ));
+
+            StaffSessionSnapshot remaining = store.active(staffId).orElseThrow();
+            assertEquals(source.sessionId(), remaining.sessionId());
+            assertEquals(OTHER_SERVER, remaining.serverId());
+            assertEquals(StaffSessionState.ACTIVE, remaining.state());
+        }
+    }
+
+    @Test
+    void cleanShutdownPreservesActiveNetworkDutyAndMarksOnlyExitsForRecovery() throws Exception {
         UUID activeStaff = identifier("staff-shutdown-active");
         UUID exitingStaff = identifier("staff-shutdown-exiting");
         UUID existingRecoveryStaff = identifier("staff-shutdown-existing-recovery");
@@ -49,20 +164,20 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             );
             begin(runtime, otherServerStaff, OTHER_SERVER, 4);
 
-            assertEquals(2, store.recoveryRequiredForServer(
+            assertEquals(1, store.recoveryRequiredForServer(
                     SCOPED_SERVER,
                     SHUTDOWN_REASON,
                     NOW.plusSeconds(3)
             ));
 
-            assertEquals(StaffSessionState.RECOVERY_REQUIRED, store.active(activeStaff).orElseThrow().state());
+            assertEquals(StaffSessionState.ACTIVE, store.active(activeStaff).orElseThrow().state());
             assertEquals(StaffSessionState.RECOVERY_REQUIRED, store.active(exitingStaff).orElseThrow().state());
             assertEquals(
                     StaffSessionState.RECOVERY_REQUIRED,
                     store.active(existingRecoveryStaff).orElseThrow().state()
             );
             assertEquals(StaffSessionState.ACTIVE, store.active(otherServerStaff).orElseThrow().state());
-            assertEquals(1, recoveryAuditCount(active.sessionId()));
+            assertEquals(0, recoveryAuditCount(active.sessionId()));
             assertEquals(1, recoveryAuditCount(exiting.sessionId()));
             assertEquals(1, recoveryAuditCount(existingRecovery.sessionId()));
 
@@ -71,7 +186,7 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
                     SHUTDOWN_REASON,
                     NOW.plusSeconds(4)
             ));
-            assertEquals(1, recoveryAuditCount(active.sessionId()));
+            assertEquals(0, recoveryAuditCount(active.sessionId()));
             assertEquals(1, recoveryAuditCount(exiting.sessionId()));
             assertEquals(1, recoveryAuditCount(existingRecovery.sessionId()));
 
@@ -95,6 +210,8 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             StaffSessionStore store = runtime.staffSessionStore();
             begin(runtime, firstStaff, ROLLBACK_SERVER, 5);
             begin(runtime, secondStaff, ROLLBACK_SERVER, 6);
+            store.beginExit(firstStaff, NOW.plusSeconds(1)).orElseThrow();
+            store.beginExit(secondStaff, NOW.plusSeconds(2)).orElseThrow();
             installAuditFailureTrigger();
             try {
                 assertThrows(ModerationPersistenceException.class, () ->
@@ -107,8 +224,8 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
                 dropAuditFailureTrigger();
             }
 
-            assertEquals(StaffSessionState.ACTIVE, store.active(firstStaff).orElseThrow().state());
-            assertEquals(StaffSessionState.ACTIVE, store.active(secondStaff).orElseThrow().state());
+            assertEquals(StaffSessionState.EXITING, store.active(firstStaff).orElseThrow().state());
+            assertEquals(StaffSessionState.EXITING, store.active(secondStaff).orElseThrow().state());
         }
     }
 

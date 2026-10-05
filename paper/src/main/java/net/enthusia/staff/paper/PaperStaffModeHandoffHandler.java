@@ -22,14 +22,7 @@ final class PaperStaffModeHandoffHandler {
     static final String ABORT_SOURCE = "STAFF_MODE_HANDOFF_ABORT_SOURCE";
     static final String READY = "STAFF_MODE_READY";
     private static final Duration OPERATION_TIMEOUT = Duration.ofSeconds(8);
-    /**
-     * Fail-open bound for the pre-transfer snapshot persist (overnight/cross-server). When the
-     * source backend cannot finish persisting the staff snapshot within this bound, the
-     * transfer proceeds on the in-memory transfer snapshot that was already uploaded to the
-     * proxy, and the persist is left to the background retry machinery. The transfer itself
-     * never waits longer than this for a database write.
-     */
-    private static final Duration EXIT_SNAPSHOT_FAILOPEN_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration HANDOFF_RESTORE_WAIT = Duration.ofSeconds(2);
     private static final String PLAYER_ID_FIELD = "playerId";
     private static final String SESSION_ID_FIELD = "sessionId";
     private static final String TRANSFER_ID_FIELD = "transferId";
@@ -155,8 +148,9 @@ final class PaperStaffModeHandoffHandler {
         UUID playerId = uuid(payload, PLAYER_ID_FIELD);
         UUID transferId = uuid(payload, TRANSFER_ID_FIELD);
         if (transferSnapshots != null) {
-            // Capture the in-memory snapshot BEFORE any database write, and upload it to the
-            // proxy without blocking: the transfer must never wait for persistence.
+            // Capture lightweight visibility metadata early so the destination may present
+            // vanish immediately. It never substitutes for backend-local saved-state ownership;
+            // source disconnect/detach and destination capture/rebind remain authoritative.
             try {
                 transferSnapshots.captureAndUpload(playerId, transferId);
             } catch (RuntimeException exception) {
@@ -167,7 +161,7 @@ final class PaperStaffModeHandoffHandler {
                 }
             }
         }
-        return awaitExitFailOpen(operations.close(
+        return awaitHandoffRestore(operations.close(
                 playerId,
                 uuid(payload, SESSION_ID_FIELD),
                 payload.path("revision").asLong(-1L),
@@ -222,32 +216,31 @@ final class PaperStaffModeHandoffHandler {
     }
 
     /**
-     * Waits for the source-side close with the fail-open bound (overnight/cross-server).
-     * If the snapshot persist cannot complete within
-     * {@link #EXIT_SNAPSHOT_FAILOPEN_TIMEOUT}, the close is acknowledged anyway so the
-     * transfer proceeds on the in-memory snapshot already uploaded to the proxy; the
-     * close future is deliberately <em>not</em> cancelled so its persist keeps running in
-     * the background retry machinery. Loud logging marks every fail-open occurrence.
+     * Gives the source a short head start to restore/detach its backend-local state, but never
+     * turns a slow persistence path into a denied server transfer. PlayerQuitEvent provides a
+     * second restore/detach path if the switch wins the race.
      */
-    private boolean awaitExitFailOpen(CompletableFuture<Boolean> future, UUID playerId) {
+    private boolean awaitHandoffRestore(CompletableFuture<Boolean> future, UUID playerId) {
         try {
-            return future.get(EXIT_SNAPSHOT_FAILOPEN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            return future.get(HANDOFF_RESTORE_WAIT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            return false;
+            return true;
         } catch (java.util.concurrent.TimeoutException exception) {
-            if (logger.isLoggable(Level.SEVERE)) {
-                logger.log(Level.SEVERE,
-                        "CROSS-SERVER TRANSFER FAIL-OPEN for player " + playerId
-                                + ": the staff snapshot persist did not complete within "
-                                + EXIT_SNAPSHOT_FAILOPEN_TIMEOUT.toSeconds()
-                                + "s, so the transfer is proceeding on the in-memory transfer snapshot. "
-                                + "The persist was NOT cancelled and continues in the background retry queue; "
-                                + "verify staff state on both backends if this repeats.");
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Staff Mode handoff restore is still running for " + playerId
+                        + "; allowing the backend switch and relying on disconnect/destination reconciliation");
             }
             return true;
         } catch (java.util.concurrent.ExecutionException exception) {
-            return false;
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.log(Level.WARNING,
+                        "Staff Mode handoff restore failed before transfer for " + playerId
+                                + "; allowing the switch and relying on lifecycle reconciliation",
+                        exception.getCause());
+            }
+            return true;
         }
     }
+
 }

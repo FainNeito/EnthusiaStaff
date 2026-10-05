@@ -327,7 +327,7 @@ final class VelocitySecurityEventSubmissionTest {
     }
 
     @Test
-    void reconnectWithUnavailableOwnerFailsClosed() throws Exception {
+    void reconnectWithUnavailableStaffOwnerAllowsRequestedBackend() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - test closes it in finally or exercises plugin-owned shutdown.
         try {
             EnthusiaStaffVelocityPlugin plugin = plugin(executor);
@@ -338,14 +338,15 @@ final class VelocitySecurityEventSubmissionTest {
             ServerPreConnectEvent event = new ServerPreConnectEvent( // NOPMD - each state needs a fresh event.
                     player(new AtomicInteger(), new AtomicInteger()), server(HUB), null); // NOPMD - fresh counters isolate each state.
             await(plugin.onServerPreConnect(event));
-            assertFalse(event.getResult().isAllowed());
+            assertTrue(event.getResult().isAllowed());
+            assertEquals(HUB, event.getResult().getServer().orElseThrow().getServerInfo().getName());
         } finally {
             executor.shutdownNow();
         }
     }
 
     @Test
-    void reconnectLookupFailureNeverAdmitsForeignBackend() throws Exception {
+    void reconnectLookupFailureDoesNotBlockRequestedBackend() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - test closes it in finally or exercises plugin-owned shutdown.
         try {
             EnthusiaStaffVelocityPlugin plugin = plugin(executor);
@@ -358,7 +359,8 @@ final class VelocitySecurityEventSubmissionTest {
             ServerPreConnectEvent event = new ServerPreConnectEvent( // NOPMD - each state needs a fresh event.
                     player(new AtomicInteger(), new AtomicInteger()), server(HUB), null); // NOPMD - fresh counters isolate each state.
             await(plugin.onServerPreConnect(event));
-            assertFalse(event.getResult().isAllowed());
+            assertTrue(event.getResult().isAllowed());
+            assertEquals(HUB, event.getResult().getServer().orElseThrow().getServerInfo().getName());
         } finally {
             executor.shutdownNow();
         }

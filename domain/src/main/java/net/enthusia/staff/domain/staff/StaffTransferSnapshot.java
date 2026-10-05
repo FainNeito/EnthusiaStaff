@@ -7,11 +7,10 @@ import net.enthusia.staff.domain.auth.StaffRank;
  * Lightweight cross-server staff state snapshot carried from the source backend to the
  * destination backend through the proxy during a server transfer.
  *
- * <p>This is intentionally small: it captures only the live staff-visibility state that the
- * destination needs <em>before</em> its join-message logic runs. The heavy durable state
- * (inventory snapshot, session row) keeps flowing through the existing database path; this
- * record is the authoritative in-memory truth for the transfer itself, and the database
- * remains the fallback when the record is missing.</p>
+ * <p>This is intentionally small: it captures only live visibility/game-mode metadata that the
+ * destination may use during join handling. It never carries, replaces, or authorizes restoration
+ * of the durable Staff Mode inventory/player-state snapshot. Correctness comes from backend-local
+ * snapshot ownership and destination rebind, not from receipt or timing of this metadata.</p>
  */
 public record StaffTransferSnapshot(
         UUID playerId,

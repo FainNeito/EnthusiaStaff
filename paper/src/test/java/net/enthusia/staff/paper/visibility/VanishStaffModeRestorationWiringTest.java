@@ -1,0 +1,75 @@
+package net.enthusia.staff.paper.visibility;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+
+class VanishStaffModeRestorationWiringTest {
+    private static final Path SOURCE = Path.of(
+            "src/main/java/net/enthusia/staff/paper/visibility/VanishManager.java"
+    );
+
+    @Test
+    void savedStateRestorationBypassesVanishGameModeCancellationWithoutDisablingVanish() throws IOException {
+        String method = method(
+                "public void onGameModeChange",
+                "@EventHandler(priority = EventPriority.HIGHEST)\n    public void onJoin"
+        );
+
+        assertTrue(method.contains("boolean restoringStaffState = staffMode.restoringSavedState(playerId)"));
+        assertTrue(method.contains("&& !restoringStaffState"));
+        assertFalse(method.contains("visibility.setVanished(playerId"));
+        assertFalse(method.contains("selectedGameModes.remove(playerId)"));
+    }
+
+    @Test
+    void vanishGameModeWaitsForStaffModeCaptureOrRebindToFinish() throws IOException {
+        String method = method(
+                "private void reconcileVanishGameMode",
+                "private GameMode selectedGameModeForEnable"
+        );
+
+        assertTrue(method.contains("staffMode.transitioning(playerId)"));
+        assertTrue(method.indexOf("staffMode.transitioning(playerId)")
+                < method.indexOf("enforceVanishSpectator(player)"));
+    }
+
+    @Test
+    void manualVanishDoesNotForceSpectatorDuringStaffRebind() throws IOException {
+        String method = method("private void finishSet(", "private Set<UUID> hiddenPresenceViewers");
+
+        assertTrue(method.contains("!staffMode.transitioning(playerId)"));
+        assertTrue(method.indexOf("!staffMode.transitioning(playerId)")
+                < method.indexOf("enforceVanishSpectator(player)"));
+    }
+
+    @Test
+    void independentVanishIsReenforcedAfterStaffModeExit() throws IOException {
+        String method = method(
+                "private void disableAfterStaffModeExit",
+                "private static boolean requiresStaffMode"
+        );
+
+        int independent = method.indexOf("if (!requiresStaffMode(rank))");
+        int reconcile = method.indexOf("reconcileVanishGameMode(player)", independent);
+        int exit = method.indexOf("return;", reconcile);
+
+        assertTrue(independent >= 0);
+        assertTrue(reconcile > independent);
+        assertTrue(exit > reconcile);
+    }
+
+    private static String method(String startMarker, String endMarker) throws IOException {
+        String source = Files.readString(SOURCE);
+        int start = source.indexOf(startMarker);
+        int end = source.indexOf(endMarker, start + startMarker.length());
+        if (start < 0 || end <= start) {
+            throw new IllegalStateException("Could not locate VanishManager method boundaries");
+        }
+        return source.substring(start, end);
+    }
+}

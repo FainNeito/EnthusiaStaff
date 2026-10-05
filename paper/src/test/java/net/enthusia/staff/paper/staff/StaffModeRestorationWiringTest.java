@@ -8,17 +8,32 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 class StaffModeRestorationWiringTest {
+    private static final String CODEC_RESTORE = "codec.restore";
+    private static final String COMPLETE_RESTORATION = "private void completeRestoration";
     private static final Path SOURCE = Path.of(
             "src/main/java/net/enthusia/staff/paper/staff/StaffModeManager.java"
     );
 
     @Test
-    void savedStateRestoreIsAuthorizedAndClearsSpectatorTarget() throws IOException {
-        String method = method("private boolean restoreSavedState", "private void completeRestoration");
+    void savedStateRestoreChecksBackendOwnershipBeforeMutation() throws IOException {
+        String method = method("private boolean restoreSavedState", COMPLETE_RESTORATION);
 
-        assertTrue(method.indexOf("profileApplications.add(playerId)") < method.indexOf("codec.restore"));
-        assertTrue(method.indexOf("setSpectatorTarget(null)") < method.indexOf("codec.restore"));
-        assertTrue(method.indexOf("codec.restore") < method.indexOf("profileApplications.remove(playerId)"));
+        int ownership = method.indexOf("serverId.equals(session.serverId())");
+        int removeTools = method.indexOf("removeStaffTools(player)");
+        int restore = method.indexOf(CODEC_RESTORE);
+
+        assertTrue(ownership >= 0);
+        assertTrue(removeTools > ownership);
+        assertTrue(restore > ownership);
+    }
+
+    @Test
+    void savedStateRestoreIsAuthorizedAndClearsSpectatorTarget() throws IOException {
+        String method = method("private boolean restoreSavedState", COMPLETE_RESTORATION);
+
+        assertTrue(method.indexOf("profileApplications.add(playerId)") < method.indexOf(CODEC_RESTORE));
+        assertTrue(method.indexOf("setSpectatorTarget(null)") < method.indexOf(CODEC_RESTORE));
+        assertTrue(method.indexOf(CODEC_RESTORE) < method.indexOf("profileApplications.remove(playerId)"));
     }
 
     @Test
@@ -33,7 +48,7 @@ class StaffModeRestorationWiringTest {
 
     @Test
     void verificationFailureKeepsRecoveryFenceUntilDurableClosure() throws IOException {
-        String method = method("private void completeRestoration", "private void retainRecoveryAfterRuntimeExit");
+        String method = method(COMPLETE_RESTORATION, "private void retainRecoveryAfterRuntimeExit");
         int verification = method.indexOf("loaded.completeExit");
         int catchRetention = method.indexOf("retainRecoveryAfterRuntimeExit(playerId)", verification);
         int mismatch = method.indexOf("if (!closed)", catchRetention);
@@ -83,18 +98,31 @@ class StaffModeRestorationWiringTest {
     }
 
     @Test
-    void backendHandoffClosureIsTransferFencedBeforeDurableClose() throws IOException {
+    void backendHandoffRestoresLocalStateThenDetachesNetworkSession() throws IOException {
         String completion = method("private void completeBackendHandoff", "private void retainCancelledHandoffRecovery");
 
         assertTrue(completion.contains("sourceHandoffs.commitIfActive"));
         assertTrue(completion.indexOf("sourceHandoffs.commitIfActive")
-                < completion.indexOf("loaded.completeExit"));
-        assertTrue(completion.contains("retainCancelledHandoffRecovery"));
+                < completion.indexOf("loaded.detach"));
+        assertTrue(completion.contains("session.sessionId()"));
+        assertTrue(completion.contains("session.serverId()"));
+        assertTrue(completion.contains("handoffGaps.add(playerId)"));
+    }
+
+    @Test
+    void staffExitRequiresAnActiveSessionOwnedByThisBackend() throws IOException {
+        String method = method("public void exit(Player player)", "// Handoff resume must snapshot");
+
+        assertTrue(method.contains("active.get(playerId)"));
+        assertTrue(method.contains("localSession.state() != StaffSessionState.ACTIVE"));
+        assertTrue(method.contains("!serverId.equalsIgnoreCase(localSession.serverId())"));
+        assertTrue(method.indexOf("localSession.state() != StaffSessionState.ACTIVE")
+                < method.indexOf("beginDurableExit(playerId"));
     }
 
     @Test
     void cleanExitSuccessMessageIsOnlyEmittedAfterVerificationPasses() throws IOException {
-        String method = method("private void completeRestoration", "private void retainRecoveryAfterRuntimeExit");
+        String method = method(COMPLETE_RESTORATION, "private void retainRecoveryAfterRuntimeExit");
         int mismatch = method.indexOf("if (!closed)");
         int mismatchReturn = method.indexOf("return;", mismatch);
         int cleanup = method.indexOf("completeRuntimeExit(playerId)", mismatchReturn);
