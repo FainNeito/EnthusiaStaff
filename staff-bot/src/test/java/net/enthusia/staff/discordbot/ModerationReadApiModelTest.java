@@ -24,6 +24,23 @@ class ModerationReadApiModelTest {
     }
 
     @Test
+    void authorTextIsAllowlistedWithoutBreakingLegacyConstructors() {
+        var query = new ModerationReadApiModel.MessageQuery(
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of("needle"),
+                Optional.empty(),
+                Optional.of("Alice Example"),
+                Optional.empty(),
+                50);
+
+        assertEquals(Optional.of("Alice Example"), query.authorText());
+        assertEquals(Optional.empty(), query.authorId());
+    }
+
+    @Test
     void conflictingMessageCursorsAreRejected() {
         assertThrows(IllegalArgumentException.class, () -> new ModerationReadApiModel.MessageQuery(
                 Optional.of("1541286004298752091"),
