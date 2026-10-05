@@ -8,13 +8,15 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 class StaffModeRestorationWiringTest {
+    private static final String CODEC_RESTORE = "codec.restore";
+    private static final String COMPLETE_RESTORATION = COMPLETE_RESTORATION;
     private static final Path SOURCE = Path.of(
             "src/main/java/net/enthusia/staff/paper/staff/StaffModeManager.java"
     );
 
     @Test
     void savedStateRestoreChecksBackendOwnershipBeforeMutation() throws IOException {
-        String method = method("private boolean restoreSavedState", "private void completeRestoration");
+        String method = method("private boolean restoreSavedState", COMPLETE_RESTORATION);
 
         int ownership = method.indexOf("serverId.equals(session.serverId())");
         int removeTools = method.indexOf("removeStaffTools(player)");
@@ -27,7 +29,7 @@ class StaffModeRestorationWiringTest {
 
     @Test
     void savedStateRestoreIsAuthorizedAndClearsSpectatorTarget() throws IOException {
-        String method = method("private boolean restoreSavedState", "private void completeRestoration");
+        String method = method("private boolean restoreSavedState", COMPLETE_RESTORATION);
 
         assertTrue(method.indexOf("profileApplications.add(playerId)") < method.indexOf("codec.restore"));
         assertTrue(method.indexOf("setSpectatorTarget(null)") < method.indexOf("codec.restore"));
@@ -46,7 +48,7 @@ class StaffModeRestorationWiringTest {
 
     @Test
     void verificationFailureKeepsRecoveryFenceUntilDurableClosure() throws IOException {
-        String method = method("private void completeRestoration", "private void retainRecoveryAfterRuntimeExit");
+        String method = method(COMPLETE_RESTORATION, "private void retainRecoveryAfterRuntimeExit");
         int verification = method.indexOf("loaded.completeExit");
         int catchRetention = method.indexOf("retainRecoveryAfterRuntimeExit(playerId)", verification);
         int mismatch = method.indexOf("if (!closed)", catchRetention);
@@ -120,7 +122,7 @@ class StaffModeRestorationWiringTest {
 
     @Test
     void cleanExitSuccessMessageIsOnlyEmittedAfterVerificationPasses() throws IOException {
-        String method = method("private void completeRestoration", "private void retainRecoveryAfterRuntimeExit");
+        String method = method(COMPLETE_RESTORATION, "private void retainRecoveryAfterRuntimeExit");
         int mismatch = method.indexOf("if (!closed)");
         int mismatchReturn = method.indexOf("return;", mismatch);
         int cleanup = method.indexOf("completeRuntimeExit(playerId)", mismatchReturn);
