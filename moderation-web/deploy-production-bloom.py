@@ -233,20 +233,23 @@ def connected_client(host: str, port: int, username: str, password: str) -> Any:
     return client
 
 
-def require_discord_enforcement_disabled(sftp: Any) -> None:
+def discord_enforcement_enabled(sftp: Any) -> bool:
     with sftp.open("m", "r") as config:
         lines = config.read().decode("utf-8").splitlines()
     enforcement = [line.strip() for line in lines
                    if line.strip().startswith("discord-enforcement.enabled=")]
-    if enforcement != ["discord-enforcement.enabled=false"]:
-        raise RuntimeError("Discord enforcement must remain disabled")
+    if enforcement == ["discord-enforcement.enabled=true"]:
+        return True
+    if enforcement == ["discord-enforcement.enabled=false"]:
+        return False
+    raise RuntimeError("Discord enforcement state is missing or ambiguous")
 
 
 def audit_remote(sftp: Any) -> None:
     with sftp.open(REMOTE_JAR, "rb") as current:
         digest = file_digest(current)
     print(f"remote_staff_jar_sha256={digest}")
-    print("discord_enforcement_disabled=true")
+    print(f"discord_enforcement_enabled={str(discord_enforcement_enabled(sftp)).lower()}")
 
 
 def existing_token_matches(sftp: Any, token: bytes) -> bool:
@@ -291,7 +294,7 @@ def install_connector_token(sftp: Any) -> None:
 
 
 def execute_mode(sftp: Any, mode: str) -> None:
-    require_discord_enforcement_disabled(sftp)
+    discord_enforcement_enabled(sftp)
     if mode == "--audit":
         audit_remote(sftp)
     elif mode == "--upload-jar":
