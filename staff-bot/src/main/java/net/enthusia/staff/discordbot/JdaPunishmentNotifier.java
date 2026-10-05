@@ -17,6 +17,7 @@ final class JdaPunishmentNotifier {
     static final String APPEAL_CHANNEL =
             "https://discord.com/channels/1410303324745371709/1511217148230373568";
     static final String APPEAL_SITE = "https://enthusia.info/appeal";
+    private static final String SECTION_BREAK = "\n\n";
     private static final List<String> PRIVATE_EXPLANATION_PREFIXES = List.of(
             "Discord message reference:",
             "External evidence reference:"
@@ -60,23 +61,23 @@ final class JdaPunishmentNotifier {
         DiscordConsequenceType type = punishment.intent().type();
         String durationClause = hasExpiry(type) ? " for `%s`".formatted(duration(punishment)) : "";
         String explanation = playerSafeExplanation(punishment.intent().internalExplanation())
-                .map(value -> "**Staff explanation:** " + value + "\n\n")
+                .map(value -> "**Staff explanation:** " + value + SECTION_BREAK)
                 .orElse("");
         String expiry = hasExpiry(type) ? expiryText(punishment.expiresAt()) : "";
-        return "# Punishment Alert\n\n"
+        return "# Punishment Alert" + SECTION_BREAK
                 + "You have been `" + actionName(type) + "` on the Enthusia SMP Discord"
-                + durationClause + ".\n\n"
-                + "**Reason:** " + punishment.intent().publicReason() + "\n\n"
+                + durationClause + "." + SECTION_BREAK
+                + "**Reason:** " + punishment.intent().publicReason() + SECTION_BREAK
                 + explanation
                 + expiry
                 + appealText();
     }
 
     String removalMessage(DiscordPunishment punishment) {
-        return "# Punishment Update\n\n"
+        return "# Punishment Update" + SECTION_BREAK
                 + "Your Enthusia SMP Discord `" + actionName(punishment.intent().type())
-                + "` has been " + removalAction(punishment) + ".\n\n"
-                + "**Original reason:** " + punishment.intent().publicReason() + "\n\n"
+                + "` has been " + removalAction(punishment) + "." + SECTION_BREAK
+                + "**Original reason:** " + punishment.intent().publicReason() + SECTION_BREAK
                 + appealText();
     }
 
@@ -84,10 +85,10 @@ final class JdaPunishmentNotifier {
         String timing = notification.expiresAt().isPresent()
                 ? " until the time shown below"
                 : " permanently";
-        return "# Punishment Alert\n\n"
+        return "# Punishment Alert" + SECTION_BREAK
                 + "Your Minecraft account `" + notification.minecraftName()
-                + "` has been `banned` from the Enthusia SMP" + timing + ".\n\n"
-                + "**Reason:** " + notification.publicReason() + "\n\n"
+                + "` has been `banned` from the Enthusia SMP" + timing + "." + SECTION_BREAK
+                + "**Reason:** " + notification.publicReason() + SECTION_BREAK
                 + expiryText(notification.expiresAt())
                 + appealText();
     }
@@ -112,10 +113,10 @@ final class JdaPunishmentNotifier {
 
     private static String expiryText(Optional<Instant> expiresAt) {
         if (expiresAt.isEmpty()) {
-            return "**Expires:** Permanent\n\n";
+            return "**Expires:** Permanent" + SECTION_BREAK;
         }
         long epoch = expiresAt.orElseThrow().getEpochSecond();
-        return "**Expires:** <t:%d:F> (<t:%d:R>)\n\n".formatted(epoch, epoch);
+        return "**Expires:** <t:%d:F> (<t:%d:R>)".formatted(epoch, epoch) + SECTION_BREAK;
     }
 
     private static String appealText() {
