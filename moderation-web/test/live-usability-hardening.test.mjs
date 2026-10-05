@@ -8,6 +8,7 @@ const RECORD = new URL('../../staff-bot/src/main/resources/moderation-preview/li
 const REVIEW = new URL('../../staff-bot/src/main/resources/moderation-preview/live-review-hardening.js', import.meta.url);
 const POLICY = new URL('../../staff-bot/src/main/resources/moderation-preview/real-policy.js', import.meta.url);
 const CATALOG = new URL('../../staff-bot/src/main/resources/moderation-preview/live-policy-catalog.js', import.meta.url);
+const MINECRAFT = new URL('../../staff-bot/src/main/resources/moderation-preview/live-minecraft-actions.js', import.meta.url);
 const CSS = new URL('../../staff-bot/src/main/resources/moderation-preview/live.css', import.meta.url);
 
 test('product chrome removes staging diagnostics while final review keeps one truthful test boundary', async () => {
@@ -101,9 +102,10 @@ test('final review requires explanation and appropriate evidence while allowing 
   assert.match(policy, /Verify the required Admin\+ approval/);
 });
 
-test('punishment catalog uses one server-rules link and exposes categories, exact reasons, and ladders', async () => {
-  const [review, policy, catalog] = await Promise.all([
-    readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8'), readFile(CATALOG, 'utf8')
+test('punishment catalog uses one server-rules entry point and exposes categories, exact reasons, and ladders', async () => {
+  const [review, policy, catalog, record, minecraft] = await Promise.all([
+    readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8'), readFile(CATALOG, 'utf8'),
+    readFile(RECORD, 'utf8'), readFile(MINECRAFT, 'utf8')
   ]);
 
   assert.match(policy, /https:\/\/enthusia\.info\/rules/);
@@ -112,8 +114,11 @@ test('punishment catalog uses one server-rules link and exposes categories, exac
   assert.match(catalog, /Choose the exact reason/);
   assert.match(catalog, /Configured punishment ladder/);
   assert.match(catalog, /reason\.ladder/);
-  assert.doesNotMatch(review, /View applicable rule/);
-  assert.doesNotMatch(review, /Open applicable rule/);
+  assert.doesNotMatch(review, /View applicable rule|Open applicable rule/);
+  assert.doesNotMatch(record, /View rule|Open applicable rule/);
+  assert.match(minecraft, /renderMinecraftReasonFamilies/);
+  assert.match(minecraft, /renderMinecraftReasonChoices/);
+  assert.doesNotMatch(minecraft, /id:'minecraftReason'.*element\('select'/s);
 });
 
 test('custom punishment duration uses number and unit dropdowns including months and permanent', async () => {
