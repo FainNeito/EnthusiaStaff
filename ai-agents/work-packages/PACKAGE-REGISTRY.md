@@ -14,6 +14,10 @@ Live GitHub overrides stale text. Detailed historical evidence remains in packag
 - A parked package does not block selection of an unrelated dependency-complete `READY` package.
 - Required package gates come from the authoritative package contract at selection, current validation policy, actually applicable configured checks, and explicit owner direction. A worker cannot create a new blocker merely by adding an optional/diagnostic gate to later tracking text.
 
+## Owner-directed current assignment — 2026-10-04
+
+The owner explicitly assigned `OWNER-INVESTIGATION-TOOLS` after the LuxStaff review. Status `PARTIAL` / `ACTIONABLE_CONTINUATION`; one internal COMP-STAFF PR on `package/owner-investigation-tools`, based on authoritative main `18d4f4b05af94ee325842c68d482feedabe5d27f`. Contract: [OWNER-INVESTIGATION-TOOLS](packages/OWNER-INVESTIGATION-TOOLS.md). This assignment does not complete, reassign or change the existing Market/Discord packages. V24 flags are proposed; reconcile outstanding V22/V23 ownership before release.
+
 ## Canonical current state
 
 `ES-P01`, `ES-P02`, `ES-P03`, `ES-P04`, `ES-P05`, `ES-P06`, `ES-P07`, `ES-P08`, `ES-P09`, `ES-P10`, `ES-P11`, `ES-P12`, `ES-X02`, `ES-X04`, `ES-X05`, `ES-R01`, `ES-R02`, and `ES-V01` are `COMPLETE`.
