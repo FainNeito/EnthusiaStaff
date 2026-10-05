@@ -1153,7 +1153,7 @@ public final class EnthusiaStaffVelocityPlugin {
                 var backend = proxy.getServer(snapshot.serverId());
                 if (backend.isPresent()) {
                     event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
-                } else {
+                } else if (logger.isWarnEnabled()) {
                     logger.warn(
                             "Staff snapshot owner {} is unavailable for {}; allowing requested backend {} without blocking login",
                             snapshot.serverId(),
@@ -1171,7 +1171,12 @@ public final class EnthusiaStaffVelocityPlugin {
                         event.setResult(ServerPreConnectEvent.ServerResult.allowed(owner)));
             }
         } catch (RuntimeException exception) {
-            logger.warn("Staff snapshot ownership lookup failed during reconnect; allowing requested backend", exception);
+            if (logger.isWarnEnabled()) {
+                logger.warn(
+                        "Staff snapshot ownership lookup failed during reconnect; allowing requested backend",
+                        exception
+                );
+            }
         }
     }
 
