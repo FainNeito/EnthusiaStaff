@@ -408,7 +408,9 @@ public final class StaffModeManager implements Listener {
                 )));
                 return;
             }
-            enter(player, rank);
+            // PREPARE is only a fast-path hint. The source detach may still be committing,
+            // so use durable recovery/rebind instead of a one-shot new Staff entry.
+            recover(playerId, rank);
             return;
         }
         if (handoffGaps.contains(playerId)) {
@@ -442,6 +444,13 @@ public final class StaffModeManager implements Listener {
                 StaffSessionSnapshot session = loaded.active(playerId).orElse(null);
                 if (session == null) {
                     recoveryGate.clear(playerId);
+                    if (handoffGaps.contains(playerId) && rankSnapshot != null) {
+                        onEntity(
+                                playerId,
+                                current -> enter(current, rankSnapshot),
+                                () -> abandonHandoffGap(playerId)
+                        );
+                    }
                     return;
                 }
                 if (StaffSessionOwnership.detached(session.serverId())) {
