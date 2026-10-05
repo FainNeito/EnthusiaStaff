@@ -28,15 +28,22 @@ FIRST_WEB_JAR_SHA256 = "0e4a9c7c3cb4bceddd550843578d9b74e184f94c6fd132c3f35a7f9e
 PRODUCTION_WEB_JAR_SHA256 = "8cd85417ce26c66a851054fcb8ea2a4df29871917fd9bf86019271317d56ed4c"
 ACTION_WEB_JAR_SHA256 = "4702525c31861cdf0692288e38583fd32a0adc586b93c318e302745bcb585caf"
 HISTORY_WEB_JAR_SHA256 = "8d682c8edc8c7c88bae5441719d19dd10060c3b74b619d1073d35d36186a3708"
+PRE_MODERATION_COMPLETION_JAR_SHA256 = "c330a170de8a1903ed3d0c35d148f5ba77679e45b73049a7def73718ac511693"
+MODERATION_COMPLETION_JAR_SHA256 = "aab7fc41dafa0a7a2f6978db7fa96fd31ba03dea1d2698bceaff7b1bcc264524"
 KNOWN_JAR_SHA256 = {
     PREVIOUS_JAR_SHA256,
     FIRST_WEB_JAR_SHA256,
     PRODUCTION_WEB_JAR_SHA256,
     ACTION_WEB_JAR_SHA256,
     HISTORY_WEB_JAR_SHA256,
+    PRE_MODERATION_COMPLETION_JAR_SHA256,
+    MODERATION_COMPLETION_JAR_SHA256,
 }
 LOCAL_JAR = Path(__file__).resolve().parent.parent / "staff-bot/build/libs/EnthusiaStaff-StaffBot-0.1.0-SNAPSHOT.jar"
-DETAILS_FILE = Path.home() / "OneDrive/Desktop/SFTP Details- ENTHUSIA NETWORK.md"
+DETAILS_FILES = (
+    Path.home() / "OneDrive/Desktop/SFTP Details- ENTHUSIA NETWORK.md",
+    Path.home() / "OneDrive/Desktop/EnthusiaNetworkCredentials.md",
+)
 HOST_KEYS_FILE = Path.home() / ".ssh/known_hosts_sentinel_bloom"
 WRANGLER_CREDENTIALS = Path.home() / ".wrangler/config/default.toml"
 CLOUDFLARE_HOST = "api.cloudflare.com"
@@ -44,18 +51,59 @@ CLOUDFLARE_PREFIX = "/client/v4/"
 
 
 def bloom_connection() -> tuple[str, int, str, str]:
-    lines = DETAILS_FILE.read_text(encoding="utf-8-sig").splitlines()
-    password = bloom_password(lines)
-    username = lines[79].strip()
-    host, port = bloom_endpoint(lines[77].strip(), username)
-    return host, port, username, password
+    last_error: RuntimeError | None = None
+    for details_file in DETAILS_FILES:
+        if not details_file.is_file():
+            continue
+        lines = details_file.read_text(encoding="utf-8-sig").splitlines()
+        try:
+            password = bloom_password(lines)
+            raw_url, username = bloom_staffbot_fields(lines)
+            host, port = bloom_endpoint(raw_url, username)
+            return host, port, username, password
+        except RuntimeError as error:
+            last_error = error
+    raise RuntimeError("Bloom Staff Bot SFTP details are unavailable") from last_error
 
 
 def bloom_password(lines: list[str]) -> str:
-    label, separator, value = lines[0].partition(":")
-    if label.strip() != "All passwords" or not separator or not value.strip():
-        raise RuntimeError("Bloom SFTP details are unavailable")
-    return value.strip()
+    for raw_line in lines:
+        line = raw_line.strip().strip("*").strip()
+        match = re.fullmatch(r"All passwords\s*:\s*(\S+)", line, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    raise RuntimeError("Bloom SFTP password is unavailable")
+
+
+def bloom_staffbot_fields(lines: list[str]) -> tuple[str, str]:
+    heading = "Discord Staff Bot"
+    start = next(
+        (index for index, raw in enumerate(lines)
+         if raw.strip().strip("*").strip() == heading),
+        None,
+    )
+    if start is None:
+        raise RuntimeError("Bloom Staff Bot SFTP section is unavailable")
+
+    raw_url: str | None = None
+    username: str | None = None
+    for raw in lines[start + 1:]:
+        stripped = raw.strip()
+        normalized = stripped.strip("*").strip()
+        if stripped.startswith("**") and normalized != heading:
+            break
+        if raw_url is None:
+            match = re.search(r"sftp://[^\s*]+", stripped, re.IGNORECASE)
+            if match:
+                raw_url = match.group(0)
+                continue
+        if raw_url is not None and re.fullmatch(r"[A-Za-z0-9_-]{3,80}\.[A-Za-z0-9_-]{4,32}", normalized):
+            username = normalized
+            break
+
+    if raw_url is None or username is None:
+        raise RuntimeError("Bloom Staff Bot SFTP section is incomplete")
+    return raw_url, username
 
 
 def bloom_endpoint(raw_url: str, username: str) -> tuple[str, int]:
@@ -223,10 +271,16 @@ def connected_client(host: str, port: int, username: str, password: str) -> Any:
     host_keys = paramiko.HostKeys()
     host_keys.load(str(HOST_KEYS_FILE))
     host_label = f"[{host}]:{port}"
-    if host_keys.lookup(host_label) is None:
+    matching_labels = [label for label in host_keys.keys()
+                       if label.lower() == host_label.lower()]
+    if len(matching_labels) != 1:
         raise RuntimeError("Trusted Bloom host key is unavailable")
+
     client = paramiko.SSHClient()
     client.load_host_keys(str(HOST_KEYS_FILE))
+    if matching_labels[0] != host_label:
+        for key_type, key in host_keys[matching_labels[0]].items():
+            client.get_host_keys().add(host_label, key_type, key)
     client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(host, port=port, username=username, password=password,
                    look_for_keys=False, allow_agent=False, timeout=20)
