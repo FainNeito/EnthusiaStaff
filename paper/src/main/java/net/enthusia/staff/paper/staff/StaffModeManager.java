@@ -512,57 +512,81 @@ public final class StaffModeManager implements Listener {
             StaffSessionStore loaded,
             Player player
     ) {
+        StaffRank rank = resolveDetachedRank(playerId, player);
+        if (rank == null) {
+            return;
+        }
+        StaffStateCodec.Captured captured = captureDetachedState(playerId, player);
+        if (captured == null) {
+            return;
+        }
+        if (!submit(() -> rebindDetachedSession(playerId, loaded, rank, captured))) {
+            recoveryGate.retry(playerId);
+        }
+    }
+
+    private StaffRank resolveDetachedRank(UUID playerId, Player player) {
         StaffRank rank = PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
         if (rank == null) {
             recoveryGate.retry(playerId);
             player.sendMessage(StaffMessageStyle.style(Component.text(
                     "Your Staff Mode session is still active, but your staff rank is unavailable."
             )));
-            return;
         }
-        StaffStateCodec.Captured captured;
+        return rank;
+    }
+
+    private StaffStateCodec.Captured captureDetachedState(UUID playerId, Player player) {
         try {
-            captured = codec.capture(player, serverId);
+            return codec.capture(player, serverId);
         } catch (RuntimeException exception) {
             recoveryGate.retry(playerId);
             plugin.getLogger().log(Level.SEVERE, "Detached Staff Mode state capture failed", exception);
-            return;
+            return null;
         }
-        if (!submit(() -> {
-            try {
-                StaffSessionSnapshot rebound = loaded.begin(
-                        playerId,
-                        serverId,
-                        captured.schemaVersion(),
-                        captured.checksum(),
-                        captured.snapshot(),
-                        clock.instant()
-                );
-                if (!serverId.equalsIgnoreCase(rebound.serverId())
-                        || rebound.state() != StaffSessionState.ACTIVE) {
-                    throw new IllegalStateException("detached Staff Mode session did not rebind to this backend");
-                }
-                pendingLocalSessions.put(playerId, rebound);
-                onEntity(
-                        playerId,
-                        current -> activateDurableSession(
-                                playerId,
-                                rebound,
-                                loaded,
-                                current,
-                                rank,
-                                StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
-                                "Your network Staff Mode session resumed on this backend."
-                        ),
-                        () -> detachUnappliedLease(playerId, rebound, loaded, captured.checksum())
-                );
-            } catch (RuntimeException exception) {
-                recoveryGate.retry(playerId);
-                plugin.getLogger().log(Level.SEVERE, "Detached Staff Mode rebind failed", exception);
-                scheduleRecoveryRetry(playerId);
-            }
-        })) {
+    }
+
+    private void rebindDetachedSession(
+            UUID playerId,
+            StaffSessionStore loaded,
+            StaffRank rank,
+            StaffStateCodec.Captured captured
+    ) {
+        try {
+            StaffSessionSnapshot rebound = loaded.begin(
+                    playerId,
+                    serverId,
+                    captured.schemaVersion(),
+                    captured.checksum(),
+                    captured.snapshot(),
+                    clock.instant()
+            );
+            validateDetachedRebind(rebound);
+            pendingLocalSessions.put(playerId, rebound);
+            onEntity(
+                    playerId,
+                    current -> activateDurableSession(
+                            playerId,
+                            rebound,
+                            loaded,
+                            current,
+                            rank,
+                            StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
+                            "Your network Staff Mode session resumed on this backend."
+                    ),
+                    () -> detachUnappliedLease(playerId, rebound, loaded, captured.checksum())
+            );
+        } catch (RuntimeException exception) {
             recoveryGate.retry(playerId);
+            plugin.getLogger().log(Level.SEVERE, "Detached Staff Mode rebind failed", exception);
+            scheduleRecoveryRetry(playerId);
+        }
+    }
+
+    private void validateDetachedRebind(StaffSessionSnapshot rebound) {
+        if (!serverId.equalsIgnoreCase(rebound.serverId())
+                || rebound.state() != StaffSessionState.ACTIVE) {
+            throw new IllegalStateException("detached Staff Mode session did not rebind to this backend");
         }
     }
 
