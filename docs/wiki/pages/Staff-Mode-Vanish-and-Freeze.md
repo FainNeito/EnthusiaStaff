@@ -21,6 +21,7 @@ For implementation status and source files, use [[Staff Tools, Investigations, a
 /freeze list
 /unfreeze <player> <reason> CONFIRM
 /stafftools
+/stafftools help
 /stafftools random
 /stafftools spectate <player>
 /cheattester ...
@@ -39,6 +40,8 @@ Enter or leave with:
 Staff mode durably records the normal player state **before** applying the temporary staff profile. That saved state is the recovery authority for inventory, armor, offhand, XP, health/hunger, effects, location/server, game mode, flight and other owned state.
 
 Entry should fail closed when combat safety, storage, worker capacity, or durable snapshot creation cannot be proved. A reconnect or restart recovers the existing durable session rather than creating a new “normal” snapshot from temporary staff state.
+
+The pending investigation-tools PR makes fresh Staff Mode entry enable vanish automatically. An already vanished staff member stays vanished. If vanish cannot be saved, the same fresh session leaves Staff Mode through normal snapshot restoration; failed restoration retains the existing recovery protections. Recovery and cross-server resumes preserve their prior visibility choice. This proposal does not change the existing rank-specific vanish behavior on exit.
 
 ### Before entering
 

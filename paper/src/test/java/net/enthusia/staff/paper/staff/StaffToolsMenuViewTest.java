@@ -22,7 +22,8 @@ final class StaffToolsMenuViewTest {
         );
 
         assertEquals(StaffToolDefinition.RANDOM_TELEPORT, root.toolAt(0));
-        assertEquals(StaffToolDefinition.REPORTS, root.toolAt(1));
+        assertNull(root.toolAt(1));
+        assertEquals(StaffToolDefinition.REPORTS, root.toolAt(3));
         assertNull(root.toolAt(2));
         assertThrows(IllegalArgumentException.class, () -> StaffToolsMenuView.root(
                 VIEWER_ID,
@@ -109,11 +110,55 @@ final class StaffToolsMenuViewTest {
 
     @Test
     void fixedSlotsNeverRouteLowerInventoryClicksAsStaffMenuActions() {
-        assertEquals(0, StaffToolsMenuRenderer.rootToolIndex(10));
-        assertEquals(7, StaffToolsMenuRenderer.rootToolIndex(22));
+        assertEquals(0, StaffToolsMenuRenderer.rootToolIndex(28));
+        assertEquals(7, StaffToolsMenuRenderer.rootToolIndex(32));
         assertEquals(-1, StaffToolsMenuRenderer.rootToolIndex(36));
         assertEquals(0, StaffToolsMenuRenderer.targetContentIndex(0));
         assertEquals(44, StaffToolsMenuRenderer.targetContentIndex(44));
         assertEquals(-1, StaffToolsMenuRenderer.targetContentIndex(45));
+    }
+
+    @Test
+    void filteredRootKeepsToolPositionsAndAllowsAnEmptySessionDashboard() {
+        StaffToolsMenuView.Root root = StaffToolsMenuView.root(VIEWER_ID, List.of(StaffToolDefinition.REPORTS));
+        assertEquals(StaffToolDefinition.REPORTS, root.toolAt(StaffToolsMenuRenderer.rootToolIndex(14)));
+        assertNull(root.toolAt(StaffToolsMenuRenderer.rootToolIndex(10)));
+        assertTrue(StaffToolsMenuView.root(VIEWER_ID, List.of()).tools().isEmpty());
+        for (int slot : List.of(StaffToolsMenuRenderer.INFO_SLOT, StaffToolsMenuRenderer.CLOSE_SLOT,
+                StaffToolsMenuRenderer.EXIT_SLOT, StaffToolsMenuRenderer.CONFIRM_EXIT_SLOT,
+                StaffToolsMenuRenderer.CANCEL_EXIT_SLOT)) {
+            assertEquals(-1, StaffToolsMenuRenderer.rootToolIndex(slot));
+        }
+        assertTrue(StaffToolsMenuRenderer.EXIT_SLOT != StaffToolsMenuRenderer.CLOSE_SLOT);
+        assertTrue(StaffToolsMenuRenderer.CONFIRM_EXIT_SLOT != StaffToolsMenuRenderer.CLOSE_SLOT);
+    }
+
+    @Test
+    void investigationRoutesOnlyAuthorizedActionsAndKeepsStableSlots() {
+        var target = new StaffToolsMenuView.TargetEntry(UUID.randomUUID(), "Player");
+        var actions = InvestigationMenuAction.available("enthusiastaff.history.view"::equals);
+        var view = new StaffToolsMenuView.Investigation(VIEWER_ID, target, actions);
+        assertEquals(List.of(InvestigationMenuAction.HISTORY), actions);
+        assertEquals(InvestigationMenuAction.HISTORY, view.actionAt(12));
+        assertNull(view.actionAt(10));
+        assertNull(view.actionAt(53));
+        assertNull(view.actionAt(-1));
+        assertNull(view.actionAt(54));
+        assertEquals("history Player", view.actionAt(12).command(target.playerName()));
+        assertTrue(InvestigationMenuAction.available(ignored -> false).isEmpty());
+        assertThrows(UnsupportedOperationException.class, () -> view.actions().clear());
+        assertThrows(IllegalArgumentException.class, () -> new StaffToolsMenuView.Investigation(
+                VIEWER_ID, new StaffToolsMenuView.TargetEntry(VIEWER_ID, "Self"), actions));
+    }
+
+    @Test
+    void investigationActionSlotsAreDistinctAndNeverUseNavigationSlots() {
+        var actions = InvestigationMenuAction.available(ignored -> true);
+        assertEquals(actions.size(), actions.stream().map(InvestigationMenuAction::slot).distinct().count());
+        for (int slot : List.of(45, 46, 48, 49, 51, 52, 53, 54)) {
+            assertNull(InvestigationMenuAction.atSlot(slot));
+        }
+        assertEquals("client Player", InvestigationMenuAction.CLIENT.command("Player"));
+        assertEquals("punish Player", InvestigationMenuAction.PUNISHMENT.command("Player"));
     }
 }

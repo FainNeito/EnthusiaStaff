@@ -164,6 +164,10 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     }
 
     private void closeNonDatabaseResources() {
+        resources.close("player activity tracker", getServer().getServicesManager().load(
+                net.enthusia.staff.paper.staff.PlayerActivityListener.class));
+        resources.close("investigation join alerts", getServer().getServicesManager().load(
+                net.enthusia.staff.paper.staff.InvestigationJoinListener.class));
         if (integrations != null) {
             integrations.closeChatBridge();
         }

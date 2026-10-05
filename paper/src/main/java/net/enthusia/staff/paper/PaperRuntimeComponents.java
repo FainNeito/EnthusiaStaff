@@ -274,6 +274,7 @@ record PaperRuntimeComponents(
                 dependencies.environment().workers()
         );
         staffMode.setExitListener(vanish::staffModeExited);
+        staffMode.setEntryListener(vanish::staffModeEntered);
         staffMode.setGameModeTransitionGuard(
                 vanish::beginPluginGameModeApplication,
                 vanish::endPluginGameModeApplication

@@ -64,7 +64,7 @@ class VanishStaffModeRestorationWiringTest {
     }
 
     private static String method(String startMarker, String endMarker) throws IOException {
-        String source = Files.readString(SOURCE);
+        String source = Files.readString(SOURCE).replace("\r\n", "\n");
         int start = source.indexOf(startMarker);
         int end = source.indexOf(endMarker, start + startMarker.length());
         if (start < 0 || end <= start) {

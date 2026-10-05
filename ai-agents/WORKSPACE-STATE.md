@@ -1,8 +1,16 @@
 # Workspace state
 
+2026-10-05 owner extension: continue the same PR #322 with automatic fresh-entry vanish and player-name completion (IT-09..10). Current main `ba6dcabc9a731e7e3e21c8405778764abdc626f4` includes merged cross-server PR #321 and is normally incorporated as `ebff2f09`; previous assumptions that #321 is unmerged are historical. Preserve transfer/recovery visibility and existing exit policy. No new migration/provider API; validation remains pending for the new product head.
+
 Last updated: 2026-09-22
 
 Live GitHub overrides stale records. Detailed package evidence remains in the registries, selected package record, canonical handoff, and PR verification ledgers.
+
+## Explicit owner assignment — 2026-10-04
+
+2026-10-05 owner extension: streamline the same package's menu workflow in PR #322. Add fixed grouped Staff Dashboard slots, player investigation shortcuts, permission-aware command help, and separate close/confirmed exit controls. No new ownership/handoff persistence, schema or companion API is introduced by this GUI slice. EARS/state helpers remain unavailable; IT-06..08 and regression evidence are recorded in the existing package. Other packages are preserved.
+
+`OWNER-INVESTIGATION-TOOLS` is active in isolated `EnthusiaStaff-investigation-tools` on `package/owner-investigation-tools`, base `18d4f4b05af94ee325842c68d482feedabe5d27f`. See its package record and handoff for patrol/activity/flags/join-alert/slot scope. Existing user checkout and other open package work remain preserved. No merge/deployment authorization is implied.
 
 ## Current routing
 

@@ -92,6 +92,10 @@ final class StaffToolsMenuController implements Listener {
             loadingClick(viewer, slot);
         } else if (view instanceof StaffToolsMenuView.TargetPicker picker) {
             targetPickerClick(viewer, picker, slot);
+        } else if (view instanceof StaffToolsMenuView.Investigation investigation) {
+            investigationClick(viewer, investigation, slot);
+        } else if (view instanceof StaffToolsMenuView.ExitConfirmation) {
+            exitConfirmationClick(viewer, slot);
         }
     }
 
@@ -123,7 +127,14 @@ final class StaffToolsMenuController implements Listener {
     private void rootClick(Player viewer, StaffToolsMenuView.Root root, int slot) {
         if (slot == StaffToolsMenuRenderer.CLOSE_SLOT) {
             viewer.closeInventory();
-            dispatcher.exitStaffMode(viewer);
+            return;
+        }
+        if (slot == StaffToolsMenuRenderer.EXIT_SLOT) {
+            viewer.openInventory(renderer.render(new StaffToolsMenuView.ExitConfirmation(viewer.getUniqueId())));
+            return;
+        }
+        if (slot == StaffToolsMenuRenderer.INFO_SLOT) {
+            dispatcher.showMenuHelp(viewer);
             return;
         }
         StaffToolDefinition tool = root.toolAt(StaffToolsMenuRenderer.rootToolIndex(slot));
@@ -143,6 +154,10 @@ final class StaffToolsMenuController implements Listener {
     }
 
     private void loadingClick(Player viewer, int slot) {
+        if (slot == StaffToolsMenuRenderer.BACK_SLOT) {
+            openRoot(viewer);
+            return;
+        }
         if (slot == StaffToolsMenuRenderer.CLOSE_SLOT) {
             cancelTargetLoad(viewer.getUniqueId());
             viewer.closeInventory();
@@ -209,8 +224,89 @@ final class StaffToolsMenuController implements Listener {
             requestTargetPicker(viewer, picker.tool());
             return;
         }
-        viewer.closeInventory();
-        dispatcher.dispatchFromMenu(viewer, picker.tool(), target.playerId());
+        if (picker.tool() == StaffToolDefinition.PLAYER_INSPECTOR) {
+            openInvestigation(viewer, target);
+        } else {
+            viewer.closeInventory();
+            dispatcher.dispatchFromMenu(viewer, picker.tool(), target.playerId());
+        }
+    }
+
+    private void openInvestigation(Player viewer, StaffToolsMenuView.TargetEntry target) {
+        UUID viewerId = viewer.getUniqueId();
+        Inventory expected = viewer.getOpenInventory().getTopInventory();
+        onEntity(target.playerId(), currentTarget -> {
+            StaffToolsMenuView.TargetEntry snapshot = new StaffToolsMenuView.TargetEntry(
+                    currentTarget.getUniqueId(), currentTarget.getName());
+            onEntity(viewerId, current -> {
+                if (!investigationAvailable(current, snapshot, expected)) {
+                    return;
+                }
+                current.openInventory(renderer.render(new StaffToolsMenuView.Investigation(
+                        viewerId, snapshot, InvestigationMenuAction.available(current::hasPermission))));
+            });
+        }, () -> onEntity(viewerId, current -> unavailableTarget(current, expected)));
+    }
+
+    private boolean investigationAvailable(Player viewer, StaffToolsMenuView.TargetEntry target, Inventory expected) {
+        return viewer.getOpenInventory().getTopInventory() == expected
+                && dispatcher.menuAuthorized(viewer)
+                && dispatcher.menuToolAvailable(viewer, StaffToolDefinition.PLAYER_INSPECTOR)
+                && !vanish.isVanished(target.playerId());
+    }
+
+    private void unavailableTarget(Player viewer, Inventory expected) {
+        if (viewer.getOpenInventory().getTopInventory() == expected) {
+            viewer.sendMessage(StaffMessageStyle.style("That player is no longer available. Choose another player."));
+            openRoot(viewer);
+        }
+    }
+
+    private void investigationClick(Player viewer, StaffToolsMenuView.Investigation view, int slot) {
+        if (slot == StaffToolsMenuRenderer.CLOSE_SLOT) {
+            viewer.closeInventory();
+            return;
+        }
+        if (slot == StaffToolsMenuRenderer.BACK_SLOT) {
+            requestTargetPicker(viewer, StaffToolDefinition.PLAYER_INSPECTOR);
+            return;
+        }
+        if (slot == StaffToolsMenuRenderer.INFO_SLOT) {
+            dispatcher.showInvestigationHelp(viewer, view.target().playerName());
+            return;
+        }
+        InvestigationMenuAction action = view.actionAt(slot);
+        if (action != null) {
+            runInvestigationAction(viewer, view.target(), action);
+        }
+    }
+
+    private void runInvestigationAction(Player viewer, StaffToolsMenuView.TargetEntry target,
+            InvestigationMenuAction action) {
+        UUID viewerId = viewer.getUniqueId();
+        Inventory expected = viewer.getOpenInventory().getTopInventory();
+        onEntity(target.playerId(), currentTarget -> {
+            String targetName = currentTarget.getName();
+            onEntity(viewerId, current -> {
+                if (!investigationAvailable(current, target, expected)) {
+                    return;
+                }
+                // UUID routing preserves identity. Client evidence's existing command is name-only.
+                String argument = action == InvestigationMenuAction.CLIENT ? targetName : target.playerId().toString();
+                dispatcher.dispatchInvestigationAction(current, action, argument);
+            });
+        }, () -> onEntity(viewerId, current -> unavailableTarget(current, expected)));
+    }
+
+    private void exitConfirmationClick(Player viewer, int slot) {
+        if (slot == StaffToolsMenuRenderer.CLOSE_SLOT) {
+            viewer.closeInventory();
+        } else if (slot == StaffToolsMenuRenderer.CANCEL_EXIT_SLOT) {
+            openRoot(viewer);
+        } else if (slot == StaffToolsMenuRenderer.CONFIRM_EXIT_SLOT) {
+            viewer.closeInventory();
+            dispatcher.exitStaffMode(viewer);
+        }
     }
 
     private void openRoot(Player viewer) {
@@ -221,12 +317,6 @@ final class StaffToolsMenuController implements Listener {
             return;
         }
         List<StaffToolDefinition> tools = dispatcher.availableMenuTools(viewer);
-        if (tools.isEmpty()) {
-            viewer.closeInventory();
-            viewer.sendMessage(StaffMessageStyle.style(Component.text("No staff tools are currently available for this session.",
-                    NamedTextColor.YELLOW)));
-            return;
-        }
         viewer.openInventory(renderer.render(StaffToolsMenuView.root(viewerId, tools)));
     }
 
