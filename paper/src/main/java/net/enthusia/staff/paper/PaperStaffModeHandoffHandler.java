@@ -22,6 +22,7 @@ final class PaperStaffModeHandoffHandler {
     static final String ABORT_SOURCE = "STAFF_MODE_HANDOFF_ABORT_SOURCE";
     static final String READY = "STAFF_MODE_READY";
     private static final Duration OPERATION_TIMEOUT = Duration.ofSeconds(8);
+    private static final Duration HANDOFF_RESTORE_WAIT = Duration.ofSeconds(2);
     private static final String PLAYER_ID_FIELD = "playerId";
     private static final String SESSION_ID_FIELD = "sessionId";
     private static final String TRANSFER_ID_FIELD = "transferId";
@@ -160,12 +161,12 @@ final class PaperStaffModeHandoffHandler {
                 }
             }
         }
-        return await(operations.close(
+        return awaitHandoffRestore(operations.close(
                 playerId,
                 uuid(payload, SESSION_ID_FIELD),
                 payload.path("revision").asLong(-1L),
                 transferId
-        ));
+        ), playerId);
     }
 
     private boolean handlePrepareResume(JsonNode payload) {
@@ -211,6 +212,34 @@ final class PaperStaffModeHandoffHandler {
             return false;
         } catch (java.util.concurrent.ExecutionException exception) {
             return false;
+        }
+    }
+
+    /**
+     * Gives the source a short head start to restore/detach its backend-local state, but never
+     * turns a slow persistence path into a denied server transfer. PlayerQuitEvent provides a
+     * second restore/detach path if the switch wins the race.
+     */
+    private boolean awaitHandoffRestore(CompletableFuture<Boolean> future, UUID playerId) {
+        try {
+            return future.get(HANDOFF_RESTORE_WAIT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return true;
+        } catch (java.util.concurrent.TimeoutException exception) {
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Staff Mode handoff restore is still running for " + playerId
+                        + "; allowing the backend switch and relying on disconnect/destination reconciliation");
+            }
+            return true;
+        } catch (java.util.concurrent.ExecutionException exception) {
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.log(Level.WARNING,
+                        "Staff Mode handoff restore failed before transfer for " + playerId
+                                + "; allowing the switch and relying on lifecycle reconciliation",
+                        exception.getCause());
+            }
+            return true;
         }
     }
 
