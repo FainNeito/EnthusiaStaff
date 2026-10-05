@@ -88,9 +88,9 @@ final class StaffModeBackendHandoffCoordinator {
      * Transfers a staff session to another backend (overnight/cross-server).
      *
      * @param snapshotTake takes (and consumes) the lightweight visibility snapshot the source
-     *                     backend uploaded for this transfer, if any. The snapshot may be
-     *                     forwarded to the destination only after the durable source Staff Mode
-     *                     session has closed; it never substitutes for inventory/session ownership.
+     *                     backend uploaded for this transfer, if any. It is best-effort
+     *                     presentation metadata and never substitutes for backend-local
+     *                     inventory/session ownership or controls transfer admission.
      */
     Decision transfer(
             UUID playerId,
