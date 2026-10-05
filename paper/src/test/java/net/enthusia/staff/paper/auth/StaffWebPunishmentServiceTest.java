@@ -112,12 +112,16 @@ final class StaffWebPunishmentServiceTest {
         @SuppressWarnings("unchecked")
         List<StaffWebPunishmentService.Reason> reasons =
                 (List<StaffWebPunishmentService.Reason>) capabilities.get("reasons");
+        @SuppressWarnings("unchecked")
+        List<StaffWebPunishmentService.Reason> configured =
+                (List<StaffWebPunishmentService.Reason>) capabilities.get("configuredReasons");
 
-        StaffWebPunishmentService.Reason chat = reasons.stream()
+        StaffWebPunishmentService.Reason chat = configured.stream()
                 .filter(reason -> reason.id().equals("chat.toxicity")).findFirst().orElseThrow();
-        StaffWebPunishmentService.Reason asset = reasons.stream()
+        StaffWebPunishmentService.Reason asset = configured.stream()
                 .filter(reason -> reason.id().equals("asset.confiscation")).findFirst().orElseThrow();
 
+        assertEquals(List.of("chat.toxicity"), reasons.stream().map(StaffWebPunishmentService.Reason::id).toList());
         assertTrue(chat.minecraftSupported());
         assertEquals("Mute", chat.ladder().getFirst().label());
         assertEquals("MUTE", chat.ladder().getFirst().consequences().getFirst().type());
