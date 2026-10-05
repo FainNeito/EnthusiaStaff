@@ -176,6 +176,27 @@ final class JdaDiscordPunishmentGateway implements DiscordPunishmentGateway {
         return notifySafely(punishment, true);
     }
 
+    DiscordDeliveryOutcome notifyMinecraftBan(
+            net.enthusia.staff.persistence.JdbcMinecraftBanDiscordNotificationStore.Lease lease
+    ) {
+        try {
+            return notifier.notifyMinecraftBan(
+                    boundJda(),
+                    new JdaPunishmentNotifier.MinecraftBanNotification(
+                            lease.discordUserId(),
+                            lease.minecraftName(),
+                            lease.publicReason(),
+                            lease.issuedAt(),
+                            lease.expiresAt()
+                    )
+            );
+        } catch (EffectException failure) {
+            return failure.retryable()
+                    ? DiscordDeliveryOutcome.FAILED_RETRYABLE
+                    : DiscordDeliveryOutcome.FAILED_TERMINAL;
+        }
+    }
+
     @Override
     public void reconcile(DiscordPunishment punishment) {
         try {
