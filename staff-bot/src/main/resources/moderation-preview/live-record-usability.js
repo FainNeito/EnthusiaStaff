@@ -145,15 +145,8 @@ function productRenderCompleteStep() {
 }
 
 const LIVE_MESSAGE_PAGE_LIMIT = '50';
-const DURATION_VALUE_PATTERN = /^([1-9][0-9]*)\s*([a-z]+)$/i;
-const DURATION_UNITS = Object.freeze({
-  m:'minute', min:'minute', mins:'minute', minute:'minute', minutes:'minute',
-  h:'hour', hr:'hour', hrs:'hour', hour:'hour', hours:'hour',
-  d:'day', day:'day', days:'day',
-  w:'week', wk:'week', wks:'week', week:'week', weeks:'week',
-  mo:'month', mos:'month', month:'month', months:'month',
-  y:'year', yr:'year', yrs:'year', year:'year', years:'year'
-});
+const DURATION_UNITS = Object.freeze(['minutes','hours','days','months','permanent']);
+const DURATION_LIMITS = Object.freeze({minutes:1440,hours:240,days:365,months:120});
 const baseWorkflowReviewStatus = window.workflowReviewStatus;
 const baseCaptureOptions = window.captureOptions;
 const baseFocusFirstMissingReviewField = window.focusFirstMissingReviewField;
@@ -200,9 +193,20 @@ async function fasterLoadMoreMessages(direction) {
     button.disabled = true;
     button.textContent = `Loading ${direction}…`;
   }
-  const params = new URLSearchParams({channel:state.channel, limit:LIVE_MESSAGE_PAGE_LIMIT});
+  const params = currentMessageRequestParams();
   params.set(direction === 'older' ? 'before' : 'after', cursor);
   await fasterLoadMessageRequest(params, direction, button);
+}
+
+function currentMessageRequestParams() {
+  const params = new URLSearchParams({channel:state.channel, limit:LIVE_MESSAGE_PAGE_LIMIT});
+  if (!state.remoteSearchActive) return params;
+  const text = String(state.search || '').trim();
+  const author = String(state.author || '').trim();
+  if (text) params.set('text', text);
+  if (/^[1-9][0-9]{0,19}$/.test(author)) params.set('author', author);
+  if (state.dateFrom && state.dateFrom === state.dateTo) params.set('date', state.dateFrom);
+  return params;
 }
 
 async function fasterLoadMessageRequest(params, mode, pendingButton = null) {
@@ -224,32 +228,60 @@ async function fasterLoadMessageRequest(params, mode, pendingButton = null) {
   }
 }
 
-function freeformDurationField(workflow) {
-  const value = workflow.duration && workflow.duration !== '—' ? workflow.duration : '3 days';
-  const input = element('input', {
-    id:'customDuration', type:'text', value,
-    placeholder:'e.g. 60 days, 12 hours, 90 minutes, Permanent',
-    attrs:{maxlength:'40', autocomplete:'off', spellcheck:'false'}
-  });
-  return element('div', {className:'custom-duration-field'},
-    fieldLabel('Duration', input),
-    element('small', {className:'field-help', text:'Use any positive number of minutes, hours, days, weeks, months, or years — or Permanent.'}));
+function dropdownDurationField(workflow) {
+  const parts = punishmentDurationParts(workflow.duration);
+  const amount = element('select',{id:'customDurationAmount',disabled:parts.unit === 'permanent'});
+  populateDurationAmountOptions(amount, parts.unit, parts.amount);
+  const unit = element('select',{id:'customDurationUnit'},
+    DURATION_UNITS.map(value => optionNode(value, value === 'permanent' ? 'Permanent' : capitalizeDurationUnit(value), parts.unit === value)));
+  return element('div',{className:'custom-duration-field'},
+    fieldLabel('Duration amount',amount),
+    fieldLabel('Duration unit',unit));
+}
+
+function capitalizeDurationUnit(value) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function punishmentDurationParts(raw) {
+  const value = String(raw || '').trim();
+  if (!value || value === '—') return {amount:3,unit:'days'};
+  if (value.toLowerCase() === 'permanent') return {amount:1,unit:'permanent'};
+  const match = /^([1-9][0-9]*)\s+(minutes?|hours?|days?|months?)$/i.exec(value);
+  if (!match) return {amount:3,unit:'days'};
+  const unit = match[2].toLowerCase().replace(/s?$/,'') + 's';
+  return {amount:Number(match[1]),unit};
+}
+
+function populateDurationAmountOptions(select, unit, selected) {
+  select.replaceChildren();
+  if (unit === 'permanent') {
+    select.append(optionNode('','—',true));
+    return;
+  }
+  const max = DURATION_LIMITS[unit] || 365;
+  const current = Math.min(Math.max(Number(selected) || 1,1),max);
+  for (let value = 1; value <= max; value += 1) {
+    select.append(optionNode(String(value),String(value),value === current));
+  }
+}
+
+function updateDurationFromDropdowns(workflow) {
+  const unit = $('#customDurationUnit')?.value || punishmentDurationParts(workflow.duration).unit;
+  if (unit === 'permanent') {
+    workflow.duration = 'Permanent';
+    return;
+  }
+  const amount = Number($('#customDurationAmount')?.value || punishmentDurationParts(workflow.duration).amount);
+  workflow.duration = normalizePunishmentDuration(`${amount} ${unit}`) || workflow.duration;
 }
 
 function normalizePunishmentDuration(raw) {
-  const value = String(raw || '').trim();
-  if (value.toLowerCase() === 'permanent') return 'Permanent';
-  const match = DURATION_VALUE_PATTERN.exec(value);
-  if (!match) return null;
-  return normalizedDurationMatch(match);
-}
-
-function normalizedDurationMatch(match) {
-  const amount = Number(match[1]);
-  const unit = DURATION_UNITS[match[2].toLowerCase()];
-  if (!Number.isSafeInteger(amount) || !unit) return null;
-  const suffix = amount === 1 ? '' : 's';
-  return String(amount) + ' ' + unit + suffix;
+  const parts = punishmentDurationParts(raw);
+  if (parts.unit === 'permanent') return 'Permanent';
+  if (!Number.isSafeInteger(parts.amount) || parts.amount < 1 || parts.amount > (DURATION_LIMITS[parts.unit] || 0)) return null;
+  const singular = parts.unit.slice(0,-1);
+  return `${parts.amount} ${parts.amount === 1 ? singular : parts.unit}`;
 }
 
 function actionHasDuration(workflow) {
@@ -276,13 +308,14 @@ function durationAwareWorkflowCanEnterReview(workflow) {
 function durationAwareCaptureOptions() {
   baseCaptureOptions();
   if (!state.workflow || !actionHasDuration(state.workflow)) return;
+  if ($('#customDurationUnit')) updateDurationFromDropdowns(state.workflow);
   const normalized = normalizePunishmentDuration(state.workflow.duration);
   if (normalized) state.workflow.duration = normalized;
 }
 
 function durationAwareFocusFirstMissingReviewField(status) {
   if (!status.reasonReady) $('#reasonInput')?.focus();
-  else if (status.durationReady === false) $('#customDuration')?.focus();
+  else if (status.durationReady === false) ($('#customDurationAmount') || $('#customDurationUnit'))?.focus();
   else baseFocusFirstMissingReviewField(status);
 }
 
@@ -292,16 +325,19 @@ function durationAwareBindCustomOptionEvents(workflow) {
     setCustomAction(event.target.value);
   });
   $('#customScope')?.addEventListener('change', (event) => { workflow.scope = event.target.value; });
-  $('#customDuration')?.addEventListener('input', (event) => {
-    workflow.duration = event.target.value;
+  $('#customDurationAmount')?.addEventListener('change', () => {
+    updateDurationFromDropdowns(workflow);
     workflow.approvalConfirmed = false;
   });
-  $('#customDuration')?.addEventListener('change', (event) => {
-    const normalized = normalizePunishmentDuration(event.target.value);
-    if (normalized) {
-      workflow.duration = normalized;
-      event.target.value = normalized;
+  $('#customDurationUnit')?.addEventListener('change', (event) => {
+    const unit = event.target.value;
+    const amount = $('#customDurationAmount');
+    if (amount) {
+      amount.disabled = unit === 'permanent';
+      populateDurationAmountOptions(amount, unit, punishmentDurationParts(workflow.duration).amount);
     }
+    updateDurationFromDropdowns(workflow);
+    workflow.approvalConfirmed = false;
     renderWorkflow();
   });
 }
@@ -318,7 +354,7 @@ window.loadSession = fasterLoadSession;
 window.loadChannelPage = fasterLoadChannelPage;
 window.loadMoreMessages = fasterLoadMoreMessages;
 window.loadMessageRequest = fasterLoadMessageRequest;
-window.durationField = freeformDurationField;
+window.durationField = dropdownDurationField;
 window.workflowReviewStatus = durationAwareWorkflowReviewStatus;
 window.workflowCanEnterReview = durationAwareWorkflowCanEnterReview;
 window.captureOptions = durationAwareCaptureOptions;
