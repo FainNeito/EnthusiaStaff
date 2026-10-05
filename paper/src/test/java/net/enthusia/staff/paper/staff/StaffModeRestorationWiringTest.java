@@ -96,13 +96,15 @@ class StaffModeRestorationWiringTest {
     }
 
     @Test
-    void backendHandoffClosureIsTransferFencedBeforeDurableClose() throws IOException {
+    void backendHandoffRestoresLocalStateThenDetachesNetworkSession() throws IOException {
         String completion = method("private void completeBackendHandoff", "private void retainCancelledHandoffRecovery");
 
         assertTrue(completion.contains("sourceHandoffs.commitIfActive"));
         assertTrue(completion.indexOf("sourceHandoffs.commitIfActive")
-                < completion.indexOf("loaded.completeExit"));
-        assertTrue(completion.contains("retainCancelledHandoffRecovery"));
+                < completion.indexOf("loaded.detach"));
+        assertTrue(completion.contains("session.sessionId()"));
+        assertTrue(completion.contains("session.serverId()"));
+        assertTrue(completion.contains("handoffGaps.add(playerId)"));
     }
 
     @Test
