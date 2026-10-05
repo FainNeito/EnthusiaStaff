@@ -1065,6 +1065,11 @@ public final class StaffModeManager implements Listener {
     }
 
     private boolean restoreSavedState(Player player, StaffSessionSnapshot session) {
+        if (!serverId.equals(session.serverId())) {
+            throw new IllegalStateException(
+                    "refusing to restore staff snapshot owned by backend " + session.serverId()
+            );
+        }
         if (!codec.checksum(session.snapshot()).equals(session.checksum())) {
             throw new IllegalStateException("saved staff snapshot integrity check failed");
         }
