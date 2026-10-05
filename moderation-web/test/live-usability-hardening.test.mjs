@@ -95,6 +95,10 @@ test('final review requires explanation and appropriate evidence while allowing 
   assert.match(review, /Outside-Discord evidence reference/);
   assert.match(review, /Staff explanation/);
   assert.match(review, /Notification message/);
+  assert.match(review, /Punishment Alert/);
+  assert.match(review, /Discord timestamp and live countdown generated from the confirmed action time/);
+  assert.match(review, /Enthusia\.info\/appeal/);
+  assert.doesNotMatch(review, /Enthusia moderation:/);
   assert.doesNotMatch(review, /text:'DM preview'/);
   assert.match(review, /Case readiness/);
   assert.match(policy, /length >= 10/);
