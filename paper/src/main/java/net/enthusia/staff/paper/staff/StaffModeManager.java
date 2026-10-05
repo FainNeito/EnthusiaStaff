@@ -848,7 +848,8 @@ public final class StaffModeManager implements Listener {
         // A normal backend disconnect is not a Staff Mode exit. Restore this backend's
         // native state before Minecraft saves the player, then release only the local
         // snapshot lease. Network Staff Mode/vanish intent remains active.
-        if (session != null && !transitions.contains(playerId)) {
+        if (session != null
+                && (!transitions.contains(playerId) || sourceHandoffs.active(playerId))) {
             try {
                 if (restoreSavedState(player, session)) {
                     String checksum = codec.verifiedRestorationChecksum(
