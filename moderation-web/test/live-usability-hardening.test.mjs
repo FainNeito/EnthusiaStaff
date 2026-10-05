@@ -118,6 +118,9 @@ test('punishment catalog uses one server-rules entry point and exposes categorie
   assert.doesNotMatch(record, /View rule|Open applicable rule/);
   assert.match(minecraft, /renderMinecraftReasonFamilies/);
   assert.match(minecraft, /renderMinecraftReasonChoices/);
+  assert.match(minecraft, /liveActionCapabilities\?\.configuredReasons/);
+  assert.match(minecraft, /selected\?\.minecraftSupported === false/);
+  assert.match(minecraft, /In-game workflow required/);
   assert.doesNotMatch(minecraft, /id:'minecraftReason'.*element\('select'/s);
 });
 
