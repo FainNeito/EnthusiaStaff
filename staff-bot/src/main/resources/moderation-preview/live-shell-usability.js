@@ -263,20 +263,45 @@ function runMessageSearchOnEnter(event) {
 async function runDiscordHistorySearch() {
   state.contextId = null;
   state.contextReturn = null;
-  const params = new URLSearchParams({limit:'50'});
-  const text = String(state.search || '').trim();
-  const author = String(state.author || '').trim();
-  if (state.channel !== 'all') params.set('channel', state.channel);
-  if (text) params.set('text', text);
-  if (/^[1-9][0-9]{0,19}$/.test(author)) params.set('author', author);
-  if (state.dateFrom && state.dateFrom === state.dateTo) params.set('date', state.dateFrom);
-  if (!text && !params.has('author') && !params.has('date')) {
+  const params = discordHistorySearchParams();
+  if (!hasDiscordHistorySearchCriteria(params)) {
     state.remoteSearchActive = false;
     renderWorkspace();
     return;
   }
   state.remoteSearchActive = true;
   await loadMessageRequest(params, 'replace');
+}
+
+function discordHistorySearchParams() {
+  const params = new URLSearchParams({limit:'50'});
+  addSearchChannel(params);
+  addSearchText(params);
+  addSearchAuthor(params);
+  addSearchDate(params);
+  return params;
+}
+
+function addSearchChannel(params) {
+  if (state.channel !== 'all') params.set('channel', state.channel);
+}
+
+function addSearchText(params) {
+  const text = String(state.search || '').trim();
+  if (text) params.set('text', text);
+}
+
+function addSearchAuthor(params) {
+  const author = String(state.author || '').trim();
+  if (/^[1-9][0-9]{0,19}$/.test(author)) params.set('author', author);
+}
+
+function addSearchDate(params) {
+  if (state.dateFrom && state.dateFrom === state.dateTo) params.set('date', state.dateFrom);
+}
+
+function hasDiscordHistorySearchCriteria(params) {
+  return params.has('text') || params.has('author') || params.has('date');
 }
 
 function handleChannelFilterChange(event) {
