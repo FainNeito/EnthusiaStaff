@@ -75,6 +75,7 @@ public final class StaffModeManager implements Listener {
     private final StaffModeHandoffIntentRegistry handoffResumes;
     private final StaffModeSourceHandoffRegistry sourceHandoffs = new StaffModeSourceHandoffRegistry();
     private final StaffModeActivationCoordinator activation;
+    private final StaffToolLayout toolLayout;
     private final AtomicBoolean rankReconciliationStarted = new AtomicBoolean();
     private volatile Consumer<UUID> exitListener = ignored -> {
     };
@@ -86,6 +87,7 @@ public final class StaffModeManager implements Listener {
     };
     private volatile net.enthusia.staff.paper.audit.StaffActionLogger actionLogger;
     private volatile java.util.function.Function<UUID, Boolean> vanishedLookup = id -> false;
+    private volatile Consumer<Player> entryListener = ignored -> { };
 
     public StaffModeManager(
             JavaPlugin plugin,
@@ -95,6 +97,7 @@ public final class StaffModeManager implements Listener {
             ExecutorService workers
     ) {
         this.plugin = plugin;
+        this.toolLayout = StaffToolLayout.load(plugin.getConfig());
         this.clock = clock;
         this.runtimeStartedAt = clock.instant();
         this.serverId = serverId;
@@ -117,6 +120,11 @@ public final class StaffModeManager implements Listener {
 
     public boolean active(UUID playerId) {
         return active.containsKey(playerId) || handoffGaps.contains(playerId);
+    }
+
+    public UUID activeSessionId(UUID playerId) {
+        StaffSessionSnapshot session = active.get(playerId);
+        return session == null ? null : session.sessionId();
     }
 
     public boolean transitioning(UUID playerId) {
@@ -185,6 +193,11 @@ public final class StaffModeManager implements Listener {
     /** Lets the manager read vanish state for audit lines without depending on VanishManager. */
     public void setVanishedLookup(java.util.function.Function<UUID, Boolean> vanishedLookup) {
         this.vanishedLookup = java.util.Objects.requireNonNull(vanishedLookup, "vanishedLookup");
+    }
+
+    /** Fresh entry only: handoffs and recovery preserve their existing visibility choice. */
+    public void setEntryListener(Consumer<Player> entryListener) {
+        this.entryListener = java.util.Objects.requireNonNull(entryListener, "entryListener");
     }
 
     /**
@@ -362,14 +375,12 @@ public final class StaffModeManager implements Listener {
                 pendingLocalSessions.put(playerId, session);
                 onEntity(
                         playerId,
-                        current -> activateDurableSession(
+                        current -> activateFreshSession(
                                 playerId,
                                 session,
                                 loaded,
                                 current,
-                                rank,
-                                StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
-                                "Staff mode entered after durable snapshot commit."
+                                rank
                         ),
                         () -> detachUnappliedLease(playerId, session, loaded, captured.checksum())
                 );
@@ -381,6 +392,16 @@ public final class StaffModeManager implements Listener {
         })) {
             failEntry(playerId);
             player.sendMessage(StaffMessageStyle.style(Component.text("The bounded work queue is full; staff mode was not entered.")));
+        }
+    }
+
+    private void activateFreshSession(UUID playerId, StaffSessionSnapshot session, StaffSessionStore loaded,
+            Player player, StaffRank rank) {
+        activateDurableSession(playerId, session, loaded, player, rank,
+                StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
+                "Staff mode entered after durable snapshot commit; enabling vanish.");
+        if (active.get(playerId) == session) {
+            entryListener.accept(player);
         }
     }
 
@@ -1160,7 +1181,7 @@ public final class StaffModeManager implements Listener {
                 activeToken,
                 heldSlot,
                 tool,
-                item.getType(),
+                new StaffToolSessionPolicy.ItemContext(item.getType(), toolLayout.slot(tool)),
                 data.get(staffToolOwnerKey, PersistentDataType.STRING),
                 data.get(staffToolSessionKey, PersistentDataType.STRING),
                 rank
@@ -1449,7 +1470,7 @@ public final class StaffModeManager implements Listener {
             player.setFlying(true);
             for (StaffToolDefinition tool : StaffToolDefinition.values()) {
                 if (tool.availableFor(rank)) {
-                    player.getInventory().setItem(tool.slot(), item(playerId, toolSession, tool));
+                    player.getInventory().setItem(toolLayout.slot(tool), item(playerId, toolSession, tool));
                 }
             }
             player.updateInventory();

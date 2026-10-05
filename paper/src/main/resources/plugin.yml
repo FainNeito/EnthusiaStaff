@@ -99,7 +99,7 @@ commands:
     permission: enthusiastaff.staffmode
   stafftools:
     description: Use the staff-mode operational tool menu and text fallbacks
-    usage: /stafftools | /stafftools random | /stafftools spectate <player>
+    usage: /stafftools | /stafftools help | /stafftools random | /stafftools spectate <player>
     permission: enthusiastaff.stafftools.menu
   cheattester:
     description: Configure and run bounded evidence-only cheat tester probes and virtual fake bases
@@ -132,6 +132,9 @@ commands:
     description: Inspect and safely edit a live or offline Ender chest
     usage: /endersee <player|uuid>
     permission: enthusiastaff.inventory.view
+  staffflags:
+    description: List, create and resolve audited player investigation flags
+    usage: /staffflags list <player> | add <player> <category> <hours|permanent> <case-id|none> <reason> | resolve <flag-uuid> <reason>
   inspect:
     description: Inspect a player and run case-linked asset actions
     usage: /inspect <player>
@@ -147,6 +150,21 @@ commands:
     description: Remove this Minecraft account's current Discord link after confirmation
     usage: /unlink CONFIRM
 permissions:
+  enthusiastaff.investigation.view:
+    description: View active player investigation flags
+    default: false
+  enthusiastaff.investigation.edit:
+    description: Create and resolve player investigation flags in ACTIVE mode
+    default: false
+  enthusiastaff.investigation.join-alerts:
+    description: Receive visible player investigation join summaries
+    default: false
+  enthusiastaff.investigation.notes.view:
+    description: View recent staff note summaries in investigations
+    default: false
+  enthusiastaff.inspect.activity:
+    description: View local session interaction timestamps in the inspector
+    default: false
   enthusiastaff.status:
     default: false
   enthusiastaff.verify:

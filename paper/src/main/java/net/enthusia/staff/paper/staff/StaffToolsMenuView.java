@@ -17,7 +17,7 @@ sealed interface StaffToolsMenuView {
 
     record Root(UUID viewerId, List<StaffToolDefinition> tools) implements StaffToolsMenuView {
         public Root {
-            if (viewerId == null || tools == null || tools.isEmpty()) {
+            if (viewerId == null || tools == null) {
                 throw new IllegalArgumentException("staff tools root view must contain a viewer and tools");
             }
             Set<StaffToolDefinition> distinct = new HashSet<>(tools);
@@ -28,10 +28,34 @@ sealed interface StaffToolsMenuView {
         }
 
         StaffToolDefinition toolAt(int index) {
-            if (index < 0 || index >= tools.size()) {
+            if (index < 0 || index >= StaffToolDefinition.values().length) {
                 return null;
             }
-            return tools.get(index);
+            StaffToolDefinition tool = StaffToolDefinition.values()[index];
+            return tools.contains(tool) ? tool : null;
+        }
+    }
+
+    record ExitConfirmation(UUID viewerId) implements StaffToolsMenuView {
+        public ExitConfirmation {
+            Objects.requireNonNull(viewerId, "viewerId");
+        }
+    }
+
+    record Investigation(UUID viewerId, TargetEntry target, List<InvestigationMenuAction> actions)
+            implements StaffToolsMenuView {
+        public Investigation {
+            Objects.requireNonNull(viewerId, "viewerId");
+            Objects.requireNonNull(target, "target");
+            actions = List.copyOf(actions);
+            if (viewerId.equals(target.playerId()) || new HashSet<>(actions).size() != actions.size()) {
+                throw new IllegalArgumentException("invalid investigation menu");
+            }
+        }
+
+        InvestigationMenuAction actionAt(int slot) {
+            InvestigationMenuAction action = InvestigationMenuAction.atSlot(slot);
+            return action != null && actions.contains(action) ? action : null;
         }
     }
 

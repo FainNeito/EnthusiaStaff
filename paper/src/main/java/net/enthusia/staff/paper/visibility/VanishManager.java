@@ -276,6 +276,35 @@ public final class VanishManager implements Listener {
         set(player, rank, next, true);
     }
 
+    /** Enables rather than toggles: entering while already vanished must never reveal staff. */
+    public void staffModeEntered(Player player) {
+        UUID playerId = player.getUniqueId();
+        UUID sessionId = staffMode.activeSessionId(playerId);
+        StaffRank rank = resolveAndPublishRank(player);
+        if (rank == null && sessionId != null) {
+            player.sendMessage(StaffMessageStyle.error("Your staff rank is unavailable; leaving Staff Mode."));
+            staffMode.exit(player);
+            return;
+        }
+        if (rank != null && staffMode.active(player.getUniqueId()) && !isVanished(player.getUniqueId())) {
+            set(player, rank, true, true).thenAccept(enabled -> {
+                if (!enabled) {
+                    exitAfterEntryVanishFailure(playerId, sessionId);
+                }
+            });
+        }
+    }
+
+    private void exitAfterEntryVanishFailure(UUID playerId, UUID sessionId) {
+                    audiences.onOwner(playerId, current -> {
+                        if (sessionId != null && sessionId.equals(staffMode.activeSessionId(playerId))) {
+                            current.sendMessage(StaffMessageStyle.error(
+                                    "Automatic vanish could not be saved; leaving Staff Mode and restoring your snapshot."));
+                            staffMode.exit(current);
+                        }
+                    });
+    }
+
     public void configureSpectatorTab(Player player, boolean appearNormally) {
         StaffRank rank = resolveAndPublishRank(player);
         if (!SpectatorTabPolicy.offersVisibilityChoice(rank)) {
@@ -362,22 +391,34 @@ public final class VanishManager implements Listener {
         return VanishRankReconciliationPolicy.requiresStaffMode(rank);
     }
 
-    private void set(Player player, StaffRank rank, boolean vanished, boolean restoreSelectedMode) {
+    private java.util.concurrent.CompletableFuture<Boolean> set(
+            Player player, StaffRank rank, boolean vanished, boolean restoreSelectedMode) {
         UUID playerId = player.getUniqueId();
         GameMode selectedGameMode = vanished
                 ? selectedGameModeForEnable(player, rank)
                 : selectedGameModes.get(playerId);
         if (!stateWrites.add(playerId)) {
             player.sendMessage(StaffMessageStyle.style(Component.text("A vanish state change is already being saved.")));
-            return;
+            return java.util.concurrent.CompletableFuture.completedFuture(false);
         }
-        if (!submit(() -> persistSet(playerId, rank, vanished, restoreSelectedMode, selectedGameMode))) {
+        java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
+        UUID expectedSession = staffMode.activeSessionId(playerId);
+        if (!submit(() -> {
+            if (expectedSession != null && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
+                stateWrites.remove(playerId);
+                result.complete(false);
+                return;
+            }
+            result.complete(persistSet(playerId, rank, vanished, restoreSelectedMode, selectedGameMode));
+        })) {
             stateWrites.remove(playerId);
             player.sendMessage(StaffMessageStyle.style(Component.text("The bounded work queue is full; vanish was not changed.")));
+            result.complete(false);
         }
+        return result;
     }
 
-    private void persistSet(
+    private boolean persistSet(
             UUID playerId,
             StaffRank rank,
             boolean vanished,
@@ -388,7 +429,7 @@ public final class VanishManager implements Listener {
             VanishStore loaded = store.get();
             if (loaded == null) {
                 message(playerId, "Vanish storage is not ready; no visibility change was made.");
-                return;
+                return false;
             }
             persistState(loaded, playerId, rank, vanished, selectedGameMode);
             rememberCommittedState(playerId, rank, vanished, restoreSelectedMode, selectedGameMode);
@@ -411,9 +452,11 @@ public final class VanishManager implements Listener {
                             presenceViewers
                     )
             );
+            return true;
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.SEVERE, "Vanish state change failed", exception);
             message(playerId, "Vanish change failed; inspect the sanitized server log.");
+            return false;
         } finally {
             stateWrites.remove(playerId);
         }
