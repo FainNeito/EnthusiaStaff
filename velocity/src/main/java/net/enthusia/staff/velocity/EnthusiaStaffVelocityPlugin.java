@@ -1100,10 +1100,6 @@ public final class EnthusiaStaffVelocityPlugin {
     }
 
     private void enforceSafeServerSwitch(ServerPreConnectEvent event) {
-        if (staffHandoffs.inProgress(event.getPlayer().getUniqueId())) {
-            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
-            return;
-        }
         InventoryJournalStore inventories = inventoryJournalStore;
         EconomyJournalStore economies = economyJournalStore;
         if (inventories == null || economies == null) {
@@ -1123,7 +1119,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private void enforceStaffReconnectOwnership(ServerPreConnectEvent event) {
         StaffSessionStore sessions = staffSessionStore;
         if (sessions == null) {
-            denyServerSwitchWhenActive(event, "Staff recovery status is temporarily unavailable. Please retry shortly.");
+            // Staff lifecycle state should not make the proxy unavailable. Paper will recover
+            // the session when storage becomes reachable.
             return;
         }
         try {
@@ -1132,23 +1129,31 @@ public final class EnthusiaStaffVelocityPlugin {
                 staffReconnects.disconnected(event.getPlayer().getUniqueId());
                 return;
             }
+
             var snapshot = session.orElseThrow();
-            String requested = event.getOriginalServer().getServerInfo().getName();
-            staffReconnects.remember(
-                    event.getPlayer().getUniqueId(),
-                    snapshot,
-                    requested,
-                    Clock.systemUTC().instant()
-            );
-            var backend = proxy.getServer(snapshot.serverId());
-            if (backend.isEmpty()) {
-                denyServerSwitch(event, "Your staff snapshot belongs to an unavailable backend. Contact an administrator for recovery.");
+            if (snapshot.state() == net.enthusia.staff.domain.staff.StaffSessionState.ACTIVE) {
+                // ACTIVE is network-wide intent, not a command to force the player back to the
+                // last backend. The requested backend captures/rebinds its own local snapshot.
+                staffReconnects.disconnected(event.getPlayer().getUniqueId());
                 return;
             }
-            event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+
+            // EXITING/RECOVERY_REQUIRED still owns an exact backend-local restoration and is
+            // the only case where reconnect routing is justified.
+            String requested = event.getOriginalServer().getServerInfo().getName();
+            if (!StaffSessionTransferPolicy.recoveryReturnAllowed(
+                    snapshot.serverId(),
+                    snapshot.state(),
+                    requested,
+                    snapshot.serverId()
+            )) {
+                return;
+            }
+            proxy.getServer(snapshot.serverId()).ifPresent(owner ->
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(owner)));
         } catch (RuntimeException exception) {
-            logger.error("Staff snapshot ownership lookup failed during reconnect", exception);
-            denyServerSwitch(event, "Staff recovery status could not be verified. Please retry shortly.");
+            // Never reject login solely because Staff Mode lifecycle lookup failed.
+            logger.warn("Staff snapshot ownership lookup failed during reconnect; allowing requested backend", exception);
         }
     }
 
