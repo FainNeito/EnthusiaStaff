@@ -8,9 +8,9 @@ import net.enthusia.staff.domain.auth.StaffRank;
  * destination backend through the proxy during a server transfer.
  *
  * <p>This is intentionally small: it captures only live visibility/game-mode metadata that the
- * destination may need before join-message handling. It never carries or authorizes the durable
- * Staff Mode inventory/player-state snapshot. The source backend must release that durable session
- * before the proxy may prepare the destination.</p>
+ * destination may use during join handling. It never carries, replaces, or authorizes restoration
+ * of the durable Staff Mode inventory/player-state snapshot. Correctness comes from backend-local
+ * snapshot ownership and destination rebind, not from receipt or timing of this metadata.</p>
  */
 public record StaffTransferSnapshot(
         UUID playerId,
