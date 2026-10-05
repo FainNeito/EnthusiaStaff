@@ -1,5 +1,47 @@
 # Latest agent handoff
 
+## Owner investigation reconciliation verification, 2026-10-05
+
+Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
+Frozen executable head b96453c7282024ab54b520b660da8a94791d534c incorporates
+canonical main 72529729983d01b700bad2de3956d64c1286f101 (PR #326) from owner
+33db2038. Investigation tools, configurable layouts, patrol/activity safeguards,
+name completion and automatic fresh-entry vanish are retained. Reconciliation
+preserves activeRank plus activeSessionId, owner vanish operation-ticket
+invalidation alongside session-scoped writes, explicit exit for all ranks,
+duty-mode authority, native transfer snapshots and known-name output. Upstream
+and owner status sections are retained, with this selected owner package first.
+
+Confirmed completion regression: shared root completion omitted confirm and its
+second argument delegated to the old unfiltered completer. Two added tests fail
+against the merged pre-fix routing and pass after routing confirm through bounded,
+permission/visibility-filtered names and retaining the root keyword. Exact draft
+ID execution fallback remains unchanged. This is local completion proof, not
+client acceptance. Existing recovery wiring tests track the new future-returning
+set/persist method signatures without weakening lifecycle assertions.
+
+Focused Paper command/staff/visibility, Velocity and domain investigation tests
+pass. Full frozen-head Java 25.0.3 clean test/check/runtimeJars passes: 1,692 tests,
+zero failures/errors, two Windows symlink skips. Integration test classes compile;
+Docker/MariaDB execution was not retried and is NOT PASSED. Wiki 41 pages,
+whitespace, runtime ZIP CRC and RoseChat provider exclusions pass. Test.10 JARs
+are unmerged/local test artifacts only. Review includes command/GUI authorization,
+owner scheduling, patrol cancellation, bounded completion, transaction rollback
+and previous owner repairs. Core build remains root aggregate; provider interfaces
+and component pins are unchanged. Canonical added V24 is incorporated byte-for-
+byte; prior migration files are unchanged. Its cross-PR migration ordering/release
+gate remains open; no upgrade or production migration acceptance is claimed.
+
+Changed package-state inputs justified a new orchestration comparison: owner and
+isolated canonical main each report 460 findings, with zero introduced/missing
+findings. The validator is FAILED, not passed. EARS/state helpers remain absent;
+bounded requirements/tasks/evidence remain the fallback. Hosted/static, database,
+staging, provider runtime and Java/Bedrock/Folia acceptance remain unverified.
+Next: inspect exact-head CI/reviews and obtain missing acceptance through normal
+reviewed delivery. No product merge, production deployment, permission change or
+authority activation. Exact delivery heads/hashes are recorded in PR #1. This
+section supersedes earlier verification/build records for the selected package.
+
 ## Owner investigation reconciliation requirement, 2026-10-05
 
 Same owner bug-fix package remains PARTIAL / ACTIONABLE_CONTINUATION in PR #1.
