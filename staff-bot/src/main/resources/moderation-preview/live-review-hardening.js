@@ -195,23 +195,45 @@ function dmPreviewNode(w) {
 }
 
 function punishmentNotificationPreview(w) {
-  const action = String(w.actual?.action || 'action').toLowerCase();
-  const duration = w.duration && w.duration !== '—' ? ` for ${w.duration}` : '';
+  const action = notificationPreviewAction(w);
   const rows = [
     element('strong',{className:'notification-preview-title',text:'Punishment Alert'}),
-    element('p',{text:`You have been ${action} on the Enthusia SMP Discord${duration}.`}),
-    element('p',{},element('strong',{text:'Reason: '}),document.createTextNode(w.offense?.label || 'Custom')),
-    element('p',{},element('strong',{text:'Staff explanation: '}),document.createTextNode(String(w.reason || '').trim() || 'None provided'))
-  ];
-  if (!['warning','kick'].includes(action)) {
-    rows.push(element('p',{},element('strong',{text:'Expires: '}),
-      document.createTextNode(w.duration === 'Permanent'
-        ? 'Permanent'
-        : 'Discord timestamp and live countdown generated from the confirmed action time')));
-  }
-  rows.push(element('p',{className:'muted small',text:
-    'Appeal: Enthusia Discord appeal channel or Enthusia.info/appeal'}));
+    element('p',{text:`You have been ${action} on the Enthusia SMP Discord${notificationPreviewDuration(w)}.`}),
+    notificationPreviewReason(w),
+    notificationPreviewExplanation(w),
+    notificationPreviewExpiry(w,action),
+    element('p',{className:'muted small',text:
+      'Appeal: Enthusia Discord appeal channel or Enthusia.info/appeal'})
+  ].filter(Boolean);
   return element('div',{className:'notification-preview-body'},rows);
+}
+
+function notificationPreviewAction(w) {
+  return String(w.actual?.action || 'action').toLowerCase();
+}
+
+function notificationPreviewDuration(w) {
+  if (!w.duration || w.duration === '—') return '';
+  return ` for ${w.duration}`;
+}
+
+function notificationPreviewReason(w) {
+  return element('p',{},element('strong',{text:'Reason: '}),
+    document.createTextNode(w.offense?.label || 'Custom'));
+}
+
+function notificationPreviewExplanation(w) {
+  const explanation = String(w.reason || '').trim() || 'None provided';
+  return element('p',{},element('strong',{text:'Staff explanation: '}),
+    document.createTextNode(explanation));
+}
+
+function notificationPreviewExpiry(w,action) {
+  if (['warning','kick'].includes(action)) return null;
+  const expiry = w.duration === 'Permanent'
+    ? 'Permanent'
+    : 'Discord timestamp and live countdown generated from the confirmed action time';
+  return element('p',{},element('strong',{text:'Expires: '}),document.createTextNode(expiry));
 }
 
 function actionDmText(w) {
