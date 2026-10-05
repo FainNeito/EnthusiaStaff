@@ -148,9 +148,9 @@ final class PaperStaffModeHandoffHandler {
         UUID playerId = uuid(payload, PLAYER_ID_FIELD);
         UUID transferId = uuid(payload, TRANSFER_ID_FIELD);
         if (transferSnapshots != null) {
-            // Capture the lightweight visibility snapshot before the durable close so it can
-            // be forwarded after ownership is safely released. It never substitutes for closing
-            // the source backend's inventory/session snapshot.
+            // Capture lightweight visibility metadata early so the destination may present
+            // vanish immediately. It never substitutes for backend-local saved-state ownership;
+            // source disconnect/detach and destination capture/rebind remain authoritative.
             try {
                 transferSnapshots.captureAndUpload(playerId, transferId);
             } catch (RuntimeException exception) {
