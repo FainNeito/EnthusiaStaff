@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 import net.enthusia.staff.protocol.PersistentChannelServer;
@@ -26,15 +25,17 @@ class StaffModeBackendHandoffCoordinatorTest {
     private static final String HUB = "HUB";
 
     @Test
-    void closesSourceBeforePreparingDestination() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
-        FakeTransport transport = new FakeTransport(active, true);
-        var coordinator = coordinator(transport, active);
+    void sourceLifecycleFailureNeverDeniesBackendTravel() {
+        FakeTransport transport = new FakeTransport();
+        transport.statuses.put(
+                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
+                PersistentChannelServer.DeliveryStatus.REJECTED
+        );
+        var coordinator = coordinator(transport);
 
         var decision = coordinator.transfer(PLAYER, session(), SMP, HUB, TRANSFER);
 
         assertTrue(decision.allowed());
-        assertTrue(active.get().isEmpty());
         assertTrue(transport.types.equals(List.of(
                 StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
                 StaffModeBackendHandoffCoordinator.PREPARE_RESUME
@@ -42,107 +43,58 @@ class StaffModeBackendHandoffCoordinatorTest {
     }
 
     @Test
-    void lostExitAcknowledgementIsSafeWhenDurableSessionClosed() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
-        FakeTransport transport = new FakeTransport(active, true);
+    void destinationPrepareFailureNeverDeniesBackendTravel() {
+        FakeTransport transport = new FakeTransport();
         transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
-                PersistentChannelServer.DeliveryStatus.TIMED_OUT
-        );
-        var decision = coordinator(transport, active).transfer(PLAYER, session(), SMP, HUB, TRANSFER);
-
-        assertTrue(decision.allowed());
-    }
-
-    @Test
-    void sourceClosureFailureStopsBeforeDestinationPreparation() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
-        FakeTransport transport = new FakeTransport(active, false);
-        transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
+                StaffModeBackendHandoffCoordinator.PREPARE_RESUME,
                 PersistentChannelServer.DeliveryStatus.REJECTED
         );
 
-        var decision = coordinator(transport, active).transfer(PLAYER, session(), SMP, HUB, TRANSFER);
-
-        assertFalse(decision.allowed());
-        assertFalse(decision.reconcile());
-        assertTrue(transport.types.equals(List.of(
-                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
-                StaffModeBackendHandoffCoordinator.ABORT_SOURCE
-        )));
-    }
-
-    @Test
-    void unacknowledgedSourceAbortRequiresReconciliation() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
-        FakeTransport transport = new FakeTransport(active, false);
-        transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
-                PersistentChannelServer.DeliveryStatus.TIMED_OUT
-        );
-        transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.ABORT_SOURCE,
-                PersistentChannelServer.DeliveryStatus.TIMED_OUT
-        );
-
-        var decision = coordinator(transport, active).transfer(PLAYER, session(), SMP, HUB, TRANSFER);
-
-        assertFalse(decision.allowed());
-        assertTrue(decision.reconcile());
-        assertTrue(transport.types.equals(List.of(
-                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
-                StaffModeBackendHandoffCoordinator.ABORT_SOURCE
-        )));
-    }
-
-    @Test
-    void sourceCloseThatWinsBeforeAbortRecheckContinuesTransfer() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
-        FakeTransport transport = new FakeTransport(active, false);
-        transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
-                PersistentChannelServer.DeliveryStatus.TIMED_OUT
-        );
-        transport.closeOnAbort = true;
-
-        var decision = coordinator(transport, active).transfer(PLAYER, session(), SMP, HUB, TRANSFER);
+        var decision = coordinator(transport).transfer(PLAYER, session(), SMP, HUB, TRANSFER);
 
         assertTrue(decision.allowed());
         assertTrue(transport.types.equals(List.of(
                 StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
-                StaffModeBackendHandoffCoordinator.ABORT_SOURCE,
                 StaffModeBackendHandoffCoordinator.PREPARE_RESUME
         )));
     }
 
     @Test
-    void destinationFailureRequestsSourceRollback() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
-        FakeTransport transport = new FakeTransport(active, true);
-        transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.PREPARE_RESUME,
-                PersistentChannelServer.DeliveryStatus.REJECTED
-        );
+    void unavailableControlChannelStillAllowsBackendTravel() {
+        var coordinator = new StaffModeBackendHandoffCoordinator(() -> null, ignored -> Optional.of(session()));
 
-        var decision = coordinator(transport, active).transfer(PLAYER, session(), SMP, HUB, TRANSFER);
+        var decision = coordinator.transfer(PLAYER, session(), SMP, HUB, TRANSFER);
 
-        assertFalse(decision.allowed());
-        assertTrue(decision.message().contains("rollback was accepted on the current backend"));
-        assertTrue(transport.types.equals(List.of(
-                StaffModeBackendHandoffCoordinator.EXIT_REQUEST,
-                StaffModeBackendHandoffCoordinator.PREPARE_RESUME,
-                StaffModeBackendHandoffCoordinator.CANCEL_RESUME,
-                StaffModeBackendHandoffCoordinator.ROLLBACK_RESUME
-        )));
+        assertTrue(decision.allowed());
     }
 
     @Test
-    void failedConnectionCancelsDestinationBeforeRollingBackSource() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.empty());
-        FakeTransport transport = new FakeTransport(active, false);
+    void nonOwnerLifecycleStateDoesNotBlockBackendTravel() {
+        FakeTransport transport = new FakeTransport();
+        StaffSessionSnapshot recovery = new StaffSessionSnapshot(
+                SESSION,
+                PLAYER,
+                HUB,
+                StaffSessionState.RECOVERY_REQUIRED,
+                true,
+                1,
+                "a".repeat(64),
+                new byte[]{1},
+                Instant.parse("2026-10-01T00:00:00Z"),
+                7L
+        );
 
-        var decision = coordinator(transport, active).recoverFailedConnection(PLAYER, SMP, HUB, TRANSFER);
+        var decision = coordinator(transport).transfer(PLAYER, recovery, SMP, HUB, TRANSFER);
+
+        assertTrue(decision.allowed());
+        assertTrue(transport.types.isEmpty());
+    }
+
+    @Test
+    void failedConnectionCanStillRequestDestinationCancelAndSourceRollback() {
+        FakeTransport transport = new FakeTransport();
+
+        var decision = coordinator(transport).recoverFailedConnection(PLAYER, SMP, HUB, TRANSFER);
 
         assertFalse(decision.allowed());
         assertTrue(transport.types.equals(List.of(
@@ -152,39 +104,15 @@ class StaffModeBackendHandoffCoordinatorTest {
     }
 
     @Test
-    void destinationRetryUsesThePreparedTransferIdentity() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.empty());
-        FakeTransport transport = new FakeTransport(active, false);
+    void destinationRetryUsesPreparedTransferIdentity() {
+        FakeTransport transport = new FakeTransport();
 
-        assertTrue(coordinator(transport, active).retryDestination(PLAYER, HUB, TRANSFER));
+        assertTrue(coordinator(transport).retryDestination(PLAYER, HUB, TRANSFER));
         assertTrue(transport.types.equals(List.of(StaffModeBackendHandoffCoordinator.ROLLBACK_RESUME)));
     }
 
-    @Test
-    void rollbackFailureReportsSafeOriginalStateWithoutClaimingModeRestored() {
-        AtomicReference<Optional<StaffSessionSnapshot>> active = new AtomicReference<>(Optional.of(session()));
-        FakeTransport transport = new FakeTransport(active, true);
-        transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.PREPARE_RESUME,
-                PersistentChannelServer.DeliveryStatus.REJECTED
-        );
-        transport.statuses.put(
-                StaffModeBackendHandoffCoordinator.ROLLBACK_RESUME,
-                PersistentChannelServer.DeliveryStatus.REJECTED
-        );
-
-        var decision = coordinator(transport, active).transfer(PLAYER, session(), SMP, HUB, TRANSFER);
-
-        assertFalse(decision.allowed());
-        assertTrue(decision.message().contains("original state is safe"));
-        assertFalse(decision.message().contains("was restored on"));
-    }
-
-    private static StaffModeBackendHandoffCoordinator coordinator(
-            FakeTransport transport,
-            AtomicReference<Optional<StaffSessionSnapshot>> active
-    ) {
-        return new StaffModeBackendHandoffCoordinator(() -> transport, ignored -> active.get());
+    private static StaffModeBackendHandoffCoordinator coordinator(FakeTransport transport) {
+        return new StaffModeBackendHandoffCoordinator(() -> transport, ignored -> Optional.of(session()));
     }
 
     private static StaffSessionSnapshot session() {
@@ -203,16 +131,8 @@ class StaffModeBackendHandoffCoordinatorTest {
     }
 
     private static final class FakeTransport implements StaffModeBackendHandoffCoordinator.Transport {
-        private final AtomicReference<Optional<StaffSessionSnapshot>> active;
-        private final boolean closeDurably;
-        private boolean closeOnAbort;
         private final Map<String, PersistentChannelServer.DeliveryStatus> statuses = new HashMap<>();
         private final List<String> types = new ArrayList<>();
-
-        private FakeTransport(AtomicReference<Optional<StaffSessionSnapshot>> active, boolean closeDurably) {
-            this.active = active;
-            this.closeDurably = closeDurably;
-        }
 
         @Override
         public Set<String> connectedServers() {
@@ -228,12 +148,6 @@ class StaffModeBackendHandoffCoordinatorTest {
                 Duration timeout
         ) {
             types.add(messageType);
-            if (StaffModeBackendHandoffCoordinator.EXIT_REQUEST.equals(messageType) && closeDurably) {
-                active.set(Optional.empty());
-            }
-            if (StaffModeBackendHandoffCoordinator.ABORT_SOURCE.equals(messageType) && closeOnAbort) {
-                active.set(Optional.empty());
-            }
             return statuses.getOrDefault(messageType, PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED);
         }
     }

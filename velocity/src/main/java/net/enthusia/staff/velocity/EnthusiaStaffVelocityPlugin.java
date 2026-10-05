@@ -1101,10 +1101,6 @@ public final class EnthusiaStaffVelocityPlugin {
     }
 
     private void enforceSafeServerSwitch(ServerPreConnectEvent event) {
-        if (staffHandoffs.inProgress(event.getPlayer().getUniqueId())) {
-            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
-            return;
-        }
         InventoryJournalStore inventories = inventoryJournalStore;
         EconomyJournalStore economies = economyJournalStore;
         if (inventories == null || economies == null) {
@@ -1124,7 +1120,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private void enforceStaffReconnectOwnership(ServerPreConnectEvent event) {
         StaffSessionStore sessions = staffSessionStore;
         if (sessions == null) {
-            denyServerSwitchWhenActive(event, "Staff recovery status is temporarily unavailable. Please retry shortly.");
+            // Do not make the proxy unavailable solely because Staff lifecycle storage is
+            // temporarily missing. Paper will reconcile once storage is reachable.
             return;
         }
         try {
@@ -1133,23 +1130,54 @@ public final class EnthusiaStaffVelocityPlugin {
                 staffReconnects.disconnected(event.getPlayer().getUniqueId());
                 return;
             }
+
             var snapshot = session.orElseThrow();
             String requested = event.getOriginalServer().getServerInfo().getName();
-            staffReconnects.remember(
-                    event.getPlayer().getUniqueId(),
-                    snapshot,
-                    requested,
-                    Clock.systemUTC().instant()
-            );
-            var backend = proxy.getServer(snapshot.serverId());
-            if (backend.isEmpty()) {
-                denyServerSwitch(event, "Your staff snapshot belongs to an unavailable backend. Contact an administrator for recovery.");
+
+            if (snapshot.state() == net.enthusia.staff.domain.staff.StaffSessionState.ACTIVE) {
+                if (net.enthusia.staff.domain.staff.StaffSessionOwnership.detached(snapshot.serverId())
+                        || snapshot.serverId().equalsIgnoreCase(requested)) {
+                    staffReconnects.disconnected(event.getPlayer().getUniqueId());
+                    return;
+                }
+
+                // An ACTIVE lease on another backend means that backend still has an
+                // unrecovered local player-state snapshot (typically an extremely fast
+                // reconnect or a backend restart). Recover there first, then STAFF_MODE_READY
+                // automatically continues to the backend the player originally selected.
+                staffReconnects.remember(
+                        event.getPlayer().getUniqueId(),
+                        snapshot,
+                        requested,
+                        Clock.systemUTC().instant()
+                );
+                var backend = proxy.getServer(snapshot.serverId());
+                if (backend.isPresent()) {
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+                } else if (logger.isWarnEnabled()) {
+                    logger.warn(
+                            "Staff snapshot owner {} is unavailable for {}; allowing requested backend {} without blocking login",
+                            snapshot.serverId(),
+                            event.getPlayer().getUniqueId(),
+                            requested
+                    );
+                }
                 return;
             }
-            event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+
+            // EXITING/RECOVERY_REQUIRED owns an exact restoration. Route to the owner when
+            // available, but never turn an unavailable Staff backend into a network login ban.
+            if (!snapshot.serverId().equalsIgnoreCase(requested)) {
+                proxy.getServer(snapshot.serverId()).ifPresent(owner ->
+                        event.setResult(ServerPreConnectEvent.ServerResult.allowed(owner)));
+            }
         } catch (RuntimeException exception) {
-            logger.error("Staff snapshot ownership lookup failed during reconnect", exception);
-            denyServerSwitch(event, "Staff recovery status could not be verified. Please retry shortly.");
+            if (logger.isWarnEnabled()) {
+                logger.warn(
+                        "Staff snapshot ownership lookup failed during reconnect; allowing requested backend",
+                        exception
+                );
+            }
         }
     }
 
@@ -1193,24 +1221,33 @@ public final class EnthusiaStaffVelocityPlugin {
 
     private void enforceModerationSwitchSafety(ServerPreConnectEvent event) {
         FreezeStore freezes = freezeStore;
-        StaffSessionStore sessions = staffSessionStore;
-        if (freezes == null || sessions == null) {
-            denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
+        if (freezes == null) {
+            denyServerSwitchWhenActive(event, "Server switching is unavailable while freeze status is verified.");
             return;
         }
+        UUID playerId = event.getPlayer().getUniqueId();
         try {
-            UUID playerId = event.getPlayer().getUniqueId();
             if (freezes.active(playerId, Clock.systemUTC().instant()).isPresent()) {
                 denyServerSwitch(event, "You cannot switch servers while frozen by staff.");
                 return;
             }
-            var session = sessions.active(playerId);
-            if (session.isPresent()) {
-                enforceStaffSessionSwitch(event, sessions, session.orElseThrow());
-            }
         } catch (RuntimeException exception) {
-            logger.error("Moderation safety lookup failed during server switch", exception);
-            denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
+            logger.error("Freeze safety lookup failed during server switch", exception);
+            denyServerSwitchWhenActive(event, "Server switching is unavailable while freeze status is verified.");
+            return;
+        }
+
+        StaffSessionStore sessions = staffSessionStore;
+        if (sessions == null) {
+            return;
+        }
+        try {
+            sessions.active(playerId).ifPresent(session ->
+                    enforceStaffSessionSwitch(event, sessions, session));
+        } catch (RuntimeException exception) {
+            // Staff Mode lifecycle must not trap a player on one backend. Paper restores/detaches
+            // on disconnect and the destination retries durable rebind on join.
+            logger.warn("Staff Mode handoff lookup failed; allowing backend switch for {}", playerId, exception);
         }
     }
 
@@ -1222,34 +1259,37 @@ public final class EnthusiaStaffVelocityPlugin {
         String current = event.getPreviousServer().getServerInfo().getName();
         String requested = event.getResult().getServer()
                 .orElse(event.getOriginalServer()).getServerInfo().getName();
-        if (StaffSessionTransferPolicy.recoveryReturnAllowed(
-                session.serverId(), session.state(), current, requested)) {
-            return;
-        }
         if (!StaffSessionTransferPolicy.activeHandoffAllowed(
                 session.serverId(), session.state(), current, requested)) {
-            denyServerSwitch(event, "You cannot switch backends while this Staff Mode snapshot requires recovery.");
             return;
         }
+
         UUID playerId = event.getPlayer().getUniqueId();
         UUID transferId = UUID.randomUUID();
         if (!staffHandoffs.begin(playerId, current, requested, transferId, Clock.systemUTC().instant())) {
-            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
             return;
         }
-        StaffModeBackendHandoffCoordinator coordinator = handoffCoordinator(sessions);
-        var decision = coordinator.transfer(
-                playerId, session, current, requested, transferId, transferSnapshots::take);
-        if (!decision.allowed()) {
-            if (decision.reconcile()) {
-                scheduleStaffHandoffTimeout(playerId, transferId);
-            } else {
-                staffHandoffs.clear(playerId, transferId);
-            }
-            denyServerSwitch(event, decision.message());
-            return;
+
+        try {
+            handoffCoordinator(sessions).transfer(
+                    playerId,
+                    session,
+                    current,
+                    requested,
+                    transferId,
+                    transferSnapshots::take
+            );
+            scheduleStaffHandoffTimeout(playerId, transferId);
+        } catch (RuntimeException exception) {
+            staffHandoffs.clear(playerId, transferId);
+            logger.warn(
+                    "Staff Mode optimized handoff failed; allowing {} to switch {} -> {} and using lifecycle recovery",
+                    playerId,
+                    current,
+                    requested,
+                    exception
+            );
         }
-        scheduleStaffHandoffTimeout(playerId, transferId);
     }
 
     /**

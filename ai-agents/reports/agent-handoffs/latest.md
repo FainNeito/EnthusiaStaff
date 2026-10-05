@@ -1,5 +1,26 @@
 # Latest agent handoff
 
+## Owner transfer reconciliation requirement, 2026-10-05
+
+Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
+From owner 61d0712c, canonical upstream ba6dcabc (PR #321) changes backend
+snapshot ownership, detach/rebind, restart recovery and transfer ordering.
+Requirement: incorporate local saved-state ownership and non-blocking travel
+without losing friendly names, applied duty-mode authority, explicit exit disabling
+vanish for every rank, or the operation-ticket recovery fence. Destination native
+state must be captured before vanish changes game mode; restoration must not
+persist its temporary mode as a new vanish selection. Transfer metadata remains
+non-authoritative for inventories and durable staff identity.
+
+Resolve the two overlapping manager files, retain both activeRank and transition
+queries, adapt upstream wiring tests to owner mode/exit semantics, and run focused
+staff/vanish/transfer tests followed by exact-head Java 25 clean checks, runtime
+JAR and Wiki verification. Inspect transaction ownership and protocol/provider
+compatibility. No migration bytes or production settings change. Docker/MariaDB
+integration remains unavailable and is not retried; new database lifecycle paths
+therefore remain locally unverified. EARS/state helpers are absent; this bounded
+requirement/task/evidence record is retained. No product merge/deployment.
+
 ## Owner durable recovery fence verification, 2026-10-04
 
 Same owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.

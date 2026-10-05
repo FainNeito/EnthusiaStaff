@@ -250,7 +250,9 @@ public final class VanishManager implements Listener {
             }
         }
         visibility.setVanished(playerId, rank, true);
-        applyVanishGameMode(player);
+        if (!staffMode.transitioning(playerId)) {
+            applyVanishGameMode(player);
+        }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshViewer(playerId);
         audiences.refreshTarget(playerId);
@@ -475,7 +477,9 @@ public final class VanishManager implements Listener {
     ) {
         UUID playerId = player.getUniqueId();
         if (vanished) {
-            applyVanishGameMode(player);
+            if (!staffMode.transitioning(playerId)) {
+                applyVanishGameMode(player);
+            }
         } else if (restoreSelectedMode) {
             restoreSelectedGameMode(player);
         } else {
@@ -800,14 +804,13 @@ public final class VanishManager implements Listener {
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
-        if (visibility.isVanished(playerId) && staffMode.restoringSavedState(playerId)) {
+        boolean restoringStaffState = staffMode.restoringSavedState(playerId);
+        if (restoringStaffState) {
             recoveryFence.invalidate(playerId);
-            pendingStaffModeExitDisables.add(playerId);
-            visibility.setVanished(playerId, onlineStaffRanks.get(playerId), false);
-            selectedGameModes.remove(playerId);
-            hiddenSpectators.remove(playerId);
         }
-        if (visibility.isVanished(playerId) && !vanishGameModeApplications.contains(playerId)) {
+        if (visibility.isVanished(playerId)
+                && !restoringStaffState
+                && !vanishGameModeApplications.contains(playerId)) {
             StaffRank rank = resolveLiveRank(player);
             if (!isSelectableGameMode(playerId, rank, event.getNewGameMode())) {
                 event.setCancelled(true);
@@ -1124,7 +1127,9 @@ public final class VanishManager implements Listener {
         durableVanishedRanks.put(playerId, record.rank());
         rememberPersistedGameMode(record);
         visibility.setVanished(playerId, record.rank(), true);
-        applyVanishGameMode(player);
+        if (!staffMode.transitioning(playerId)) {
+            applyVanishGameMode(player);
+        }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshViewer(playerId);
         audiences.refreshTarget(playerId);
@@ -1145,7 +1150,7 @@ public final class VanishManager implements Listener {
     private void reconcileVanishGameMode(Player player) {
         UUID playerId = player.getUniqueId();
         if (!visibility.isVanished(playerId) || pendingStaffModeExitDisables.contains(playerId)
-                || staffMode.restoringSavedState(playerId)) {
+                || staffMode.transitioning(playerId) || staffMode.restoringSavedState(playerId)) {
             return;
         }
         StaffRank rank = onlineStaffRanks.get(playerId);
@@ -1186,6 +1191,9 @@ public final class VanishManager implements Listener {
 
     private void applyVanishGameMode(Player player) {
         UUID playerId = player.getUniqueId();
+        if (staffMode.transitioning(playerId)) {
+            return;
+        }
         StaffRank rank = resolveLiveRank(player);
         ModeAuthority authority = modeAuthority(playerId, rank);
         GameMode selected = VanishGameModePolicy.reconcile(authority.rank(),
@@ -1211,7 +1219,8 @@ public final class VanishManager implements Listener {
     public void onSelectedGameModeCommitted(PlayerGameModeChangeEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
-        if (!visibility.isVanished(playerId) || vanishGameModeApplications.contains(playerId)) {
+        if (!visibility.isVanished(playerId) || vanishGameModeApplications.contains(playerId)
+                || staffMode.transitioning(playerId) || staffMode.restoringSavedState(playerId)) {
             return;
         }
         GameMode selected = event.getNewGameMode();
