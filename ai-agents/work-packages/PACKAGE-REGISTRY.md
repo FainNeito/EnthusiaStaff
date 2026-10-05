@@ -1,5 +1,7 @@
 # Package registry
 
+2026-10-05 owner routing extension: continue `OWNER-INVESTIGATION-TOOLS` / PR #322 with the staff GUI cleanup (IT-06..08). Current main refetched and verified at `18d4f4b05af94ee325842c68d482feedabe5d27f`; existing clean isolated implementation branch reused. Player investigation shortcuts reuse existing services; no second product package, new persistence or provider integration. Status remains PARTIAL / ACTIONABLE_CONTINUATION pending exact-head validation and reviewed delivery.
+
 Last updated: 2026-09-24
 
 Live GitHub overrides stale text. Detailed historical evidence remains in package files and canonical handoffs; this registry is the current routing authority.

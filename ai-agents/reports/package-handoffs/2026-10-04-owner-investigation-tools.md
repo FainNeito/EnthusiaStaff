@@ -1,5 +1,15 @@
 # OWNER-INVESTIGATION-TOOLS handoff
 
+## GUI extension, 2026-10-05
+
+Owner requested GUI recommendations and streamlining; continue this same package/PR. Refetched upstream main remains `18d4f4b05af94ee325842c68d482feedabe5d27f`; implementation starts from clean existing `bee3307a3d59b4c5cae6abe411c1f01514c45fae`. Other owner GUI and transfer branches remain untouched.
+
+Implemented fixed grouped dashboard tools; permission-filtered player overview/history/flags/client/inventory/ender/punishment shortcuts; separate Close and confirmed Exit; loading cancellation via Back; permission-aware `/stafftools help`. Typed holders retain actor/target UUIDs, target snapshots use owning schedulers, and delayed investigation delivery requires the original inventory still open plus live session/inspect/action permissions and visibility. Mutations remain in existing command/service workflows; no automatic evidence save or punishment. UUID routing is retained except the existing client command's name-only interface.
+
+Proof: focused routing suite first failed two fixed-slot/filter assertions against previous code, then all eight view/routing tests passed after implementation. No historical red/green claim for prior features. Full clean build/unit/runtime checks and exact-head hosted/static/review evidence must follow. Existing MariaDB/Docker, migration-order and live Java/Bedrock acceptance gaps remain; no unchanged unavailable gate is retried. No additional migration or provider API is changed in this slice.
+
+Future unified timeline, durable investigation ownership/handoff, follow-up inbox and evidence bundles are not implemented by these shortcuts. Review existing Discord investigation ownership before introducing persistence. Canonical status is still incomplete until the documentation-publication PR reaches main; merging remains unauthorized.
+
 Status: PARTIAL / ACTIONABLE_CONTINUATION. Explicit owner assignment after LuxStaff review.
 Canonical base: `18d4f4b05af94ee325842c68d482feedabe5d27f`; isolated branch `package/owner-investigation-tools`.
 

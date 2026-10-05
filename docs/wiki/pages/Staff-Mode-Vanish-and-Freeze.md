@@ -21,6 +21,7 @@ For implementation status and source files, use [[Staff Tools, Investigations, a
 /freeze list
 /unfreeze <player> <reason> CONFIRM
 /stafftools
+/stafftools help
 /stafftools random
 /stafftools spectate <player>
 /cheattester ...

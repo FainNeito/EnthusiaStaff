@@ -1,5 +1,7 @@
 # Latest agent handoff
 
+2026-10-05: owner extended the same investigation-tools package with GUI streamlining. Follow the canonical investigation handoff and IT-06..08. New work stays in PR #322; no merge/deployment authorization.
+
 Owner-directed current work: **OWNER-INVESTIGATION-TOOLS — PARTIAL / ACTIONABLE_CONTINUATION**. See [canonical handoff](../package-handoffs/2026-10-04-owner-investigation-tools.md) and [contract](../../work-packages/packages/OWNER-INVESTIGATION-TOOLS.md). This supersedes routing for this worker only; the historical Market handoff below is preserved. No merge or deployment authorization.
 
 

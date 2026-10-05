@@ -10,6 +10,12 @@ Existing user checkout and its untracked artifact are preserved.
 
 ## Spec and acceptance boundaries
 
+Owner extension, 2026-10-05: streamline the existing GUI workflow in this same package/PR.
+- IT-06: WHEN permissions change, authorized tools SHALL retain fixed grouped menu positions; hidden tools SHALL NOT be routable. Close SHALL only close; leaving Staff Mode SHALL require a separate confirmation.
+- IT-07: WHEN a staff viewer selects a player for inspection, a player investigation menu SHALL expose only authorized existing command workflows. Click delivery SHALL recheck the active session, inspector permission, action permission and target visibility. No client evidence is automatically saved and no punishment is automatically issued.
+- IT-08: WHEN `/stafftools help` or menu command help is requested, only available tools and authorized investigation command shortcuts SHALL be shown. Existing commands and hotbar behavior SHALL remain compatible.
+Proof: add regressions for fixed routing under permission filtering, control-slot separation, empty authorized lists and permission-filtered investigation actions. No project EARS/state helpers exist; record evidence here.
+
 - IT-01: WHEN patrol succeeds, subsequent patrols SHALL prefer eligible players not recently visited by that actor; failures SHALL NOT consume visits. History SHALL be bounded and cleared on quit. Existing target and actor guards remain mandatory.
 - IT-02: WHEN accepted player interaction events occur, the inspector SHALL show their latest local-session timestamps only to viewers with `enthusiastaff.inspect.activity`. Session records SHALL be bounded and removed on quit; no cheating inference is made.
 - IT-03: Staff SHALL create and resolve configurable investigation flags with separate view/edit permissions, actor, reason, expiry and optional verified target case. Durable creation and resolution audit SHALL commit atomically. Flags never impose sanctions.

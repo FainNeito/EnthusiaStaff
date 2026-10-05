@@ -83,7 +83,9 @@ Freeze state is designed to survive ordinary runtime transitions rather than bei
 
 `/staff` enters/exits durable staff mode.
 
-`/stafftools` opens an inventory menu for staff operational utilities, including controlled teleport and spectate paths. It only shows the actions available to the active staff session. Inspector, freeze and spectate use a refreshed online-player picker that excludes the staff member and vanished players, then routes the selected target through the same command/service checks as the hotbar. The command also has text fallbacks (`random`, `spectate <player>`) for operational use.
+`/stafftools` opens the Staff Dashboard. Investigation tools occupy the upper row; patrol and session tools occupy the lower row. Authorized tools keep fixed positions when other tools are hidden. Choosing an inspector target opens a player investigation menu with permission-filtered overview, history, flags/notes, live client evidence, inventory, ender chest and punishment-workflow shortcuts. Other target tools retain their existing command/service paths. Pickers exclude the viewer and vanished players. Menu delivery rechecks permissions, session and visibility; closed or replaced menus cannot deliver delayed investigation actions. Client evidence is review-only until explicitly saved, and punishment selection retains its existing confirmation workflow.
+
+Close menu keeps Staff Mode active. Exit Staff Mode is a separate button with confirmation. `/stafftools help` and the menu's command-help button show permitted shortcuts; existing `random`, `spectate <player>`, inspector/history/client/flags and moderation commands remain available. This GUI cleanup is proposed in the unmerged investigation-tools PR; Java/Bedrock client usability still requires runtime acceptance.
 
 Staff tools have explicit exemptions/permissions so ordinary moderation helpers do not automatically receive every invasive capability.
 
