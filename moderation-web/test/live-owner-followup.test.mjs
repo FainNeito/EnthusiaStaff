@@ -41,9 +41,9 @@ test('message paging and initial session loading avoid unnecessary serial and fu
   assert.match(source, /Loading \$\{direction\}…/);
 });
 
-test('custom punishment duration accepts arbitrary positive lengths and permanent', async () => {
+test('custom punishment duration is constrained to number and unit dropdown values', async () => {
   const source = await readFile(RECORD, 'utf8');
-  const start = source.indexOf('const DURATION_VALUE_PATTERN');
+  const start = source.indexOf('const DURATION_UNITS');
   const end = source.indexOf('function actionHasDuration', start);
   assert.ok(start >= 0 && end > start);
 
@@ -51,7 +51,6 @@ test('custom punishment duration accepts arbitrary positive lengths and permanen
   vm.runInNewContext(`${source.slice(start, end)}; result = [
     normalizePunishmentDuration('60 days'),
     normalizePunishmentDuration('12 hours'),
-    normalizePunishmentDuration('12h'),
     normalizePunishmentDuration('1 month'),
     normalizePunishmentDuration('permanent'),
     normalizePunishmentDuration('0 days'),
@@ -59,9 +58,10 @@ test('custom punishment duration accepts arbitrary positive lengths and permanen
   ];`, context);
 
   assert.deepEqual(Array.from(context.result), [
-    '60 days', '12 hours', '12 hours', '1 month', 'Permanent', null, null
+    '60 days', '12 hours', '1 month', 'Permanent', null, null
   ]);
-  assert.match(source, /60 days, 12 hours, 90 minutes, Permanent/);
+  assert.match(source, /customDurationAmount/);
+  assert.match(source, /customDurationUnit/);
+  assert.match(source, /minutes','hours','days','months','permanent/);
   assert.match(source, /workflowDurationReady/);
-  assert.match(source, /Enter a duration such as 60 days/);
 });
