@@ -293,7 +293,7 @@ function addSearchText(params) {
 
 function addSearchAuthor(params) {
   const author = String(state.author || '').trim();
-  if (/^[1-9][0-9]{0,19}$/.test(author)) params.set('author', author);
+  if (author) params.set('author', author);
 }
 
 function addSearchDate(params) {
