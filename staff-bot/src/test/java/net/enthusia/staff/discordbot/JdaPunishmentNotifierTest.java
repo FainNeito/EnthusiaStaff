@@ -22,6 +22,8 @@ import org.junit.jupiter.api.Test;
 
 class JdaPunishmentNotifierTest {
     private static final Instant NOW = Instant.parse("2026-10-05T05:00:00Z");
+    private static final String TARGET_USER_ID = "123";
+    private static final String GUILD_ID = "456";
 
     @Test
     void temporaryDiscordPunishmentIsReadableAndUsesDiscordExpiryTimestamp() {
@@ -29,8 +31,8 @@ class JdaPunishmentNotifierTest {
         DiscordPunishment punishment = DiscordPunishment.pending(
                 UUID.randomUUID(),
                 new ModerationSubjectId(UUID.randomUUID()),
-                new DiscordUserId("123"),
-                new DiscordGuildId("456"),
+                new DiscordUserId(TARGET_USER_ID),
+                new DiscordGuildId(GUILD_ID),
                 new Actor(UUID.randomUUID(), "Staff", StaffRank.ADMIN),
                 new DiscordPunishmentIntent(
                         DiscordConsequenceType.MUTE,
@@ -69,8 +71,8 @@ class JdaPunishmentNotifierTest {
         DiscordPunishment punishment = DiscordPunishment.pending(
                 UUID.randomUUID(),
                 new ModerationSubjectId(UUID.randomUUID()),
-                new DiscordUserId("123"),
-                new DiscordGuildId("456"),
+                new DiscordUserId(TARGET_USER_ID),
+                new DiscordGuildId(GUILD_ID),
                 new Actor(UUID.randomUUID(), "Staff", StaffRank.ADMIN),
                 new DiscordPunishmentIntent(
                         DiscordConsequenceType.WARNING,
@@ -97,7 +99,7 @@ class JdaPunishmentNotifierTest {
     void linkedMinecraftBanMessageUsesPlayerNameReasonAndAppealRoutes() {
         String message = JdaPunishmentNotifier.minecraftBanMessage(
                 new JdaPunishmentNotifier.MinecraftBanNotification(
-                        "123",
+                        TARGET_USER_ID,
                         "ExamplePlayer",
                         "Cheating",
                         NOW,
@@ -121,8 +123,8 @@ class JdaPunishmentNotifierTest {
                         Duration.ofDays(30),
                         Duration.ofDays(30)
                 ),
-                "123",
-                Set.of("456"),
+                TARGET_USER_ID,
+                Set.of(GUILD_ID),
                 "Support message",
                 Duration.ofMinutes(1),
                 Duration.ofSeconds(1)
