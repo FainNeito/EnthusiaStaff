@@ -17,6 +17,19 @@ public interface StaffSessionStore {
 
     Optional<StaffSessionSnapshot> active(UUID staffId);
 
+    /**
+     * Releases the backend-local saved-state lease after that exact state has been restored,
+     * while keeping network Staff Mode intent active for reconnect/transfer.
+     */
+    Optional<StaffSessionSnapshot> detach(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    );
+
     Optional<StaffSessionSnapshot> beginExit(UUID staffId, Instant now);
 
     boolean completeExit(UUID sessionId, String restoredChecksum, Instant now);
