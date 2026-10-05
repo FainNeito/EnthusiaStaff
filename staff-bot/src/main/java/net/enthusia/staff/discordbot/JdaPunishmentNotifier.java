@@ -1,14 +1,28 @@
 package net.enthusia.staff.discordbot;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.exceptions.ErrorResponseException;
+import net.enthusia.staff.domain.auth.DiscordConsequenceType;
 import net.enthusia.staff.domain.discord.DiscordDeliveryOutcome;
 import net.enthusia.staff.domain.discord.DiscordPunishment;
 
-/** Sends player-facing D07 notifications without changing enforcement state. */
+/** Sends player-facing moderation notifications without changing enforcement state. */
 final class JdaPunishmentNotifier {
+    static final String APPEAL_CHANNEL =
+            "https://discord.com/channels/1410303324745371709/1511217148230373568";
+    static final String APPEAL_SITE = "https://enthusia.info/appeal";
+    private static final String SECTION_BREAK = "\n\n";
+    private static final List<String> PRIVATE_EXPLANATION_PREFIXES = List.of(
+            "Discord message reference:",
+            "External evidence reference:"
+    );
+
     private final DiscordPunishmentConfiguration configuration;
 
     JdaPunishmentNotifier(DiscordPunishmentConfiguration configuration) {
@@ -19,38 +33,117 @@ final class JdaPunishmentNotifier {
     }
 
     DiscordDeliveryOutcome notifyApplied(JDA jda, DiscordPunishment punishment) {
-        return notify(jda, punishment, appliedMessage(punishment));
+        return notify(jda, punishment.targetUserId().value(), appliedMessage(punishment));
     }
 
     DiscordDeliveryOutcome notifyRemoved(JDA jda, DiscordPunishment punishment) {
-        return notify(jda, punishment, removalMessage(punishment));
+        return notify(jda, punishment.targetUserId().value(), removalMessage(punishment));
     }
 
-    private DiscordDeliveryOutcome notify(JDA jda, DiscordPunishment punishment, String message) {
-        if (!punishment.intent().notifyTarget()) {
-            return DiscordDeliveryOutcome.NOT_ATTEMPTED;
-        }
+    DiscordDeliveryOutcome notifyMinecraftBan(JDA jda, MinecraftBanNotification notification) {
+        return notify(jda, notification.discordUserId(), minecraftBanMessage(notification));
+    }
+
+    private DiscordDeliveryOutcome notify(JDA jda, String userId, String message) {
         try {
-            User user = jda.retrieveUserById(punishment.targetUserId().value()).complete();
-            user.openPrivateChannel().complete().sendMessage(message).complete();
+            User user = jda.retrieveUserById(userId).complete();
+            user.openPrivateChannel().complete()
+                    .sendMessage(message)
+                    .setAllowedMentions(List.of())
+                    .complete();
             return DiscordDeliveryOutcome.DELIVERED;
         } catch (RuntimeException failure) {
             return failureOutcome(failure);
         }
     }
 
-    private String appliedMessage(DiscordPunishment punishment) {
-        return "Enthusia moderation action: " + punishment.intent().type()
-                + "\nDuration: " + duration(punishment)
-                + "\nReason: " + punishment.intent().publicReason()
-                + "\n" + configuration.supportMessage();
+    String appliedMessage(DiscordPunishment punishment) {
+        DiscordConsequenceType type = punishment.intent().type();
+        String durationClause = hasExpiry(type) ? " for `%s`".formatted(duration(punishment)) : "";
+        String explanation = playerSafeExplanation(punishment.intent().internalExplanation())
+                .map(value -> "**Staff explanation:** " + value + SECTION_BREAK)
+                .orElse("");
+        String expiry = hasExpiry(type) ? expiryText(punishment.expiresAt()) : "";
+        return "# Punishment Alert" + SECTION_BREAK
+                + "You have been `" + actionName(type) + "` on the Enthusia SMP Discord"
+                + durationClause + "." + SECTION_BREAK
+                + "**Reason:** " + punishment.intent().publicReason() + SECTION_BREAK
+                + explanation
+                + expiry
+                + appealText();
     }
 
-    private String removalMessage(DiscordPunishment punishment) {
-        return "Enthusia moderation update: " + punishment.intent().type()
-                + " " + punishment.termination().name().toLowerCase(Locale.ROOT)
-                + "\nOriginal reason: " + punishment.intent().publicReason()
-                + "\n" + configuration.supportMessage();
+    String removalMessage(DiscordPunishment punishment) {
+        return "# Punishment Update" + SECTION_BREAK
+                + "Your Enthusia SMP Discord `" + actionName(punishment.intent().type())
+                + "` has been " + removalAction(punishment) + "." + SECTION_BREAK
+                + "**Original reason:** " + punishment.intent().publicReason() + SECTION_BREAK
+                + appealText();
+    }
+
+    static String minecraftBanMessage(MinecraftBanNotification notification) {
+        String timing = notification.expiresAt().isPresent()
+                ? " until the time shown below"
+                : " permanently";
+        return "# Punishment Alert" + SECTION_BREAK
+                + "Your Minecraft account `" + notification.minecraftName()
+                + "` has been `banned` from the Enthusia SMP" + timing + "." + SECTION_BREAK
+                + "**Reason:** " + notification.publicReason() + SECTION_BREAK
+                + expiryText(notification.expiresAt())
+                + appealText();
+    }
+
+    private static Optional<String> playerSafeExplanation(String internal) {
+        if (internal == null || internal.isBlank()) {
+            return Optional.empty();
+        }
+        String result = internal.lines()
+                .map(String::strip)
+                .filter(line -> !line.isBlank())
+                .filter(line -> PRIVATE_EXPLANATION_PREFIXES.stream().noneMatch(line::startsWith))
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("")
+                .strip();
+        return result.isEmpty() ? Optional.empty() : Optional.of(result);
+    }
+
+    private static boolean hasExpiry(DiscordConsequenceType type) {
+        return type != DiscordConsequenceType.WARNING && type != DiscordConsequenceType.KICK;
+    }
+
+    private static String expiryText(Optional<Instant> expiresAt) {
+        if (expiresAt.isEmpty()) {
+            return "**Expires:** Permanent" + SECTION_BREAK;
+        }
+        long epoch = expiresAt.orElseThrow().getEpochSecond();
+        return "**Expires:** <t:%d:F> (<t:%d:R>)".formatted(epoch, epoch) + SECTION_BREAK;
+    }
+
+    private static String appealText() {
+        return "If you believe this punishment is incorrect, you can appeal in "
+                + "[the Enthusia appeal channel](" + APPEAL_CHANNEL + ")"
+                + " or at [Enthusia.info/appeal](" + APPEAL_SITE + ").";
+    }
+
+    private static String removalAction(DiscordPunishment punishment) {
+        return switch (punishment.termination()) {
+            case END -> "ended";
+            case REVOKE -> "revoked";
+            case OVERTURN -> "overturned";
+            case EXPIRE -> "expired";
+            case NONE -> "updated";
+        };
+    }
+
+    private static String actionName(DiscordConsequenceType type) {
+        return switch (type) {
+            case WARNING -> "warned";
+            case MUTE -> "muted";
+            case KICK -> "kicked";
+            case BAN -> "banned";
+            case CHANNEL_RESTRICTION -> "restricted";
+            default -> type.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+        };
     }
 
     private static DiscordDeliveryOutcome failureOutcome(RuntimeException failure) {
@@ -71,7 +164,44 @@ final class JdaPunishmentNotifier {
         return switch (punishment.intent().length().kind()) {
             case INSTANT -> "instant";
             case PERMANENT -> "permanent";
-            case TEMPORARY -> punishment.intent().length().temporary().orElseThrow().toString();
+            case TEMPORARY -> friendlyDuration(punishment.intent().length().temporary().orElseThrow());
         };
+    }
+
+    private static String friendlyDuration(Duration duration) {
+        long days = duration.toDays();
+        if (days > 0 && duration.equals(Duration.ofDays(days))) {
+            return plural(days, "day");
+        }
+        long hours = duration.toHours();
+        if (hours > 0 && duration.equals(Duration.ofHours(hours))) {
+            return plural(hours, "hour");
+        }
+        long minutes = duration.toMinutes();
+        if (minutes > 0 && duration.equals(Duration.ofMinutes(minutes))) {
+            return plural(minutes, "minute");
+        }
+        return duration.toString();
+    }
+
+    private static String plural(long amount, String unit) {
+        return amount + " " + unit + (amount == 1 ? "" : "s");
+    }
+
+    record MinecraftBanNotification(
+            String discordUserId,
+            String minecraftName,
+            String publicReason,
+            Instant issuedAt,
+            Optional<Instant> expiresAt
+    ) {
+        MinecraftBanNotification {
+            if (discordUserId == null || discordUserId.isBlank()
+                    || minecraftName == null || minecraftName.isBlank()
+                    || publicReason == null || publicReason.isBlank()
+                    || issuedAt == null || expiresAt == null) {
+                throw new IllegalArgumentException("Minecraft ban notification is incomplete");
+            }
+        }
     }
 }

@@ -17,7 +17,7 @@ window.renderWorkflow = function () {
 window.openWorkflow = function () {
   if (state.session?.staging !== false || !liveActionCapabilities?.minecraftEnabled) return originalLiveOpenWorkflow();
   if (state.deleting.size) return showToast('Clear message deletion selections before issuing a Minecraft punishment.', true);
-  minecraftWorkflow = {target:'', reason:'', explanation:'', prepared:null, result:null, busy:false, uncertain:false};
+  minecraftWorkflow = {target:'', family:'', reason:'', explanation:'', prepared:null, result:null, busy:false, uncertain:false};
   state.workflow = {minecraft:true};
   const accounts = liveModeration.bootstrap?.linkedAccounts || [];
   if (accounts.length === 1) minecraftWorkflow.target = accounts[0].playerId;
@@ -124,16 +124,31 @@ function prepareMinecraftFrame(workflow, body, footer) {
 
 function renderMinecraftPrepare(workflow, body, footer) {
   const target = element('input',{id:'minecraftTarget',value:workflow.target,placeholder:'Minecraft username or UUID',attrs:{maxlength:36,autocomplete:'off'}});
-  const reasons = element('select',{id:'minecraftReason'},optionNode('','Select a configured reason',true));
-  for (const reason of liveActionCapabilities.minecraftReasons || []) {
-    reasons.appendChild(optionNode(reason.id, reason.family + ' — ' + reason.label, workflow.reason === reason.id));
+  target.addEventListener('input',() => { workflow.target = target.value.trim(); });
+  body.appendChild(fieldLabel('Minecraft player',target));
+  const configured = liveActionCapabilities?.configuredReasons;
+  const reasons = Array.isArray(configured)
+    ? configured
+    : Array.isArray(liveActionCapabilities.minecraftReasons) ? liveActionCapabilities.minecraftReasons : [];
+  if (!workflow.family) {
+    renderMinecraftReasonFamilies(workflow,body,reasons);
+    return;
+  }
+  renderMinecraftReasonChoices(workflow,body,reasons);
+  if (!workflow.reason) return;
+  const selected = reasons.find(reason => reason.id === workflow.reason);
+  if (selected && typeof catalogLadderCard === 'function') {
+    body.appendChild(catalogLadderCard(selected,{relevantCount:typeof realRelevantHistoryCount === 'function'
+      ? realRelevantHistoryCount(selected.family) : 0}));
+  }
+  if (selected?.minecraftSupported === false) {
+    body.appendChild(element('div',{className:'alert warning'},
+      element('strong',{text:'In-game workflow required'}),
+      element('span',{text:'This exact reason includes a configured consequence the website is not allowed to execute. The full ladder is shown for reference; issue it through the in-game punishment workflow.'})));
+    return;
   }
   const explanation = element('textarea',{id:'minecraftExplanation',value:workflow.explanation,attrs:{maxlength:4000,rows:5},placeholder:'Internal explanation and evidence references'});
-  target.addEventListener('input',() => { workflow.target = target.value.trim(); });
-  reasons.addEventListener('change',() => { workflow.reason = reasons.value; });
   explanation.addEventListener('input',() => { workflow.explanation = explanation.value; });
-  body.appendChild(fieldLabel('Minecraft player',target));
-  body.appendChild(fieldLabel('Configured reason',reasons));
   body.appendChild(fieldLabel('Internal explanation',explanation));
   const prepare = buttonNode(workflow.busy ? 'Preparing…' : 'Review punishment','button primary',{});
   prepare.disabled = workflow.busy;
@@ -142,6 +157,57 @@ function renderMinecraftPrepare(workflow, body, footer) {
     performMinecraftAction('prepare');
   });
   footer.appendChild(prepare);
+}
+
+function renderMinecraftReasonFamilies(workflow, body, reasons) {
+  const families = new Map();
+  for (const reason of reasons) {
+    const current = families.get(reason.family) || [];
+    current.push(reason);
+    families.set(reason.family,current);
+  }
+  body.appendChild(stepIntro('Choose punishment category','Select a general category, then the exact configured reason.'));
+  body.appendChild(catalogRulesLink());
+  const grid = element('div',{className:'option-grid catalog-category-grid'});
+  for (const [family,items] of [...families.entries()].sort(([left],[right]) => left.localeCompare(right))) {
+    const button = buttonNode('', 'choice-card', {});
+    button.append(element('strong',{text:catalogFamilyLabel(family)}),
+      element('span',{text:`${items.length} configured reason${items.length === 1 ? '' : 's'}`}));
+    button.addEventListener('click',() => {
+      workflow.family = family;
+      workflow.reason = '';
+      renderMinecraftPunishment();
+    });
+    grid.appendChild(button);
+  }
+  body.appendChild(grid);
+}
+
+function renderMinecraftReasonChoices(workflow, body, reasons) {
+  const familyReasons = reasons.filter(reason => reason.family === workflow.family);
+  const heading = element('div',{className:'section-heading'},
+    element('div',{},element('h3',{text:catalogFamilyLabel(workflow.family)}),
+      element('p',{text:'Choose the exact configured reason.'})));
+  const back = buttonNode('Back to categories','text-button',{});
+  back.addEventListener('click',() => {
+    workflow.family = '';
+    workflow.reason = '';
+    renderMinecraftPunishment();
+  });
+  heading.appendChild(back);
+  body.appendChild(heading);
+  const grid = element('div',{className:'option-grid catalog-reason-grid'});
+  for (const reason of familyReasons) {
+    const button = catalogReasonChoice(reason);
+    if (workflow.reason === reason.id) button.classList.add('suggested');
+    button.removeAttribute('data-policy-reason');
+    button.addEventListener('click',() => {
+      workflow.reason = reason.id;
+      renderMinecraftPunishment();
+    });
+    grid.appendChild(button);
+  }
+  body.appendChild(grid);
 }
 
 function renderPreparedMinecraftSummary(workflow, body) {

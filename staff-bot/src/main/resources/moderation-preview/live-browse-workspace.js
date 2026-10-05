@@ -307,6 +307,8 @@ function showContextWorkspace(trigger,context,previous) {
   state.date = 'all';
   state.dateFrom = '';
   state.dateTo = '';
+  state.remoteSearchActive = false;
+  state.remoteSearchCriteria = null;
   state.selectedOnly = false;
   state.contextId = trigger.id;
   liveModeration.olderCursor = null;

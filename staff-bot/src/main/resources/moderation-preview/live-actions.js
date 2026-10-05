@@ -107,9 +107,14 @@ function liveRestriction(workflow, type) {
 
 function actionDuration(label) {
   if (label === 'Permanent') return 'permanent';
-  const match = /^([1-9][0-9]*) (minutes?|hours?|days?)$/.exec(label);
+  const match = /^([1-9][0-9]*) (minutes?|hours?|days?|months?)$/.exec(label);
   if (!match) throw new Error('Select a valid duration.');
-  return match[1] + ({m:'m',h:'h',d:'d'}[match[2][0]]);
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  if (unit.startsWith('month')) return String(amount * 30) + 'd';
+  if (unit.startsWith('minute')) return amount + 'm';
+  if (unit.startsWith('hour')) return amount + 'h';
+  return amount + 'd';
 }
 
 const simulationReviewStep = window.renderReviewStep;

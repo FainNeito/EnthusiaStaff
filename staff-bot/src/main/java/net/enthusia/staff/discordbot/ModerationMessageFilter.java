@@ -18,11 +18,24 @@ final class ModerationMessageFilter {
     }
 
     private static Predicate<Message> authorPredicate(ModerationReadApiModel.MessageQuery query) {
-        if (query.authorId().isEmpty()) {
+        if (query.authorId().isPresent()) {
+            long author = ModerationReadRequestAuthorizer.snowflake(query.authorId().orElseThrow(), "author");
+            return message -> message.getAuthor().getIdLong() == author;
+        }
+        if (query.authorText().isEmpty()) {
             return message -> true;
         }
-        long author = ModerationReadRequestAuthorizer.snowflake(query.authorId().orElseThrow(), "author");
-        return message -> message.getAuthor().getIdLong() == author;
+        String author = query.authorText().orElseThrow().strip().toLowerCase(Locale.ROOT);
+        if (author.isEmpty()) {
+            return message -> true;
+        }
+        return message -> authorText(message).contains(author);
+    }
+
+    private static String authorText(Message message) {
+        String username = message.getAuthor().getName();
+        String globalName = message.getAuthor().getGlobalName();
+        return (username + " " + (globalName == null ? "" : globalName)).toLowerCase(Locale.ROOT);
     }
 
     private static Predicate<Message> textPredicate(ModerationReadApiModel.MessageQuery query) {

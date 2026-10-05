@@ -4,6 +4,8 @@ import vm from 'node:vm';
 import test from 'node:test';
 
 const RECORD = new URL('../../staff-bot/src/main/resources/moderation-preview/live-record-usability.js', import.meta.url);
+const SHELL = new URL('../../staff-bot/src/main/resources/moderation-preview/live-shell-usability.js', import.meta.url);
+const ENHANCEMENTS = new URL('../../staff-bot/src/main/resources/moderation-preview/live-enhancements.js', import.meta.url);
 const BROWSE = new URL('../../staff-bot/src/main/resources/moderation-preview/live-browse-workspace.js', import.meta.url);
 
 test('message context loads an around-message neighborhood from every author', async () => {
@@ -41,9 +43,52 @@ test('message paging and initial session loading avoid unnecessary serial and fu
   assert.match(source, /Loading \$\{direction\}…/);
 });
 
-test('custom punishment duration accepts arbitrary positive lengths and permanent', async () => {
+test('remote search paging uses submitted criteria instead of edited unsubmitted inputs', async () => {
   const source = await readFile(RECORD, 'utf8');
-  const start = source.indexOf('const DURATION_VALUE_PATTERN');
+  const start = source.indexOf('function currentMessageRequestParams');
+  const end = source.indexOf('async function fasterLoadMessageRequest', start);
+  assert.ok(start >= 0 && end > start);
+
+  const context = {
+    state:{
+      channel:'123',
+      remoteSearchActive:true,
+      remoteSearchCriteria:{text:'submitted phrase',author:'Alice',date:'2026-10-04'},
+      search:'edited phrase',
+      author:'Bob'
+    },
+    URLSearchParams,
+    Object
+  };
+  vm.runInNewContext(`const LIVE_MESSAGE_PAGE_LIMIT = '50';
+    ${source.slice(start, end)}
+    result = Object.fromEntries(currentMessageRequestParams().entries());`, context);
+
+  assert.deepEqual({...context.result}, {
+    channel:'123',limit:'50',text:'submitted phrase',author:'Alice',date:'2026-10-04'
+  });
+});
+
+test('empty remote search reloads the normal page and context preserves the submitted search snapshot', async () => {
+  const [shell, enhancements, browse] = await Promise.all([
+    readFile(SHELL, 'utf8'), readFile(ENHANCEMENTS, 'utf8'), readFile(BROWSE, 'utf8')
+  ]);
+  const start = shell.indexOf('async function runDiscordHistorySearch');
+  const end = shell.indexOf('function discordHistorySearchParams', start);
+  const emptyBranch = shell.slice(start, end);
+
+  assert.match(emptyBranch, /state\.remoteSearchActive = false/);
+  assert.match(emptyBranch, /state\.remoteSearchCriteria = null/);
+  assert.match(emptyBranch, /await loadChannelPage\(\)/);
+  assert.match(shell, /state\.remoteSearchCriteria = submittedHistorySearchCriteria\(params\)/);
+  assert.match(enhancements, /remoteSearchCriteria:state\.remoteSearchCriteria \? \{\.\.\.state\.remoteSearchCriteria\} : null/);
+  assert.match(enhancements, /state\.remoteSearchCriteria = previous\.remoteSearchCriteria/);
+  assert.match(browse, /state\.remoteSearchCriteria = null/);
+});
+
+test('custom punishment duration is constrained to number and unit dropdown values', async () => {
+  const source = await readFile(RECORD, 'utf8');
+  const start = source.indexOf('const DURATION_UNITS');
   const end = source.indexOf('function actionHasDuration', start);
   assert.ok(start >= 0 && end > start);
 
@@ -51,7 +96,6 @@ test('custom punishment duration accepts arbitrary positive lengths and permanen
   vm.runInNewContext(`${source.slice(start, end)}; result = [
     normalizePunishmentDuration('60 days'),
     normalizePunishmentDuration('12 hours'),
-    normalizePunishmentDuration('12h'),
     normalizePunishmentDuration('1 month'),
     normalizePunishmentDuration('permanent'),
     normalizePunishmentDuration('0 days'),
@@ -59,9 +103,10 @@ test('custom punishment duration accepts arbitrary positive lengths and permanen
   ];`, context);
 
   assert.deepEqual(Array.from(context.result), [
-    '60 days', '12 hours', '12 hours', '1 month', 'Permanent', null, null
+    '60 days', '12 hours', '1 month', 'Permanent', null, null
   ]);
-  assert.match(source, /60 days, 12 hours, 90 minutes, Permanent/);
+  assert.match(source, /customDurationAmount/);
+  assert.match(source, /customDurationUnit/);
+  assert.match(source, /minutes','hours','days','months','permanent/);
   assert.match(source, /workflowDurationReady/);
-  assert.match(source, /Enter a duration such as 60 days/);
 });

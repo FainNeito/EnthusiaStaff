@@ -70,7 +70,24 @@ public final class StaffWebPunishmentService {
         }
     }
 
-    public record Reason(String id, String family, String label) { }
+    public record Reason(
+            String id,
+            String family,
+            String label,
+            int severity,
+            String requiredRank,
+            boolean minecraftSupported,
+            List<ReasonStep> ladder
+    ) {
+        public Reason {
+            ladder = List.copyOf(ladder);
+        }
+    }
+    public record ReasonStep(int ordinal, String label, List<Consequence> consequences) {
+        public ReasonStep {
+            consequences = List.copyOf(consequences);
+        }
+    }
     public record Consequence(String type, String duration) { }
     public record Prepared(UUID confirmationId, UUID targetId, String targetName, String reasonId,
             String reason, String explanation, List<Consequence> consequences, String expiresAt) { }
@@ -143,12 +160,17 @@ public final class StaffWebPunishmentService {
         if (request.confirmationId() != null) {
             throw new IllegalArgumentException("unexpected confirmation");
         }
-        return Map.of("enabled", dependencies.mode().get() == OperationalMode.ACTIVE
+        List<Reason> configuredReasons = dependencies.policies().all().stream()
+                .filter(policy -> visibleAtRank(actor, policy))
+                .sorted(Comparator.comparing(ReasonPolicy::family).thenComparing(ReasonPolicy::id))
+                .map(StaffWebPunishmentService::reason)
+                .toList();
+        return Map.of(
+                "enabled", dependencies.mode().get() == OperationalMode.ACTIVE
                         && dependencies.workflows().get() != null,
-                "reasons", dependencies.policies().all().stream().filter(StaffWebPunishmentService::supported)
-                        .filter(policy -> visibleAtRank(actor, policy))
-                        .sorted(Comparator.comparing(ReasonPolicy::family).thenComparing(ReasonPolicy::id))
-                        .map(policy -> new Reason(policy.id(), policy.family(), policy.publicReason())).toList());
+                "reasons", configuredReasons.stream().filter(Reason::minecraftSupported).toList(),
+                "configuredReasons", configuredReasons
+        );
     }
 
     private PlayerIdentity authorizedTarget(Request request, Actor actor) {
@@ -289,6 +311,24 @@ public final class StaffWebPunishmentService {
         if (request.reasonId() != null || request.explanation() != null) {
             throw new IllegalArgumentException("this operation cannot change the prepared intent");
         }
+    }
+
+    private static Reason reason(ReasonPolicy policy) {
+        return new Reason(
+                policy.id(),
+                policy.family(),
+                policy.publicReason(),
+                policy.severity(),
+                policy.requiredRank().name(),
+                supported(policy),
+                policy.steps().stream()
+                        .map(step -> new ReasonStep(
+                                step.ordinal(),
+                                step.label(),
+                                step.sanctions().stream().map(StaffWebPunishmentService::consequence).toList()
+                        ))
+                        .toList()
+        );
     }
 
     private static boolean supported(ReasonPolicy policy) {

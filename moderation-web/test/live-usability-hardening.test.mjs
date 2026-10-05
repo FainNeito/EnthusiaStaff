@@ -7,6 +7,8 @@ const MESSAGE = new URL('../../staff-bot/src/main/resources/moderation-preview/l
 const RECORD = new URL('../../staff-bot/src/main/resources/moderation-preview/live-record-usability.js', import.meta.url);
 const REVIEW = new URL('../../staff-bot/src/main/resources/moderation-preview/live-review-hardening.js', import.meta.url);
 const POLICY = new URL('../../staff-bot/src/main/resources/moderation-preview/real-policy.js', import.meta.url);
+const CATALOG = new URL('../../staff-bot/src/main/resources/moderation-preview/live-policy-catalog.js', import.meta.url);
+const MINECRAFT = new URL('../../staff-bot/src/main/resources/moderation-preview/live-minecraft-actions.js', import.meta.url);
 const CSS = new URL('../../staff-bot/src/main/resources/moderation-preview/live.css', import.meta.url);
 
 test('product chrome removes staging diagnostics while final review keeps one truthful test boundary', async () => {
@@ -22,12 +24,15 @@ test('product chrome removes staging diagnostics while final review keeps one tr
   assert.doesNotMatch(review, /Confirm preview/);
 });
 
-test('message investigation explains partial coverage and supports paging, ranges, clearing, and Discord links', async () => {
+test('message investigation uses explicit server-side history search without rerendering on each typed character', async () => {
   const [shell, message] = await Promise.all([readFile(SHELL, 'utf8'), readFile(MESSAGE, 'utf8')]);
 
-  assert.match(shell, /Filters search', 'Loaded messages only/);
+  assert.match(shell, /Search Discord history/);
+  assert.match(shell, /Server-side Discord history search/);
+  assert.match(shell, /runDiscordHistorySearch/);
+  assert.match(shell, /search\?\.addEventListener\('input'.*state\.search = event\.target\.value/);
+  assert.doesNotMatch(shell, /messageSearch'\)\?\.addEventListener\('input'.*renderWorkspace/);
   assert.match(shell, /up to 50 target messages from at most 8 readable channels/);
-  assert.match(shell, /up to 25 Discord messages at a time/);
   assert.match(shell, /four-page cap per direction/);
   assert.match(shell, /dateFromFilter/);
   assert.match(shell, /dateToFilter/);
@@ -90,6 +95,10 @@ test('final review requires explanation and appropriate evidence while allowing 
   assert.match(review, /Outside-Discord evidence reference/);
   assert.match(review, /Staff explanation/);
   assert.match(review, /Notification message/);
+  assert.match(review, /Punishment Alert/);
+  assert.match(review, /Discord timestamp and live countdown generated from the confirmed action time/);
+  assert.match(review, /Enthusia\.info\/appeal/);
+  assert.doesNotMatch(review, /Enthusia moderation:/);
   assert.doesNotMatch(review, /text:'DM preview'/);
   assert.match(review, /Case readiness/);
   assert.match(policy, /length >= 10/);
@@ -97,15 +106,38 @@ test('final review requires explanation and appropriate evidence while allowing 
   assert.match(policy, /Verify the required Admin\+ approval/);
 });
 
-test('offense choices and recommendations link to public Enthusia rules', async () => {
-  const [review, policy] = await Promise.all([readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8')]);
+test('punishment catalog uses one server-rules entry point and exposes categories, exact reasons, and ladders', async () => {
+  const [review, policy, catalog, record, minecraft] = await Promise.all([
+    readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8'), readFile(CATALOG, 'utf8'),
+    readFile(RECORD, 'utf8'), readFile(MINECRAFT, 'utf8')
+  ]);
 
   assert.match(policy, /https:\/\/enthusia\.info\/rules/);
-  assert.match(policy, /#conduct/);
-  assert.match(policy, /#mods-clients/);
-  assert.match(policy, /#enforcement/);
-  assert.match(review, /View applicable rule/);
-  assert.match(review, /Open rule/);
+  assert.match(catalog, /Open Enthusia server rules/);
+  assert.match(catalog, /Choose punishment category/);
+  assert.match(catalog, /Choose the exact reason/);
+  assert.match(catalog, /Configured punishment ladder/);
+  assert.match(catalog, /reason\.ladder/);
+  assert.match(catalog, /Punishment catalog unavailable/);
+  assert.match(catalog, /No fallback punishment list is shown/);
+  assert.doesNotMatch(review, /View applicable rule|Open applicable rule/);
+  assert.doesNotMatch(record, /View rule|Open applicable rule/);
+  assert.match(minecraft, /renderMinecraftReasonFamilies/);
+  assert.match(minecraft, /renderMinecraftReasonChoices/);
+  assert.match(minecraft, /liveActionCapabilities\?\.configuredReasons/);
+  assert.match(minecraft, /selected\?\.minecraftSupported === false/);
+  assert.match(minecraft, /In-game workflow required/);
+  assert.doesNotMatch(minecraft, /id:'minecraftReason'.*element\('select'/s);
+});
+
+test('custom punishment duration uses number and unit dropdowns including months and permanent', async () => {
+  const source = await readFile(RECORD, 'utf8');
+
+  assert.match(source, /customDurationAmount/);
+  assert.match(source, /customDurationUnit/);
+  assert.match(source, /minutes','hours','days','months','permanent/);
+  assert.match(source, /unit === 'permanent'/);
+  assert.doesNotMatch(source, /type:'text'.*customDuration/);
 });
 
 test('record views distinguish empty and unavailable states and clarify identity counts', async () => {
