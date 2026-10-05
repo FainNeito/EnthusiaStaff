@@ -15,11 +15,10 @@ import org.bukkit.plugin.java.JavaPlugin;
 /**
  * Applies cross-server transfer snapshots on arrival.
  *
- * <p>Runs at {@link EventPriority#LOWEST}, before {@link VanishManager}'s join handler, so a
- * transferred vanish is already in effect when the join-message logic runs: vanished staff
- * arriving from another backend never produce a join message. When no snapshot arrived for
- * the player, this listener does nothing and the existing asynchronous database fallback
- * applies unchanged (without blocking the join).</p>
+ * <p>Runs at {@link EventPriority#LOW}, after {@link StaffModeManager}'s LOWEST handoff-resume
+ * capture but before {@link VanishManager}'s HIGHEST join handler. This preserves the
+ * destination backend's native pre-staff game mode/inventory snapshot before transferred vanish
+ * can force Spectator, while still suppressing join presence for vanished staff.</p>
  */
 public final class StaffTransferJoinListener implements Listener {
     private final JavaPlugin plugin;
@@ -36,7 +35,7 @@ public final class StaffTransferJoinListener implements Listener {
         this.vanish = Objects.requireNonNull(vanish, "vanish");
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(priority = EventPriority.LOW)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         Optional<StaffTransferSnapshot> pending = snapshots.consume(player.getUniqueId());
