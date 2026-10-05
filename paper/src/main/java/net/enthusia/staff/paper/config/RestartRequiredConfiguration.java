@@ -32,6 +32,8 @@ public record RestartRequiredConfiguration(
         }
     }
 
+    /** Retained constructor signature for existing runtime and test callers. */
+    @SuppressWarnings("PMD.ExcessiveParameterList")
     public RestartRequiredConfiguration(String storageJdbcUrlEnvironment, String storageUsernameEnvironment,
             String storagePasswordEnvironment, int storageMaximumPoolSize, long storageConnectionTimeoutMillis,
             int workerThreads, int workerQueueCapacity, String networkServerId, String inventoryScopeId,

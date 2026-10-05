@@ -25,6 +25,7 @@ final class StaffToolRandomTeleportService {
     private static final String RANDOM_EXEMPT_PERMISSION = "enthusiastaff.stafftools.random-exempt";
 
     private final net.enthusia.staff.domain.investigation.PatrolHistory history;
+    private final java.util.concurrent.ConcurrentHashMap<UUID, PatrolAttempt> attempts = new java.util.concurrent.ConcurrentHashMap<>();
     private final Platform platform;
     private final String serverId;
     private final Predicate<String> enabled;
@@ -83,10 +84,15 @@ final class StaffToolRandomTeleportService {
             )));
             return;
         }
-        UUID actorId = actor.getUniqueId();
+        PatrolAttempt attempt = new PatrolAttempt(actor.getUniqueId());
+        if (attempts.size() >= 10_000 || attempts.putIfAbsent(attempt.actorId(), attempt) != null) {
+            actor.sendMessage(StaffMessageStyle.style(Component.text("A patrol request is already pending; try again shortly.")));
+            return;
+        }
         try {
-            platform.executeGlobal(() -> collectCandidates(actorId));
+            platform.executeGlobal(() -> collectCandidates(attempt));
         } catch (RuntimeException failure) {
+            attempts.remove(attempt.actorId(), attempt);
             actor.sendMessage(StaffMessageStyle.style(Component.text(
                     "Random staff teleport could not start safely.",
                     NamedTextColor.RED
@@ -94,45 +100,46 @@ final class StaffToolRandomTeleportService {
         }
     }
 
-    private void collectCandidates(UUID actorId) {
+    private void collectCandidates(PatrolAttempt attempt) {
+        if (!current(attempt)) { return; }
         final List<Player> candidates;
         try {
             candidates = List.copyOf(platform.onlinePlayers());
         } catch (RuntimeException failure) {
-            message(actorId, "Random staff teleport could not inspect online players safely.");
+            message(attempt, "Random staff teleport could not inspect online players safely.");
             return;
         }
         if (candidates.isEmpty()) {
-            message(actorId, "No suitable random-teleport target is online.");
+            message(attempt, "No suitable random-teleport target is online.");
             return;
         }
         ConcurrentLinkedQueue<UUID> eligible = new ConcurrentLinkedQueue<>();
         AtomicInteger remaining = new AtomicInteger(candidates.size());
-        Runnable finishedOne = () -> finishCandidateCollection(actorId, eligible, remaining);
+        Runnable finishedOne = () -> finishCandidateCollection(attempt, eligible, remaining);
         for (Player candidate : candidates) {
-            snapshotCandidate(actorId, candidate, eligible, finishedOne);
+            snapshotCandidate(attempt, candidate, eligible, finishedOne);
         }
     }
 
     private void finishCandidateCollection(
-            UUID actorId,
+            PatrolAttempt attempt,
             Collection<UUID> eligible,
             AtomicInteger remaining
     ) {
         if (remaining.decrementAndGet() == 0) {
-            finishTeleport(actorId, eligible);
+            finishTeleport(attempt, eligible);
         }
     }
 
     private void snapshotCandidate(
-            UUID actorId,
+            PatrolAttempt attempt,
             Player target,
             Collection<UUID> eligible,
             Runnable finished
     ) {
         AtomicBoolean settled = new AtomicBoolean();
         Runnable retired = () -> settleCandidate(settled, finished);
-        Runnable inspect = () -> inspectCandidate(actorId, target, eligible, settled, finished);
+        Runnable inspect = () -> inspectCandidate(attempt, target, eligible, settled, finished);
         try {
             boolean scheduled = platform.executeEntity(target, inspect, retired);
             if (!scheduled) {
@@ -144,7 +151,7 @@ final class StaffToolRandomTeleportService {
     }
 
     private void inspectCandidate(
-            UUID actorId,
+            PatrolAttempt attempt,
             Player target,
             Collection<UUID> eligible,
             AtomicBoolean settled,
@@ -154,7 +161,7 @@ final class StaffToolRandomTeleportService {
             return;
         }
         try {
-            if (candidateEligibility.eligible(actorId, target)) {
+            if (candidateEligibility.eligible(attempt.actorId(), target)) {
                 eligible.add(target.getUniqueId());
             }
         } catch (RuntimeException ignored) {
@@ -215,48 +222,53 @@ final class StaffToolRandomTeleportService {
         return StaffToolTargetPolicy.eligibleRandomTarget(candidate);
     }
 
-    private void finishTeleport(UUID actorId, Collection<UUID> candidates) {
+    private void finishTeleport(PatrolAttempt attempt, Collection<UUID> candidates) {
         List<UUID> shuffled = new ArrayList<>(candidates);
         shuffle.accept(shuffled);
-        attemptNextCandidate(actorId, new ConcurrentLinkedQueue<>(history.preferFresh(actorId, shuffled)));
+        attemptNextCandidate(attempt, new ConcurrentLinkedQueue<>(history.preferFresh(attempt.actorId(), shuffled)));
     }
 
-    private void attemptNextCandidate(UUID actorId, ConcurrentLinkedQueue<UUID> candidates) {
+    private void attemptNextCandidate(PatrolAttempt attempt, ConcurrentLinkedQueue<UUID> candidates) {
+        if (!current(attempt)) { return; }
         UUID targetId = candidates.poll();
         if (targetId == null) {
-            message(actorId, "No suitable random-teleport target is online.");
+            message(attempt, "No suitable random-teleport target is online.");
             return;
         }
         onEntity(
                 targetId,
-                target -> revalidateCandidate(actorId, candidates, target),
-                () -> attemptNextCandidate(actorId, candidates)
+                target -> revalidateCandidate(attempt, candidates, target),
+                () -> attemptNextCandidate(attempt, candidates)
         );
     }
 
     private void revalidateCandidate(
-            UUID actorId,
+            PatrolAttempt attempt,
             ConcurrentLinkedQueue<UUID> candidates,
             Player target
     ) {
-        if (!candidateEligibility.eligible(actorId, target)) {
-            attemptNextCandidate(actorId, candidates);
+        if (!current(attempt)) { return; }
+        if (!candidateEligibility.eligible(attempt.actorId(), target)) {
+            attemptNextCandidate(attempt, candidates);
             return;
         }
         TargetSnapshot snapshot = new TargetSnapshot(target.getUniqueId(), target.getName(), target.getLocation().clone());
-        onEntity(actorId, actor -> teleportToSnapshot(actorId, actor, snapshot));
+        onEntity(attempt.actorId(), actor -> teleportToSnapshot(attempt, actor, snapshot),
+                () -> attempts.remove(attempt.actorId(), attempt));
     }
 
-    private void teleportToSnapshot(UUID actorId, Player actor, TargetSnapshot target) {
+    private void teleportToSnapshot(PatrolAttempt attempt, Player actor, TargetSnapshot target) {
+        if (!current(attempt)) { return; }
         if (!canContinue(actor)) {
+            attempts.remove(attempt.actorId(), attempt);
             return;
         }
         try {
             actor.teleportAsync(target.location()).whenComplete(
-                    (success, failure) -> finishTeleport(actorId, target, success, failure)
+                    (success, failure) -> finishTeleport(attempt, target, success, failure)
             );
         } catch (RuntimeException failure) {
-            finishTeleport(actorId, target, false, failure);
+            finishTeleport(attempt, target, false, failure);
         }
     }
 
@@ -275,18 +287,18 @@ final class StaffToolRandomTeleportService {
         return false;
     }
 
-    private void finishTeleport(UUID actorId, TargetSnapshot target, Boolean success, Throwable failure) {
+    private void finishTeleport(PatrolAttempt attempt, TargetSnapshot target, Boolean success, Throwable failure) {
         if (failure != null || !Boolean.TRUE.equals(success)) {
-            message(actorId, "Random staff teleport failed safely; no state was changed.");
+            message(attempt, "Random staff teleport failed safely; no state was changed.");
             return;
         }
-        onEntity(actorId, actor -> {
-            if (canContinue(actor)) {
-                history.visited(actorId, target.playerId());
-                actor.sendMessage(StaffMessageStyle.style(Component.text(
-                        "Teleported to a suitable random player: " + target.name() + '.')));
-            }
-        });
+        onEntity(attempt.actorId(), actor -> {
+            if (!current(attempt)) { return; }
+            history.visited(attempt.actorId(), target.playerId());
+            attempts.remove(attempt.actorId(), attempt);
+            actor.sendMessage(StaffMessageStyle.style(Component.text(
+                    "Teleported to a suitable random player: " + target.name() + '.')));
+        }, () -> attempts.remove(attempt.actorId(), attempt));
     }
 
     private void onEntity(UUID playerId, Consumer<Player> operation) {
@@ -353,8 +365,14 @@ final class StaffToolRandomTeleportService {
         }
     }
 
-    private void message(UUID playerId, String text) {
-        onEntity(playerId, player -> player.sendMessage(StaffMessageStyle.style(Component.text(text))));
+    private boolean current(PatrolAttempt attempt) { return attempts.get(attempt.actorId()) == attempt; }
+
+    private void message(PatrolAttempt attempt, String text) {
+        onEntity(attempt.actorId(), player -> {
+            if (attempts.remove(attempt.actorId(), attempt)) {
+                player.sendMessage(StaffMessageStyle.style(Component.text(text)));
+            }
+        }, () -> attempts.remove(attempt.actorId(), attempt));
     }
 
     @FunctionalInterface
@@ -400,7 +418,13 @@ final class StaffToolRandomTeleportService {
         }
     }
 
-    void forget(UUID playerId) { history.forget(playerId); }
+    void forget(UUID playerId) { history.forget(playerId); attempts.remove(playerId); }
+
+    private static final class PatrolAttempt {
+        private final UUID actorId;
+        private PatrolAttempt(UUID actorId) { this.actorId = actorId; }
+        private UUID actorId() { return actorId; }
+    }
 
     private record TargetSnapshot(UUID playerId, String name, Location location) {
     }

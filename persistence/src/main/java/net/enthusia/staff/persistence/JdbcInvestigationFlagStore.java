@@ -14,6 +14,7 @@ import net.enthusia.staff.domain.investigation.InvestigationFlag;
 import net.enthusia.staff.domain.ports.InvestigationFlagStore;
 
 public final class JdbcInvestigationFlagStore implements InvestigationFlagStore {
+    private static final int ONE_UPDATED_ROW = 1;
     private final DataSource source;
     public JdbcInvestigationFlagStore(DataSource source) { this.source = java.util.Objects.requireNonNull(source, "source"); }
 
@@ -54,17 +55,22 @@ public final class JdbcInvestigationFlagStore implements InvestigationFlagStore 
             try (var result = statement.executeQuery()) {
                 List<InvestigationFlag> flags = new ArrayList<>();
                 while (result.next()) {
-                    Timestamp expiry = result.getTimestamp("expires_at");
-                    String linkedCase = result.getString("case_id");
-                    flags.add(new InvestigationFlag(UuidBytes.fromBytes(result.getBytes("flag_id")),
-                            UuidBytes.fromBytes(result.getBytes("target_id")), UuidBytes.fromBytes(result.getBytes("actor_id")),
-                            result.getString("category"), result.getString("reason"), result.getTimestamp("created_at").toInstant(),
-                            expiry == null ? null : expiry.toInstant(), linkedCase == null ? null : new CaseId(linkedCase)));
+                    flags.add(readFlag(result));
                 }
                 return List.copyOf(flags);
             }
         } catch (SQLException failure) { throw new ModerationPersistenceException("Unable to read investigation flags", failure); }
     }
+
+    private static InvestigationFlag readFlag(java.sql.ResultSet result) throws SQLException {
+        Timestamp expiry = result.getTimestamp("expires_at");
+        String linkedCase = result.getString("case_id");
+        return new InvestigationFlag(UuidBytes.fromBytes(result.getBytes("flag_id")),
+                UuidBytes.fromBytes(result.getBytes("target_id")), UuidBytes.fromBytes(result.getBytes("actor_id")),
+                result.getString("category"), result.getString("reason"), result.getTimestamp("created_at").toInstant(),
+                expiry == null ? null : expiry.toInstant(), linkedCase == null ? null : new CaseId(linkedCase));
+    }
+
 
     @Override public boolean resolve(UUID flagId, UUID actorId, String reason, Instant now) {
         // Reuse the domain's exact identifier/reason constraints before touching storage.
@@ -74,7 +80,7 @@ public final class JdbcInvestigationFlagStore implements InvestigationFlagStore 
                     "UPDATE player_investigation_flags SET resolved_at=? WHERE flag_id=? AND resolved_at IS NULL")) {
                 statement.setTimestamp(1, Timestamp.from(now));
                 statement.setBytes(2, UuidBytes.toBytes(flagId));
-                if (statement.executeUpdate() != 1) { return false; }
+                if (statement.executeUpdate() != ONE_UPDATED_ROW) { return false; }
             }
             audit(connection, flagId, actorId, "RESOLVE", reason, now);
             return true;

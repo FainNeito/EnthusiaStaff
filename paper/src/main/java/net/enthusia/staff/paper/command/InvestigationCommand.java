@@ -25,6 +25,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Explicit in-game flag operations; never a punishment or command execution bypass. */
 public final class InvestigationCommand implements CommandExecutor {
+    private static final String STORAGE_NOT_READY = "Investigation storage is not ready.";
     public static final String VIEW = "enthusiastaff.investigation.view";
     public static final String EDIT = "enthusiastaff.investigation.edit";
     private final JavaPlugin plugin;
@@ -62,19 +63,37 @@ public final class InvestigationCommand implements CommandExecutor {
             sender.sendMessage(StaffMessageStyle.error("Investigation flags require an in-game explicit staff rank."));
             return true;
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("list")) {
-            if (CommandPermissionGate.require(actor, VIEW, "You cannot view investigation flags.")) {
-                submit(actor, () -> list(actor, args[1]));
-            }
-        } else if (args.length >= 6 && args[0].equalsIgnoreCase("add")) {
-            if (canEdit(actor)) { add(actor, args); }
-        } else if (args.length >= 3 && args[0].equalsIgnoreCase("resolve")) {
-            if (canEdit(actor)) { resolve(actor, args); }
-        } else {
-            sender.sendMessage(StaffMessageStyle.style("/staffflags list <player> | add <player> <category> "
-                    + "<hours|permanent> <case-id|none> <reason> | resolve <flag-uuid> <reason>"));
-        }
+        if (args.length == 0) { usage(actor); return true; }
+        route(actor, args);
         return true;
+    }
+
+    private void route(Player actor, String[] args) {
+        switch (args[0].toLowerCase(java.util.Locale.ROOT)) {
+            case "list" -> listRoute(actor, args);
+            case "add" -> addRoute(actor, args);
+            case "resolve" -> resolveRoute(actor, args);
+            default -> usage(actor);
+        }
+    }
+
+    private void listRoute(Player actor, String[] args) {
+        if (args.length != 2) { usage(actor); return; }
+        if (CommandPermissionGate.require(actor, VIEW, "You cannot view investigation flags.")) {
+            submit(actor, () -> list(actor, args[1]));
+        }
+    }
+    private void addRoute(Player actor, String[] args) {
+        if (args.length < 6) { usage(actor); return; }
+        if (canEdit(actor)) { add(actor, args); }
+    }
+    private void resolveRoute(Player actor, String[] args) {
+        if (args.length < 3) { usage(actor); return; }
+        if (canEdit(actor)) { resolve(actor, args); }
+    }
+    private static void usage(Player actor) {
+        actor.sendMessage(StaffMessageStyle.style("/staffflags list <player> | add <player> <category> "
+                + "<hours|permanent> <case-id|none> <reason> | resolve <flag-uuid> <reason>"));
     }
 
     private boolean canEdit(Player actor) {
@@ -89,7 +108,7 @@ public final class InvestigationCommand implements CommandExecutor {
     private void list(Player actor, String input) {
         PlayerDirectory players = directory.get();
         InvestigationFlagStore store = flags.get();
-        if (players == null || store == null) { message(actor, "Investigation storage is not ready."); return; }
+        if (players == null || store == null) { message(actor, STORAGE_NOT_READY); return; }
         var target = players.find(input).orElseThrow(() -> new IllegalArgumentException("Player absent from directory."));
         show(actor, target.playerId());
     }
@@ -110,50 +129,76 @@ public final class InvestigationCommand implements CommandExecutor {
             }
             if (!actor.hasPermission(VIEW)) { return; }
             actor.sendMessage(StaffMessageStyle.style("Active investigation flags (up to 20): " + result.size()));
-            result.forEach(flag -> actor.sendMessage(StaffMessageStyle.style(flag.flagId() + " | " + flag.category()
-                    + " | " + flag.reason() + " | actor " + flag.actorId() + " | created " + flag.createdAt()
-                    + " | expiry " + (flag.expiresAt() == null ? "permanent" : flag.expiresAt())
-                    + " | case " + (flag.caseId() == null ? "none" : flag.caseId()))));
+            result.forEach(flag -> renderFlag(actor, flag));
         });
+    }
+
+    private static void renderFlag(Player actor, InvestigationFlag flag) {
+        actor.sendMessage(StaffMessageStyle.style(flag.flagId() + " | " + flag.category()
+                + " | " + flag.reason() + " | actor " + flag.actorId() + " | created " + flag.createdAt()
+                + " | expiry " + (flag.expiresAt() == null ? "permanent" : flag.expiresAt())
+                + " | case " + (flag.caseId() == null ? "none" : flag.caseId())));
     }
 
     private void add(Player actor, String[] args) {
         try {
-            String category = args[2];
-            if (!categories.contains(category)) { throw new IllegalArgumentException("Unknown category. Available: " + categories); }
-            Duration lifetime = args[3].equalsIgnoreCase("permanent") ? null : Duration.ofHours(Long.parseLong(args[3]));
-            if (lifetime != null && (lifetime.isZero() || lifetime.isNegative() || lifetime.compareTo(Duration.ofDays(365)) > 0)) {
-                throw new IllegalArgumentException("Expiry hours must be 1..8760, or permanent.");
-            }
-            CaseId linkedCase = args[4].equalsIgnoreCase("none") ? null : new CaseId(args[4]);
+            FlagInput input = parseInput(args);
             UUID actorId = actor.getUniqueId();
-            String reason = String.join(" ", Arrays.copyOfRange(args, 5, args.length));
-            submit(actor, () -> {
-                var players = directory.get();
-                if (players == null || flags.get() == null) { message(actor, "Investigation storage is not ready."); return; }
-                var target = players.find(args[1]).orElseThrow(() -> new IllegalArgumentException("Player absent from directory."));
-                if (linkedCase != null) {
-                    var lookup = cases.get();
-                    if (lookup == null || !lookup.target(linkedCase).filter(target.playerId()::equals).isPresent()) {
-                        throw new IllegalArgumentException("Case must exist and belong to this player.");
-                    }
-                }
-                var now = clock.instant();
-                var flag = new InvestigationFlag(UUID.randomUUID(), target.playerId(), actorId, category,
-                        reason, now, lifetime == null ? null : now.plus(lifetime), linkedCase);
-                owned(actor, () -> {
-                    if (PaperActorResolver.resolve(actor).isEmpty() || !canEdit(actor)) { return; }
-                    submit(actor, () -> {
-                        if (mode.get() != OperationalMode.ACTIVE) { message(actor, "Flag edit cancelled: mode changed."); return; }
-                        var store = flags.get();
-                        if (store == null) { message(actor, "Investigation storage is not ready."); return; }
-                        store.create(flag);
-                        message(actor, "Created investigation flag " + flag.flagId());
-                    });
-                });
-            });
+            submit(actor, () -> prepareCreate(actor, actorId, input));
         } catch (IllegalArgumentException failure) { actor.sendMessage(StaffMessageStyle.error(failure.getMessage())); }
     }
+
+    private FlagInput parseInput(String[] args) {
+        String category = args[2];
+        if (!categories.contains(category)) { throw new IllegalArgumentException("Unknown category. Available: " + categories); }
+        Duration lifetime = parseLifetime(args[3]);
+        CaseId linkedCase = args[4].equalsIgnoreCase("none") ? null : new CaseId(args[4]);
+        String reason = String.join(" ", Arrays.copyOfRange(args, 5, args.length));
+        return new FlagInput(args[1], category, reason, lifetime, linkedCase);
+    }
+
+    private static Duration parseLifetime(String input) {
+        if (input.equalsIgnoreCase("permanent")) { return null; }
+        Duration lifetime = Duration.ofHours(Long.parseLong(input));
+        if (lifetime.isZero() || lifetime.isNegative() || lifetime.compareTo(Duration.ofDays(365)) > 0) {
+            throw new IllegalArgumentException("Expiry hours must be 1..8760, or permanent.");
+        }
+        return lifetime;
+    }
+
+    private void prepareCreate(Player actor, UUID actorId, FlagInput input) {
+        var players = directory.get();
+        if (players == null || flags.get() == null) { message(actor, STORAGE_NOT_READY); return; }
+        var target = players.find(input.target()).orElseThrow(() -> new IllegalArgumentException("Player absent from directory."));
+        validateCase(input.caseId(), target.playerId());
+        var now = clock.instant();
+        var flag = new InvestigationFlag(UUID.randomUUID(), target.playerId(), actorId, input.category(), input.reason(),
+                now, input.lifetime() == null ? null : now.plus(input.lifetime()), input.caseId());
+        owned(actor, () -> authorizeCreate(actor, flag));
+    }
+
+    private void validateCase(CaseId linkedCase, UUID targetId) {
+        if (linkedCase == null) { return; }
+        var lookup = cases.get();
+        if (lookup == null || lookup.target(linkedCase).filter(targetId::equals).isEmpty()) {
+            throw new IllegalArgumentException("Case must exist and belong to this player.");
+        }
+    }
+
+    private void authorizeCreate(Player actor, InvestigationFlag flag) {
+        if (PaperActorResolver.resolve(actor).isEmpty() || !canEdit(actor)) { return; }
+        submit(actor, () -> commitCreate(actor, flag));
+    }
+
+    private void commitCreate(Player actor, InvestigationFlag flag) {
+        if (mode.get() != OperationalMode.ACTIVE) { message(actor, "Flag edit cancelled: mode changed."); return; }
+        var store = flags.get();
+        if (store == null) { message(actor, STORAGE_NOT_READY); return; }
+        store.create(flag);
+        message(actor, "Created investigation flag " + flag.flagId());
+    }
+
+    private record FlagInput(String target, String category, String reason, Duration lifetime, CaseId caseId) { }
 
     private void resolve(Player actor, String[] args) {
         try {
@@ -166,7 +211,7 @@ public final class InvestigationCommand implements CommandExecutor {
                 submit(actor, () -> {
                     if (mode.get() != OperationalMode.ACTIVE) { message(actor, "Flag edit cancelled: mode changed."); return; }
                     var store = flags.get();
-                    if (store == null) { message(actor, "Investigation storage is not ready."); return; }
+                    if (store == null) { message(actor, STORAGE_NOT_READY); return; }
                     message(actor, store.resolve(flagId, actorId, reason, clock.instant())
                             ? "Investigation flag resolved with audit." : "Flag absent or already resolved.");
                 });

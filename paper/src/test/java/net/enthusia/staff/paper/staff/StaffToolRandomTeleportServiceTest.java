@@ -228,18 +228,65 @@ final class StaffToolRandomTeleportServiceTest {
 
     @Test
     void onlySuccessfulTeleportsConsumePatrolVisits() {
-        for (boolean success : new boolean[]{true, false}) {
-            Harness harness = new Harness();
-            harness.addTarget(FIRST_ID, "first", 10.0, true);
-            harness.addTarget(SECOND_ID, "second", 20.0, true);
-            harness.teleportFuture.set(CompletableFuture.completedFuture(success));
-            harness.startCollection();
-            drain(harness);
-            harness.startCollection();
-            drain(harness);
-            assertEquals(2, harness.teleports.size());
-            assertEquals(success ? 20.0 : 10.0, harness.teleports.get(1).getX());
-        }
+        assertVisitsAfterCompletion(true);
+        assertVisitsAfterCompletion(false);
+    }
+
+    private static void assertVisitsAfterCompletion(boolean success) {
+        Harness harness = new Harness();
+        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        harness.addTarget(SECOND_ID, "second", 20.0, true);
+        harness.teleportFuture.set(CompletableFuture.completedFuture(success));
+        harness.startCollection();
+        drain(harness);
+        harness.startCollection();
+        drain(harness);
+        assertEquals(2, harness.teleports.size());
+        assertEquals(success ? 20.0 : 10.0, harness.teleports.get(1).getX());
+    }
+
+    @Test
+    void quittingCancelsQueuedPatrolAndAllowsANewSession() {
+        Harness harness = new Harness();
+        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        harness.teleportFuture.set(CompletableFuture.completedFuture(true));
+        harness.startCollection();
+        harness.platform.runNextGlobal();
+        harness.service.forget(ACTOR_ID);
+        drain(harness);
+        assertTrue(harness.teleports.isEmpty());
+        harness.startCollection();
+        drain(harness);
+        assertEquals(1, harness.teleports.size());
+    }
+
+    @Test
+    void lateTeleportCompletionCannotConsumeHistoryOrNotifyAnotherSession() {
+        Harness harness = new Harness();
+        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        CompletableFuture<Boolean> old = new CompletableFuture<>();
+        harness.teleportFuture.set(old);
+        harness.startCollection();
+        drain(harness);
+        harness.service.forget(ACTOR_ID);
+        harness.teleportFuture.set(CompletableFuture.completedFuture(true));
+        harness.startCollection();
+        drain(harness);
+        assertEquals(1, harness.messages.size());
+        old.complete(true);
+        drain(harness);
+        assertEquals(1, harness.messages.size());
+    }
+
+    @Test
+    void overlappingRequestsDoNotStartAnotherCollection() {
+        Harness harness = new Harness();
+        harness.addTarget(FIRST_ID, "first", 10.0, true);
+        harness.startCollection();
+        int tasks = harness.platform.pendingGlobal();
+        harness.platform.runOwned(() -> harness.service.begin(harness.actor));
+        assertEquals(tasks, harness.platform.pendingGlobal());
+        assertEquals(1, harness.messages.size());
     }
 
     private static void drain(Harness harness) {

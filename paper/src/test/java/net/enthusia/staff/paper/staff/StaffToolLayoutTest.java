@@ -7,6 +7,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
 class StaffToolLayoutTest {
+    private static final String SESSION = "session";
     @Test void swapsPreserveProtectedSlotValidation() {
         var config = new YamlConfiguration();
         config.set("staff-tools.slots.random-teleport", 1);
@@ -14,21 +15,24 @@ class StaffToolLayoutTest {
         var layout = StaffToolLayout.load(config);
         UUID owner = UUID.randomUUID();
         var tool = StaffToolDefinition.RANDOM_TELEPORT;
-        assertEquals(StaffToolSessionPolicy.Status.VALID, StaffToolSessionPolicy.validate(owner, "session", 1,
-                tool, tool.material(), owner.toString(), "session", StaffRank.ADMIN, layout.slot(tool)));
-        assertEquals(StaffToolSessionPolicy.Status.SLOT_MISMATCH, StaffToolSessionPolicy.validate(owner, "session", 0,
-                tool, tool.material(), owner.toString(), "session", StaffRank.ADMIN, layout.slot(tool)));
-        assertEquals(StaffToolSessionPolicy.Status.OWNER_MISMATCH, StaffToolSessionPolicy.validate(owner, "session", 1,
-                tool, tool.material(), UUID.randomUUID().toString(), "session", StaffRank.ADMIN, layout.slot(tool)));
+        assertEquals(StaffToolSessionPolicy.Status.VALID, StaffToolSessionPolicy.validate(owner, SESSION, 1,
+                tool, new StaffToolSessionPolicy.ItemContext(tool.material(), layout.slot(tool)), owner.toString(), SESSION, StaffRank.ADMIN));
+        assertEquals(StaffToolSessionPolicy.Status.SLOT_MISMATCH, StaffToolSessionPolicy.validate(owner, SESSION, 0,
+                tool, new StaffToolSessionPolicy.ItemContext(tool.material(), layout.slot(tool)), owner.toString(), SESSION, StaffRank.ADMIN));
+        assertEquals(StaffToolSessionPolicy.Status.OWNER_MISMATCH, StaffToolSessionPolicy.validate(owner, SESSION, 1,
+                tool, new StaffToolSessionPolicy.ItemContext(tool.material(), layout.slot(tool)), UUID.randomUUID().toString(), SESSION, StaffRank.ADMIN));
     }
     @Test void refusesDuplicateOutOfRangeUnknownAndNonIntegerSlots() {
         for (Object value : new Object[]{1, 9, -1, "0"}) {
-            var config = new YamlConfiguration();
-            config.set("staff-tools.slots.random-teleport", value);
-            assertThrows(IllegalArgumentException.class, () -> StaffToolLayout.load(config));
+            assertInvalidSlot(value);
         }
         var unknown = new YamlConfiguration();
         unknown.set("staff-tools.slots.console-command", 0);
         assertThrows(IllegalArgumentException.class, () -> StaffToolLayout.load(unknown));
+    }
+    private static void assertInvalidSlot(Object value) {
+        var config = new YamlConfiguration();
+        config.set("staff-tools.slots.random-teleport", value);
+        assertThrows(IllegalArgumentException.class, () -> StaffToolLayout.load(config));
     }
 }

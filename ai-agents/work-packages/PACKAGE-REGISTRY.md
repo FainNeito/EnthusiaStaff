@@ -16,7 +16,7 @@ Live GitHub overrides stale text. Detailed historical evidence remains in packag
 
 ## Owner-directed current assignment — 2026-10-04
 
-The owner explicitly assigned `OWNER-INVESTIGATION-TOOLS` after the LuxStaff review. Status `ACTIVE` / `ACTIONABLE_CONTINUATION`; one internal COMP-STAFF PR on `package/owner-investigation-tools`, based on authoritative main `18d4f4b05af94ee325842c68d482feedabe5d27f`. Contract: [OWNER-INVESTIGATION-TOOLS](packages/OWNER-INVESTIGATION-TOOLS.md). This assignment does not complete, reassign or change the existing Market/Discord packages. V24 flags are proposed; reconcile outstanding V22/V23 ownership before release.
+The owner explicitly assigned `OWNER-INVESTIGATION-TOOLS` after the LuxStaff review. Status `PARTIAL` / `ACTIONABLE_CONTINUATION`; one internal COMP-STAFF PR on `package/owner-investigation-tools`, based on authoritative main `18d4f4b05af94ee325842c68d482feedabe5d27f`. Contract: [OWNER-INVESTIGATION-TOOLS](packages/OWNER-INVESTIGATION-TOOLS.md). This assignment does not complete, reassign or change the existing Market/Discord packages. V24 flags are proposed; reconcile outstanding V22/V23 ownership before release.
 
 ## Canonical current state
 

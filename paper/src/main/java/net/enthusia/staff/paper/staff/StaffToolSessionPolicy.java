@@ -40,20 +40,22 @@ final class StaffToolSessionPolicy {
             String sessionTag,
             StaffRank rank
     ) {
-        return validate(playerId, activeSessionToken, heldSlot, tool, actualMaterial, ownerTag, sessionTag,
-                rank, tool == null ? -1 : tool.slot());
+        return validate(playerId, activeSessionToken, heldSlot, tool,
+                new ItemContext(actualMaterial, tool == null ? -1 : tool.slot()), ownerTag, sessionTag, rank);
     }
 
     static Status validate(UUID playerId, String activeSessionToken, int heldSlot, StaffToolDefinition tool,
-            Material actualMaterial, String ownerTag, String sessionTag, StaffRank rank, int expectedSlot) {
+            ItemContext item, String ownerTag, String sessionTag, StaffRank rank) {
         if (tool == null) {
             return Status.UNKNOWN_TOOL;
         }
         Status sessionStatus = validateSession(playerId, activeSessionToken, tool, ownerTag, sessionTag, rank);
         return sessionStatus == Status.VALID
-                ? validateItem(heldSlot, tool, actualMaterial, expectedSlot)
+                ? validateItem(heldSlot, tool, item.actualMaterial(), item.expectedSlot())
                 : sessionStatus;
     }
+
+    record ItemContext(Material actualMaterial, int expectedSlot) { }
 
     private static Status validateSession(
             UUID playerId,

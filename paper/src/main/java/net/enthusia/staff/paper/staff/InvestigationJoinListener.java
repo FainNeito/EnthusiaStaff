@@ -63,38 +63,63 @@ public final class InvestigationJoinListener implements Listener, AutoCloseable 
     }
 
     private void load(UUID target, String name, UUID token) {
-        if (closed || !token.equals(sessions.get(target))) { return; }
+        if (!sessionActive(target, token)) { return; }
         try {
-            var store = flags.get();
-            var noteStore = notes.get();
-            if (store == null || noteStore == null) { return; }
-            int active = store.active(target, clock.instant(), 20).size();
-            long recent = noteStore.recent(target, 20).stream()
-                    .filter(note -> note.createdAt().isAfter(clock.instant().minus(Duration.ofDays(30)))).count();
-            if (active == 0 && recent == 0) { return; }
-            plugin.getServer().getGlobalRegionScheduler().execute(plugin, () -> {
-                if (closed || !token.equals(sessions.get(target))) { return; }
-                for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-                    viewer.getScheduler().execute(plugin, () -> deliver(viewer, target, name, token, active, recent), null, 1L);
-                }
-            });
+            JoinSummary summary = summary(target, name, token);
+            if (summary == null || summary.empty()) { return; }
+            plugin.getServer().getGlobalRegionScheduler().execute(plugin, () -> dispatch(summary));
         } catch (RuntimeException failure) {
             plugin.getLogger().warning("Investigation join summary unavailable; no alert delivered.");
         }
     }
 
-    private void deliver(Player viewer, UUID target, String name, UUID token, int active, long recent) {
-        if (closed || !token.equals(sessions.get(target)) || !viewer.hasPermission(ALERTS)
-                || !viewer.hasPermission("enthusiastaff.inspect") || PaperActorResolver.resolve(viewer).isEmpty()) { return; }
+    private JoinSummary summary(UUID target, String name, UUID token) {
+        var store = flags.get();
+        var noteStore = notes.get();
+        if (store == null || noteStore == null) { return null; }
+        var cutoff = clock.instant().minus(Duration.ofDays(30));
+        int active = store.active(target, clock.instant(), 20).size();
+        long recent = noteStore.recent(target, 20).stream().filter(note -> note.createdAt().isAfter(cutoff)).count();
+        return new JoinSummary(target, name, token, active, recent);
+    }
+
+    private void dispatch(JoinSummary summary) {
+        if (!sessionActive(summary.target(), summary.token())) { return; }
+        for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+            viewer.getScheduler().execute(plugin, () -> deliver(viewer, summary), null, 1L);
+        }
+    }
+
+    private boolean sessionActive(UUID target, UUID token) { return !closed && token.equals(sessions.get(target)); }
+
+    private static boolean authorized(Player viewer) {
+        return viewer.hasPermission(ALERTS) && viewer.hasPermission("enthusiastaff.inspect")
+                && PaperActorResolver.resolve(viewer).isPresent();
+    }
+
+    private boolean visible(Player viewer, UUID target) {
         var visibility = plugin.getServer().getServicesManager().load(StaffVisibilityService.class);
-        if (visibility == null || !visibility.canSee(viewer.getUniqueId(), target)) { return; }
-        int visibleFlags = viewer.hasPermission(InvestigationCommand.VIEW) ? active : 0;
-        long visibleNotes = viewer.hasPermission(NOTES) ? recent : 0;
-        if (visibleFlags == 0 && visibleNotes == 0 || !limiter.acquire(viewer.getUniqueId(), target, clock.instant())) { return; }
-        Component message = Component.text(name + " joined: " + visibleFlags + " active flags, "
+        return visibility != null && visibility.canSee(viewer.getUniqueId(), target);
+    }
+
+    private boolean eligible(Player viewer, JoinSummary summary) {
+        return sessionActive(summary.target(), summary.token()) && authorized(viewer) && visible(viewer, summary.target());
+    }
+
+    private void deliver(Player viewer, JoinSummary summary) {
+        if (!eligible(viewer, summary)) { return; }
+        int visibleFlags = viewer.hasPermission(InvestigationCommand.VIEW) ? summary.flags() : 0;
+        long visibleNotes = viewer.hasPermission(NOTES) ? summary.notes() : 0;
+        if (visibleFlags == 0 && visibleNotes == 0) { return; }
+        if (!limiter.acquire(viewer.getUniqueId(), summary.target(), clock.instant())) { return; }
+        Component message = Component.text(summary.name() + " joined: " + visibleFlags + " active flags, "
                 + visibleNotes + " recent notes (up to 20 each). [Inspect]")
-                .clickEvent(ClickEvent.runCommand("/inspect " + target));
+                .clickEvent(ClickEvent.runCommand("/inspect " + summary.target()));
         viewer.sendMessage(StaffMessageStyle.style(message));
+    }
+
+    private record JoinSummary(UUID target, String name, UUID token, int flags, long notes) {
+        boolean empty() { return flags == 0 && notes == 0; }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

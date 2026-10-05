@@ -1,6 +1,6 @@
 # Latest agent handoff
 
-Owner-directed current work: **OWNER-INVESTIGATION-TOOLS — ACTIVE / ACTIONABLE_CONTINUATION**. See [canonical handoff](../package-handoffs/2026-10-04-owner-investigation-tools.md) and [contract](../../work-packages/packages/OWNER-INVESTIGATION-TOOLS.md). This supersedes routing for this worker only; the historical Market handoff below is preserved. No merge or deployment authorization.
+Owner-directed current work: **OWNER-INVESTIGATION-TOOLS — PARTIAL / ACTIONABLE_CONTINUATION**. See [canonical handoff](../package-handoffs/2026-10-04-owner-investigation-tools.md) and [contract](../../work-packages/packages/OWNER-INVESTIGATION-TOOLS.md). This supersedes routing for this worker only; the historical Market handoff below is preserved. No merge or deployment authorization.
 
 
 Current handoff: **ES-X03 — EnthusiaMarket destructive provider** — **PARTIAL / ACTIONABLE_CONTINUATION**.

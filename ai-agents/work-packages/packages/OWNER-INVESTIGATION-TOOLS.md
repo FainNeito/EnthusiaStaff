@@ -5,7 +5,7 @@
 Owner instruction: 2026-10-04, “Work on that”, approving the LuxStaff review recommendations.
 Internal COMP-STAFF package; authoritative base `18d4f4b05af94ee325842c68d482feedabe5d27f`.
 Branch `package/owner-investigation-tools`; isolated checkout `EnthusiaStaff-investigation-tools`.
-Status: ACTIVE / ACTIONABLE_CONTINUATION. One aggregate PR; no merge or production authorization.
+Status: PARTIAL / ACTIONABLE_CONTINUATION. One aggregate PR; no merge or production authorization.
 Existing user checkout and its untracked artifact are preserved.
 
 ## Spec and acceptance boundaries
@@ -32,10 +32,10 @@ New flag schema uses V24. This is an unmerged proposal: migration ordering must 
 ## Tasks and evidence
 
 - [x] Fetch/inspect authoritative main, dirty checkout, open PR overlaps and migrations.
-- [ ] Implement and prove patrol/activity/slot behavior.
-- [ ] Implement flags and join alerts with persistence/failure evidence.
-- [ ] Update user-facing documentation and canonical routing/handoff.
+- [x] Implement and prove patrol/activity/slot behavior.
+- [x] Implement flags and join alerts; MariaDB failure/upgrade suite compiles but local runtime proof is unavailable.
+- [x] Update user-facing documentation and canonical routing/handoff.
 - [ ] Build/tests, provider boundaries, diff review, exact-head CI/static/review.
-- [ ] Publish reviewable aggregate PR. Staging/live player acceptance remains separate.
+- [x] Publish draft aggregate [PR #322](https://github.com/wsg138/EnthusiaStaff/pull/322). Staging/live player acceptance remains separate.
 
 Completion requires normal reviewed merge and applicable validation. Merge/deployment remain owner-controlled.

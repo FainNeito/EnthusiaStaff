@@ -905,11 +905,10 @@ public final class StaffModeManager implements Listener {
                 activeToken,
                 heldSlot,
                 tool,
-                item.getType(),
+                new StaffToolSessionPolicy.ItemContext(item.getType(), toolLayout.slot(tool)),
                 data.get(staffToolOwnerKey, PersistentDataType.STRING),
                 data.get(staffToolSessionKey, PersistentDataType.STRING),
-                rank,
-                toolLayout.slot(tool)
+                rank
         );
         return StaffToolResolution.tagged(tool, status);
     }
