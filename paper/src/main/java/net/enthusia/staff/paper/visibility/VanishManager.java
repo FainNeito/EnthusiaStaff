@@ -335,8 +335,17 @@ public final class VanishManager implements Listener {
     private void disableAfterStaffModeExit(UUID playerId, Player player) {
         durableStaffSessionPresence.put(playerId, false);
         StaffRank rank = resolveAndPublishRank(player);
-        if (rank == null || !requiresStaffMode(rank)) {
+        if (rank == null) {
             pendingStaffModeExitDisables.remove(playerId);
+            return;
+        }
+        if (!requiresStaffMode(rank)) {
+            pendingStaffModeExitDisables.remove(playerId);
+            // Admin/Founder vanish is independent of Staff Mode. Saved-state restoration is
+            // allowed to restore the exact pre-staff game mode for checksum verification while
+            // visibility remains vanished; only after the Staff Mode session closes do we force
+            // the authoritative server-side Spectator state again.
+            reconcileVanishGameMode(player);
             return;
         }
         pendingStaffModeExitDisables.add(playerId);
@@ -782,12 +791,10 @@ public final class VanishManager implements Listener {
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
-        if (visibility.isVanished(playerId) && staffMode.restoringSavedState(playerId)) {
-            visibility.setVanished(playerId, onlineStaffRanks.get(playerId), false);
-            selectedGameModes.remove(playerId);
-            hiddenSpectators.remove(playerId);
-        }
-        if (visibility.isVanished(playerId) && !vanishGameModeApplications.contains(playerId)) {
+        boolean restoringStaffState = staffMode.restoringSavedState(playerId);
+        if (visibility.isVanished(playerId)
+                && !restoringStaffState
+                && !vanishGameModeApplications.contains(playerId)) {
             StaffRank rank = resolveLiveRank(player);
             if (isSelectableGameMode(rank, event.getNewGameMode())) {
                 selectedGameModes.put(playerId, event.getNewGameMode());
