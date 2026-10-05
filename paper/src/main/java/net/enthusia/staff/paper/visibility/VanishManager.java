@@ -241,7 +241,9 @@ public final class VanishManager implements Listener {
             }
         }
         visibility.setVanished(playerId, rank, true);
-        enforceVanishSpectator(player);
+        if (!staffMode.transitioning(playerId)) {
+            enforceVanishSpectator(player);
+        }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshViewer(playerId);
         audiences.refreshTarget(playerId);
@@ -1099,7 +1101,9 @@ public final class VanishManager implements Listener {
         durableVanishedRanks.put(playerId, record.rank());
         rememberPersistedGameMode(record);
         visibility.setVanished(playerId, record.rank(), true);
-        enforceVanishSpectator(player);
+        if (!staffMode.transitioning(playerId)) {
+            enforceVanishSpectator(player);
+        }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshViewer(playerId);
         audiences.refreshTarget(playerId);
@@ -1119,7 +1123,7 @@ public final class VanishManager implements Listener {
 
     private void reconcileVanishGameMode(Player player) {
         UUID playerId = player.getUniqueId();
-        if (!visibility.isVanished(playerId)) {
+        if (!visibility.isVanished(playerId) || staffMode.transitioning(playerId)) {
             return;
         }
         StaffRank rank = onlineStaffRanks.get(playerId);
