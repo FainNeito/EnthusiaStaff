@@ -23,9 +23,9 @@ import org.bukkit.plugin.java.JavaPlugin;
  * Coordinates cross-server vanish/staff-mode state transfer on a Paper backend.
  *
  * <p>Source side: captures live vanish/staff-mode presentation metadata into a small in-memory
- * snapshot and uploads it to the proxy without blocking the source close. The snapshot is only
- * supplemental metadata; the backend switch still requires the durable Staff Mode session and
- * exact saved player-state snapshot to close successfully first.</p>
+ * snapshot and uploads it to the proxy without blocking travel. The snapshot is supplemental
+ * metadata only; backend-local player-state ownership is reconciled independently by the source
+ * disconnect/detach and destination capture/rebind lifecycle.</p>
  *
  * <p>Destination side: stashes snapshots that arrive inside {@code STAFF_MODE_HANDOFF_PREPARE}
  * payloads so join-message/vanish presentation can be applied immediately. Durable Staff Mode
@@ -141,7 +141,7 @@ public final class StaffTransferSnapshotCoordinator {
                             if (logger.isLoggable(Level.WARNING)) {
                                 logger.log(Level.WARNING,
                                         "Cross-server transfer snapshot upload was not acknowledged for " + playerId
-                                                + "; durable source-session closure remains required");
+                                                + "; destination durable recovery will reconcile presentation state");
                             }
                         }
                     });
