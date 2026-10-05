@@ -16,6 +16,7 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
+import net.enthusia.staff.domain.staff.StaffSessionOwnership;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 import net.enthusia.staff.paper.auth.PaperStaffRankResolver;
@@ -433,13 +434,15 @@ public final class StaffModeManager implements Listener {
                     recoveryGate.clear(playerId);
                     return;
                 }
-                if (!session.serverId().equals(serverId)) {
-                    loaded.recoveryRequired(
-                            session.sessionId(),
-                            "Original backend is required for restoration",
-                            clock.instant()
-                    );
-                    message(playerId, "Your staff session requires recovery on backend " + session.serverId() + '.');
+                if (StaffSessionOwnership.detached(session.serverId())) {
+                    onEntity(playerId, current -> resumeDetachedSession(playerId, loaded, current));
+                    return;
+                }
+                if (!session.serverId().equalsIgnoreCase(serverId)) {
+                    // A backend switch can race the source's quit/detach write. Do not turn
+                    // that normal race into RECOVERY_REQUIRED or block the destination.
+                    recoveryGate.retry(playerId);
+                    scheduleRecoveryRetry(playerId);
                     return;
                 }
                 if (staleFromPriorRuntime(session)) {
@@ -473,6 +476,69 @@ public final class StaffModeManager implements Listener {
             recoveryGate.retry(playerId);
             message(playerId, "The bounded work queue is full; staff session recovery did not start.");
         }
+    }
+
+    private void resumeDetachedSession(
+            UUID playerId,
+            StaffSessionStore loaded,
+            Player player
+    ) {
+        StaffRank rank = PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
+        if (rank == null) {
+            recoveryGate.retry(playerId);
+            player.sendMessage(StaffMessageStyle.style(Component.text(
+                    "Your Staff Mode session is still active, but your staff rank is unavailable."
+            )));
+            return;
+        }
+        StaffStateCodec.Captured captured;
+        try {
+            captured = codec.capture(player, serverId);
+        } catch (RuntimeException exception) {
+            recoveryGate.retry(playerId);
+            plugin.getLogger().log(Level.SEVERE, "Detached Staff Mode state capture failed", exception);
+            return;
+        }
+        if (!submit(() -> {
+            try {
+                StaffSessionSnapshot rebound = loaded.begin(
+                        playerId,
+                        serverId,
+                        captured.schemaVersion(),
+                        captured.checksum(),
+                        captured.snapshot(),
+                        clock.instant()
+                );
+                if (!serverId.equalsIgnoreCase(rebound.serverId())
+                        || rebound.state() != StaffSessionState.ACTIVE) {
+                    throw new IllegalStateException("detached Staff Mode session did not rebind to this backend");
+                }
+                onEntity(playerId, current -> activateDurableSession(
+                        playerId,
+                        rebound,
+                        loaded,
+                        current,
+                        rank,
+                        StaffModeActivationCoordinator.ActivationPath.INITIAL_ENTRY,
+                        "Your network Staff Mode session resumed on this backend."
+                ));
+            } catch (RuntimeException exception) {
+                recoveryGate.retry(playerId);
+                plugin.getLogger().log(Level.SEVERE, "Detached Staff Mode rebind failed", exception);
+                scheduleRecoveryRetry(playerId);
+            }
+        })) {
+            recoveryGate.retry(playerId);
+        }
+    }
+
+    private void scheduleRecoveryRetry(UUID playerId) {
+        plugin.getServer().getGlobalRegionScheduler().runDelayed(plugin, ignored -> {
+            Player player = plugin.getServer().getPlayer(playerId);
+            if (player != null) {
+                recover(player);
+            }
+        }, 10L);
     }
 
     private boolean staleFromPriorRuntime(StaffSessionSnapshot session) {
@@ -607,8 +673,7 @@ public final class StaffModeManager implements Listener {
                 result.complete(false);
                 return;
             }
-            StaffSessionSnapshot exiting = loaded.beginExit(playerId, clock.instant()).orElseThrow();
-            restoreBackendHandoff(playerId, transferId, exiting, loaded, result);
+            restoreBackendHandoff(playerId, transferId, current, loaded, result);
         } catch (RuntimeException exception) {
             sourceHandoffs.finish(playerId, transferId);
             transitions.remove(playerId);
@@ -691,7 +756,14 @@ public final class StaffModeManager implements Listener {
             var committed = sourceHandoffs.commitIfActive(
                     playerId,
                     transferId,
-                    () -> loaded.completeExit(session.sessionId(), restoredChecksum, clock.instant())
+                    () -> loaded.detach(
+                            playerId,
+                            session.sessionId(),
+                            session.revision(),
+                            session.serverId(),
+                            restoredChecksum,
+                            clock.instant()
+                    ).isPresent()
             );
             if (committed.isEmpty()) {
                 retainCancelledHandoffRecovery(playerId, session, loaded);
@@ -711,7 +783,7 @@ public final class StaffModeManager implements Listener {
             sourceHandoffs.finish(playerId, transferId);
             recoveryGate.retry(playerId);
             removeRuntimeState(playerId);
-            plugin.getLogger().log(Level.SEVERE, "Staff backend handoff closure failed", exception);
+            plugin.getLogger().log(Level.SEVERE, "Staff backend handoff detach failed", exception);
             result.complete(false);
         }
     }
@@ -736,15 +808,60 @@ public final class StaffModeManager implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        UUID playerId = event.getPlayer().getUniqueId();
-        active.remove(playerId);
-        ranks.remove(playerId);
-        toolSessions.remove(playerId);
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        StaffSessionSnapshot session = active.get(playerId);
+
+        // A normal backend disconnect is not a Staff Mode exit. Restore this backend's
+        // native state before Minecraft saves the player, then release only the local
+        // snapshot lease. Network Staff Mode/vanish intent remains active.
+        if (session != null && !transitions.contains(playerId)) {
+            try {
+                if (restoreSavedState(player, session)) {
+                    String checksum = codec.verifiedRestorationChecksum(
+                            player, session.serverId(), session.snapshot(), session.checksum());
+                    if (!submit(() -> detachAfterQuit(playerId, session, checksum))) {
+                        plugin.getLogger().warning(
+                                "Staff Mode backend detach queue was full during disconnect for " + playerId);
+                    }
+                }
+            } catch (RuntimeException exception) {
+                plugin.getLogger().log(
+                        Level.SEVERE,
+                        "Staff Mode could not restore local state before disconnect; durable recovery remains available",
+                        exception
+                );
+            }
+        }
+
+        removeRuntimeState(playerId);
         recoveryGate.clear(playerId);
         profileApplications.remove(playerId);
         snapshotRestorations.remove(playerId);
         pendingRankChecks.remove(playerId);
         handoffGaps.remove(playerId);
+    }
+
+    private void detachAfterQuit(UUID playerId, StaffSessionSnapshot session, String restoredChecksum) {
+        StaffSessionStore loaded = store.get();
+        if (loaded == null) {
+            plugin.getLogger().warning("Staff session storage unavailable during disconnect detach for " + playerId);
+            return;
+        }
+        try {
+            if (loaded.detach(
+                    playerId,
+                    session.sessionId(),
+                    session.revision(),
+                    session.serverId(),
+                    restoredChecksum,
+                    clock.instant()
+            ).isEmpty()) {
+                plugin.getLogger().warning("Staff Mode disconnect detach lost its ownership fence for " + playerId);
+            }
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(Level.SEVERE, "Staff Mode disconnect detach failed for " + playerId, exception);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
