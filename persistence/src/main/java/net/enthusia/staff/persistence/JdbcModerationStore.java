@@ -68,10 +68,11 @@ public final class JdbcModerationStore implements ModerationStore {
                 JOIN punishment_steps ps ON ps.case_id = c.case_id
                 LEFT JOIN sanctions s ON s.case_id = c.case_id
                 WHERE c.target_id = ? AND c.sanction_family = ?
+                  AND %s
                 GROUP BY c.case_id, c.sanction_family, ps.effective_ordinal, c.issued_at,
                          ps.escalation_contributes, ps.decay_eligible, c.state
                 ORDER BY c.issued_at
-                """;
+                """.formatted(NonPunitiveLegacyKick.visibleSql("c"));
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setBytes(1, UuidBytes.toBytes(targetId));

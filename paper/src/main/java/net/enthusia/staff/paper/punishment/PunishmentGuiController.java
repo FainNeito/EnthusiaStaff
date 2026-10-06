@@ -390,50 +390,29 @@ public final class PunishmentGuiController implements Listener {
             PunishmentGuiState.Categories state,
             int slot
     ) {
-        List<String> categories = catalog.categories(actor, state.commandName());
+        List<PunishmentGuiCategory> categories = catalog.categories(actor, state.commandName());
         if (openHistoryFromControl(viewer, state, slot)) {
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.page() > 0) {
-            openState(viewer, new PunishmentGuiState.Categories(
-                    state.viewerId(),
-                    state.target(),
-                    state.commandName(),
-                    state.overview(),
-                    state.page() - 1
-            ));
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.NEXT_SLOT
-                && (state.page() + 1) * PunishmentGuiRenderer.CONTENT_SIZE < categories.size()) {
-            openState(viewer, new PunishmentGuiState.Categories(
-                    state.viewerId(),
-                    state.target(),
-                    state.commandName(),
-                    state.overview(),
-                    state.page() + 1
-            ));
             return;
         }
         if (slot == PunishmentGuiRenderer.CLOSE_SLOT) {
             viewer.closeInventory();
             return;
         }
-        int index = contentIndex(state.page(), slot);
+        int index = PunishmentGuiRenderer.categoryIndex(slot, categories.size());
         if (index >= 0 && index < categories.size()) {
             openState(viewer, new PunishmentGuiState.Reasons(
                     state.viewerId(),
                     state.target(),
                     state.commandName(),
                     state.overview(),
-                    categories.get(index),
+                    categories.get(index).id(),
                     0
             ));
         }
     }
 
     private void reasonClick(Player viewer, Actor actor, PunishmentGuiState.Reasons state, int slot) {
-        List<ReasonPolicy> reasons = catalog.reasons(actor, state.commandName(), state.family());
+        List<ReasonPolicy> reasons = catalog.reasons(actor, state.commandName(), state.categoryId());
         if (handleReasonNavigation(viewer, state, reasons.size(), slot)) {
             return;
         }
@@ -478,7 +457,7 @@ public final class PunishmentGuiController implements Listener {
                 state.target(),
                 state.commandName(),
                 state.overview(),
-                state.family(),
+                state.categoryId(),
                 page
         ));
     }
@@ -488,15 +467,20 @@ public final class PunishmentGuiController implements Listener {
             return;
         }
         if (slot == PunishmentGuiRenderer.BACK_SLOT) {
-            String family = policies.find(state.draft().reasonId())
+            String categoryId = policies.find(state.draft().reasonId())
                     .map(ReasonPolicy::family)
-                    .orElse(state.draft().reasonId());
+                    .map(catalog::categoryId)
+                    .orElse(PunishmentGuiCategory.OTHER.id());
+            if (catalog.reasons(actor, state.commandName(), categoryId).isEmpty()) {
+                openState(viewer, categoriesState(state));
+                return;
+            }
             openState(viewer, new PunishmentGuiState.Reasons(
                     state.viewerId(),
                     state.target(),
                     state.commandName(),
                     state.overview(),
-                    family,
+                    categoryId,
                     0
             ));
             return;
@@ -522,6 +506,10 @@ public final class PunishmentGuiController implements Listener {
             return;
         }
         if (slot == PunishmentGuiRenderer.CONFIRM_SLOT) {
+            if (catalog.find(state.draft().reasonId()).isEmpty()) {
+                message(viewer, "That saved reason is no longer available. Go back and choose another reason.");
+                return;
+            }
             confirm(viewer, actor, state);
         }
     }

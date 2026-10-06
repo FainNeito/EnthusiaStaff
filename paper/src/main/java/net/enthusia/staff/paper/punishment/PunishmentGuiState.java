@@ -33,13 +33,13 @@ sealed interface PunishmentGuiState {
             PlayerIdentity target,
             String commandName,
             PunishmentGuiOverview overview,
-            String family,
+            String categoryId,
             int page
     ) implements PunishmentGuiState {
         public Reasons {
             validate(viewerId, target, commandName, overview, page);
-            if (family == null || family.isBlank()) {
-                throw new IllegalArgumentException("punishment family must be present");
+            if (categoryId == null || categoryId.isBlank()) {
+                throw new IllegalArgumentException("punishment category must be present");
             }
         }
     }

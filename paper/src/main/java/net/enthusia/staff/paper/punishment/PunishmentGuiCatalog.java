@@ -22,19 +22,26 @@ final class PunishmentGuiCatalog {
         this.authorization = authorization;
     }
 
-    List<String> categories(Actor actor, String commandName) {
-        return available(actor, commandName).stream()
-                .map(ReasonPolicy::family)
-                .distinct()
-                .sorted()
+    List<PunishmentGuiCategory> categories(Actor actor, String commandName) {
+        List<ReasonPolicy> visible = available(actor, commandName);
+        return PunishmentGuiCategory.ordered().stream()
+                .filter(category -> visible.stream().anyMatch(policy -> category.includes(policy.family())))
                 .toList();
     }
 
-    List<ReasonPolicy> reasons(Actor actor, String commandName, String family) {
+    List<ReasonPolicy> reasons(Actor actor, String commandName, String categoryId) {
+        PunishmentGuiCategory category = PunishmentGuiCategory.byId(categoryId);
+        if (category == null) {
+            return List.of();
+        }
         return available(actor, commandName).stream()
-                .filter(policy -> policy.family().equals(family))
+                .filter(policy -> category.includes(policy.family()))
                 .sorted(Comparator.comparing(ReasonPolicy::publicReason).thenComparing(ReasonPolicy::id))
                 .toList();
+    }
+
+    String categoryId(String family) {
+        return PunishmentGuiCategory.forFamily(family).id();
     }
 
     Optional<ReasonPolicyRepository.ReasonDescriptor> describe(String reasonId) {
@@ -56,6 +63,8 @@ final class PunishmentGuiCatalog {
             return List.of();
         }
         return policies.all().stream()
+                .filter(policy -> !policy.family().startsWith("cheating.polar")
+                        && !policy.id().startsWith("cheating.polar."))
                 .filter(policy -> visibleAtRank(actor.rank(), policy.requiredRank(), mayRequest))
                 .filter(policy -> PunishmentCommandFilter.includes(commandName, policy))
                 .toList();
