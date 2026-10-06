@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -134,12 +133,8 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
     private static List<Member> loadMembers(Guild guild) {
         try {
             return List.copyOf(guild.loadMembers().get());
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("managed-role shadow member load was interrupted", exception);
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
-            throw new IllegalStateException("managed-role shadow member load failed", cause);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("managed-role shadow member load failed", exception);
         }
     }
 
