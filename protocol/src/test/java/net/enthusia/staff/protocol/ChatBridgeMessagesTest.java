@@ -10,9 +10,11 @@ import org.junit.jupiter.api.Test;
 
 class ChatBridgeMessagesTest {
 
+    private static final String HELLO = HELLO;
+
     @Test
     void roundTripPreservesBoundedPublicChatEnvelope() {
-        ChatBridgeOutboundMessage message = message("hello", 30_000L);
+        ChatBridgeOutboundMessage message = message(HELLO, 30_000L);
 
         String encoded = ChatBridgeMessages.encodeOutbound(message);
         ChatBridgeOutboundMessage decoded = ChatBridgeMessages.decodeOutbound(encoded);
@@ -24,7 +26,7 @@ class ChatBridgeMessagesTest {
 
     @Test
     void rejectsUnknownFieldsInsteadOfSilentlyWideningContract() {
-        ChatBridgeOutboundMessage message = message("hello", 30_000L);
+        ChatBridgeOutboundMessage message = message(HELLO, 30_000L);
         String encoded = ChatBridgeMessages.encodeOutbound(message);
         String widened = encoded.substring(0, encoded.length() - 1) + ",\"unexpected\":true}";
 
@@ -36,12 +38,12 @@ class ChatBridgeMessagesTest {
         assertThrows(IllegalArgumentException.class,
                 () -> message("x".repeat(ChatBridgeOutboundMessage.MAX_PLAIN_TEXT_LENGTH + 1), 30_000L));
         assertThrows(IllegalArgumentException.class,
-                () -> message("hello", ChatBridgeOutboundMessage.MAX_LIFETIME_MILLIS + 1));
+                () -> message(HELLO, ChatBridgeOutboundMessage.MAX_LIFETIME_MILLIS + 1));
     }
 
     @Test
     void rejectsControlCharactersInRoutingAndPresentationFields() {
-        ChatBridgeOutboundMessage valid = message("hello", 30_000L);
+        ChatBridgeOutboundMessage valid = message(HELLO, 30_000L);
 
         assertThrows(IllegalArgumentException.class, () -> new ChatBridgeOutboundMessage(
                 valid.eventId(),
