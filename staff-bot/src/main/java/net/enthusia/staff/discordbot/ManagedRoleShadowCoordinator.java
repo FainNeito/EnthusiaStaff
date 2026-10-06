@@ -62,6 +62,20 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
         }
     }
 
+    private record Summary(
+            int claims,
+            int matches,
+            int drifts,
+            int missingMembers,
+            int extraMembers,
+            int unlinkedMinecraftAccounts,
+            List<ClaimResult> driftDetails
+    ) {
+        Summary {
+            driftDetails = List.copyOf(driftDetails);
+        }
+    }
+
     private final ManagedRoleShadowService service;
     private final StaffBotWorkerPool workers;
     private final ScheduledExecutorService scheduler;
@@ -145,13 +159,22 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
             Guild guild,
             boolean truncated
     ) {
+        Summary summary = summarize(claims, members, guild);
+        logTotals(summary, truncated);
+        logTruncation(truncated);
+        logDrifts(summary.driftDetails());
+    }
+
+    private static Summary summarize(
+            List<ManagedRoleShadowService.ResolvedClaim> claims,
+            List<Member> members,
+            Guild guild
+    ) {
         int matches = 0;
-        int drifts = 0;
         int missingMembers = 0;
         int extraMembers = 0;
         int unlinked = 0;
         List<ClaimResult> driftDetails = new ArrayList<>();
-
         for (ManagedRoleShadowService.ResolvedClaim claim : claims) {
             ClaimResult result = compare(claim, members, guild);
             missingMembers += result.missingMembers();
@@ -159,47 +182,63 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
             unlinked += result.unlinkedMinecraftAccounts();
             if (result.matches()) {
                 matches++;
-            } else {
-                drifts++;
-                if (driftDetails.size() < MAX_DRIFT_LOGS) {
-                    driftDetails.add(result);
-                }
+            } else if (driftDetails.size() < MAX_DRIFT_LOGS) {
+                driftDetails.add(result);
             }
         }
+        return new Summary(
+                claims.size(),
+                matches,
+                claims.size() - matches,
+                missingMembers,
+                extraMembers,
+                unlinked,
+                driftDetails
+        );
+    }
 
-        if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
-            LOGGER.log(
-                    System.Logger.Level.INFO,
-                    "managed_role_shadow_summary complete={0} claims={1} matches={2} drift={3} "
-                            + "missing_members={4} extra_members={5} unlinked_minecraft={6}",
-                    !truncated,
-                    claims.size(),
-                    matches,
-                    drifts,
-                    missingMembers,
-                    extraMembers,
-                    unlinked
-            );
+    private static void logTotals(Summary summary, boolean truncated) {
+        if (!LOGGER.isLoggable(System.Logger.Level.INFO)) {
+            return;
         }
+        LOGGER.log(
+                System.Logger.Level.INFO,
+                "managed_role_shadow_summary complete={0} claims={1} matches={2} drift={3} "
+                        + "missing_members={4} extra_members={5} unlinked_minecraft={6}",
+                !truncated,
+                summary.claims(),
+                summary.matches(),
+                summary.drifts(),
+                summary.missingMembers(),
+                summary.extraMembers(),
+                summary.unlinkedMinecraftAccounts()
+        );
+    }
+
+    private static void logTruncation(boolean truncated) {
         if (truncated && LOGGER.isLoggable(System.Logger.Level.WARNING)) {
             LOGGER.log(System.Logger.Level.WARNING,
                     "managed_role_shadow_incomplete reason=claim_limit_exceeded");
         }
+    }
+
+    private static void logDrifts(List<ClaimResult> driftDetails) {
+        if (!LOGGER.isLoggable(System.Logger.Level.WARNING)) {
+            return;
+        }
         for (ClaimResult result : driftDetails) {
-            if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
-                LOGGER.log(
-                        System.Logger.Level.WARNING,
-                        "managed_role_shadow_drift resource={0} state={1} desired={2} observed={3} "
-                                + "missing={4} extra={5} unlinked_minecraft={6}",
-                        safeResource(result.resourceId()),
-                        result.state(),
-                        result.desiredMembers(),
-                        result.observedMembers(),
-                        result.missingMembers(),
-                        result.extraMembers(),
-                        result.unlinkedMinecraftAccounts()
-                );
-            }
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "managed_role_shadow_drift resource={0} state={1} desired={2} observed={3} "
+                            + "missing={4} extra={5} unlinked_minecraft={6}",
+                    safeResource(result.resourceId()),
+                    result.state(),
+                    result.desiredMembers(),
+                    result.observedMembers(),
+                    result.missingMembers(),
+                    result.extraMembers(),
+                    result.unlinkedMinecraftAccounts()
+            );
         }
     }
 
@@ -212,26 +251,38 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
         if (claim.delete() && claim.displayName().isEmpty()) {
             return result(resolved, State.DELETE_UNRESOLVED, Set.of(), Set.of());
         }
-
-        List<Role> roles = guild.getRoles().stream()
-                .filter(role -> role.getName().equals(claim.displayName()))
-                .filter(role -> !role.isPublicRole() && !role.isManaged())
-                .toList();
-
+        List<Role> roles = matchingRoles(guild, claim.displayName());
         if (roles.size() > UNIQUE_ROLE_MATCH_COUNT) {
             return result(resolved, State.ROLE_AMBIGUOUS, resolved.desiredDiscordUserIds(), Set.of());
         }
         if (roles.isEmpty()) {
-            State state = claim.delete() ? State.DELETE_MATCH : State.ROLE_MISSING;
-            return result(resolved, state, resolved.desiredDiscordUserIds(), Set.of());
+            return compareMissingRole(resolved);
         }
-        if (claim.delete()) {
-            Set<String> observed = holders(members, roles.getFirst());
+        return compareExistingRole(resolved, members, roles.getFirst());
+    }
+
+    private static List<Role> matchingRoles(Guild guild, String displayName) {
+        return guild.getRoles().stream()
+                .filter(role -> role.getName().equals(displayName))
+                .filter(role -> !role.isPublicRole() && !role.isManaged())
+                .toList();
+    }
+
+    private static ClaimResult compareMissingRole(ManagedRoleShadowService.ResolvedClaim resolved) {
+        State state = resolved.claim().delete() ? State.DELETE_MATCH : State.ROLE_MISSING;
+        return result(resolved, state, resolved.desiredDiscordUserIds(), Set.of());
+    }
+
+    private static ClaimResult compareExistingRole(
+            ManagedRoleShadowService.ResolvedClaim resolved,
+            List<Member> members,
+            Role role
+    ) {
+        Set<String> observed = holders(members, role);
+        if (resolved.claim().delete()) {
             return result(resolved, State.DELETE_DRIFT, Set.of(), observed);
         }
-
         Set<String> desired = resolved.desiredDiscordUserIds();
-        Set<String> observed = holders(members, roles.getFirst());
         State state = desired.equals(observed) ? State.MATCH : State.DRIFT;
         return result(resolved, state, desired, observed);
     }
