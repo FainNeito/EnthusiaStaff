@@ -1,5 +1,13 @@
 # Package registry
 
+## Owner runtime harness reconciliation, 2026-10-06
+
+Start owner 1ce53dec5741bcd1d1905425ac04f09b9c2c0c47; fork main 711f0fce unchanged. Canonical main 8dd1de344402c4496a5d2826205e83f66e2f4b80 adds Discord notification self-test #338, outside this staff bug slice; inspected and excluded. Exact owner-head Coverage 37411046544, Wiki 37411046490 and Sentinel artifact 37411046542 pass. Staff state reset runtime proof 37411046376 fails acceptance after executing four server/client runtimes; this is a failed executable result, not unavailable infrastructure.
+
+Confirmed harness contract mismatch: it requires Admin/Founder vanish to force Spectator, while the owner-approved Oct 3 contract and VanishGameModePolicy retain their permitted Survival/Creative/Spectator selections. Leaf evidence shows selected Creative/Survival, snapshotSame=true and toolSame=true; these are valid selections. The vanished wall phase also ran in Survival rather than explicitly selecting Spectator. Preserve the failed run as red evidence. Requirement RH-01: assert actual selected permitted modes both vanished and visible; reject Adventure without changing the preceding permitted mode; explicitly select Spectator for vanished geometry then return to Survival; retain four-runtime, client-mode, geometry, snapshot/tool identity and no-FAIL acceptance assertions. Correct proof and workflow only; no production behavior, permission, persistence, provider or API changes. Compile proof against supported API, validate workflow/syntax and push the same PR for an actual rerun. No EARS/state helpers exist; this bounded spec/task/evidence is the fallback.
+
+Status PARTIAL / ACTIONABLE_CONTINUATION. Missing incident correlation, private/staging/provider/client limits and inventory preservation remain unchanged. No merge, production action, backup access or authority activation.
+
 ## Owner split-packet verification, 2026-10-06
 
 Frozen product head 480c6388258d9c30448c100f28d8f49eb8d5f1af ports only canonical #337 adapter/test changes (f1615b23 / 912ed7a6) after requirement checkpoint 1ca3ea6d. Current canonical main 672fa3d0 was inspected; fork target 711f0fce is contained. Existing unrelated canonical integration/authority changes remain excluded. Full scoped diff review found no owner restoration, inventory, visibility, completion, permission, persistence or provider-contract changes. No production activation or incident attribution.
