@@ -18,6 +18,7 @@ import net.dv8tion.jda.api.events.session.SessionRecreateEvent;
 import net.dv8tion.jda.api.events.session.SessionResumeEvent;
 import net.dv8tion.jda.api.events.session.ShutdownEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.ChunkingFilter;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
@@ -36,6 +37,7 @@ final class JdaDiscordGateway implements DiscordGateway {
     private JdaModerationUiPreviewListener previewListener;
     private ModerationReadApiServer productionReadApi;
     private DiscordRoleSyncCoordinator roleSyncCoordinator;
+    private ManagedRoleShadowCoordinator managedRoleShadowCoordinator;
 
     JdaDiscordGateway(StaffBotConfiguration configuration) {
         this(configuration, null, null, Optional.empty());
@@ -94,7 +96,7 @@ final class JdaDiscordGateway implements DiscordGateway {
     }
 
     private JDABuilder baseBuilder(SessionListener listener) {
-        return JDABuilder.createLight(configuration.discordToken(), Set.of())
+        return JDABuilder.createLight(configuration.discordToken(), gatewayIntents())
                 .enableCache(requiredCacheFlags())
                 .setMemberCachePolicy(MemberCachePolicy.NONE)
                 .setChunkingFilter(ChunkingFilter.NONE)
@@ -103,6 +105,12 @@ final class JdaDiscordGateway implements DiscordGateway {
                 .setEnableShutdownHook(false)
                 .setEventPassthrough(false)
                 .addEventListeners(listener);
+    }
+
+    private Set<GatewayIntent> gatewayIntents() {
+        return moderation.flatMap(StaffModerationRuntime::managedRoleShadow).isPresent()
+                ? Set.of(GatewayIntent.GUILD_MEMBERS)
+                : Set.of();
     }
 
     private void addInteractionListener(JDABuilder builder) {
@@ -151,6 +159,7 @@ final class JdaDiscordGateway implements DiscordGateway {
                 moderationListener.enable(jda);
             }
             enableRoleSync();
+            enableManagedRoleShadow();
         }
     }
 
@@ -167,6 +176,19 @@ final class JdaDiscordGateway implements DiscordGateway {
         });
     }
 
+    private void enableManagedRoleShadow() {
+        moderation.flatMap(StaffModerationRuntime::managedRoleShadow).ifPresent(service -> {
+            Guild guild = jda.getGuildById(configuration.environment().guildId());
+            if (guild == null) {
+                throw new IllegalStateException("validated managed-role shadow guild is unavailable");
+            }
+            if (managedRoleShadowCoordinator == null) {
+                managedRoleShadowCoordinator = new ManagedRoleShadowCoordinator(service, workers);
+            }
+            managedRoleShadowCoordinator.enable(guild);
+        });
+    }
+
     @SuppressWarnings("PMD.NullAssignment") // Clearing the closed API reference prevents later reuse.
     private void disableInteractions() {
         synchronized (lifecycleLock) {
@@ -179,6 +201,9 @@ final class JdaDiscordGateway implements DiscordGateway {
             }
             if (roleSyncCoordinator != null) {
                 roleSyncCoordinator.disable();
+            }
+            if (managedRoleShadowCoordinator != null) {
+                managedRoleShadowCoordinator.disable();
             }
             if (productionReadApi != null) {
                 productionReadApi.close();
@@ -212,6 +237,9 @@ final class JdaDiscordGateway implements DiscordGateway {
         moderation.ifPresent(StaffModerationRuntime::pausePunishments);
         if (roleSyncCoordinator != null) {
             roleSyncCoordinator.close();
+        }
+        if (managedRoleShadowCoordinator != null) {
+            managedRoleShadowCoordinator.close();
         }
         if (previewListener != null) {
             previewListener.close();
