@@ -16,4 +16,4 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error             "https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/EnthusiaStaff/pull-requests/342/issues?status=new&limit=100"             | jq '{data: [.data[] | {issueId, filePath, lineNumber, patternInfo, toolInfo, message}], pagination}'
+          curl --fail --silent --show-error             "https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/EnthusiaStaff/pull-requests/342/issues?status=new&limit=100"             | jq .
