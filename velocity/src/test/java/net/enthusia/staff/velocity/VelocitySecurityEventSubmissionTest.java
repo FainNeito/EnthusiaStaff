@@ -383,6 +383,81 @@ final class VelocitySecurityEventSubmissionTest {
         }
     }
 
+    @Test
+    void initialInventoryRecoveryRoutesToAvailableOwner() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - test closes it in finally.
+        try {
+            RegisteredServer owner = server("TEMP");
+            ProxyServer proxy = proxyWithServer(owner);
+            EnthusiaStaffVelocityPlugin plugin = plugin(executor, proxy);
+            setMode(plugin, OperationalMode.ACTIVE);
+            installEmptySwitchStores(plugin);
+            AtomicInteger reads = new AtomicInteger();
+            INVENTORIES.set(plugin, inventoryStore(reads, new AtomicInteger(), Optional.of("TEMP"), false));
+            ServerPreConnectEvent event = initialConnectionEvent(
+                    player(new AtomicInteger(), new AtomicInteger())
+            );
+
+            await(plugin.onServerPreConnect(event));
+
+            assertSame(owner, event.getResult().getServer().orElseThrow());
+            assertEquals(1, reads.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void abandonedOfflineInventoryOwnerIsResolvedBeforeInitialBackendAdmission() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - test closes it in finally.
+        try {
+            EnthusiaStaffVelocityPlugin plugin = plugin(executor);
+            setMode(plugin, OperationalMode.ACTIVE);
+            installEmptySwitchStores(plugin);
+            AtomicInteger reads = new AtomicInteger();
+            AtomicInteger resolutions = new AtomicInteger();
+            INVENTORIES.set(plugin, inventoryStore(reads, resolutions, Optional.of("TEMP"), true));
+            ServerPreConnectEvent event = initialConnectionEvent(
+                    player(new AtomicInteger(), new AtomicInteger())
+            );
+
+            await(plugin.onServerPreConnect(event));
+
+            assertTrue(event.getResult().isAllowed());
+            assertEquals(HUB, event.getResult().getServer().orElseThrow().getServerInfo().getName());
+            assertEquals(1, reads.get());
+            assertEquals(1, resolutions.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void unresolvedInitialInventoryOwnerDisconnectsImmediatelyInsteadOfHanging() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - test closes it in finally.
+        try {
+            EnthusiaStaffVelocityPlugin plugin = plugin(executor);
+            setMode(plugin, OperationalMode.ACTIVE);
+            installEmptySwitchStores(plugin);
+            INVENTORIES.set(plugin, inventoryStore(
+                    new AtomicInteger(), new AtomicInteger(), Optional.of("TEMP"), false
+            ));
+            AtomicInteger messages = new AtomicInteger();
+            AtomicInteger disconnects = new AtomicInteger();
+            ServerPreConnectEvent event = initialConnectionEvent(
+                    player(new AtomicInteger(), messages, disconnects)
+            );
+
+            await(plugin.onServerPreConnect(event));
+
+            assertFalse(event.getResult().isAllowed());
+            assertEquals(0, messages.get());
+            assertEquals(1, disconnects.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static StaffSessionSnapshot snapshot(StaffSessionState state) {
         return new StaffSessionSnapshot(PLAYER_ID, PLAYER_ID, "TEMP", state, true, 1,
                 "a".repeat(64), new byte[]{1}, Instant.EPOCH, 1);
@@ -453,6 +528,14 @@ final class VelocitySecurityEventSubmissionTest {
     }
 
     private static Player player(AtomicInteger securityReads, AtomicInteger messages) {
+        return player(securityReads, messages, new AtomicInteger());
+    }
+
+    private static Player player(
+            AtomicInteger securityReads,
+            AtomicInteger messages,
+            AtomicInteger disconnects
+    ) {
         return Player.class.cast(Proxy.newProxyInstance(
                 Thread.currentThread().getContextClassLoader(),
                 new Class<?>[]{Player.class},
@@ -461,9 +544,59 @@ final class VelocitySecurityEventSubmissionTest {
                         securityReads.incrementAndGet();
                         return PLAYER_ID;
                     }
+                    if (method.getName().equals("getUsername")) {
+                        return "TestPlayer";
+                    }
                     if (method.getName().equals("sendMessage")) {
                         messages.incrementAndGet();
                         return null;
+                    }
+                    if (method.getName().equals("disconnect")) {
+                        disconnects.incrementAndGet();
+                        return null;
+                    }
+                    return defaultValue(method.getReturnType());
+                }
+        ));
+    }
+
+    private static ServerPreConnectEvent initialConnectionEvent(Player player) {
+        return new ServerPreConnectEvent(player, server(HUB), null);
+    }
+
+    private static ProxyServer proxyWithServer(RegisteredServer server) {
+        return ProxyServer.class.cast(Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[]{ProxyServer.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("getServer")) {
+                        String requested = String.valueOf(arguments[0]);
+                        return requested.equalsIgnoreCase(server.getServerInfo().getName())
+                                ? Optional.of(server)
+                                : Optional.empty();
+                    }
+                    return defaultValue(method.getReturnType());
+                }
+        ));
+    }
+
+    private static InventoryJournalStore inventoryStore(
+            AtomicInteger reads,
+            AtomicInteger resolutions,
+            Optional<String> owner,
+            boolean resolved
+    ) {
+        return InventoryJournalStore.class.cast(Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[]{InventoryJournalStore.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("lockedOwningServer")) {
+                        reads.incrementAndGet();
+                        return owner;
+                    }
+                    if (method.getName().equals("resolveAbandonedOfflineEdit")) {
+                        resolutions.incrementAndGet();
+                        return resolved;
                     }
                     return defaultValue(method.getReturnType());
                 }
