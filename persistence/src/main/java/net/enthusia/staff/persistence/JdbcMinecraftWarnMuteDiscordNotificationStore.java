@@ -71,6 +71,56 @@ public final class JdbcMinecraftWarnMuteDiscordNotificationStore {
             ORDER BY d.available_at, d.created_at
             LIMIT ? FOR UPDATE SKIP LOCKED
             """;
+    private static final String SELECT_CANDIDATES_SQL = """
+            SELECT c.case_id, c.issued_at,
+                   CASE
+                       WHEN EXISTS (
+                           SELECT 1 FROM sanctions mute
+                           WHERE mute.case_id=c.case_id
+                             AND mute.sanction_type IN ('MUTE','PUBLIC_MUTE')
+                             AND mute.status='ACTIVE'
+                             AND (mute.expiration_at IS NULL OR mute.expiration_at > ?)
+                       ) THEN 'MUTE'
+                       ELSE 'WARNING'
+                   END AS punishment_type,
+                   (
+                       SELECT l.discord_user_id
+                       FROM discord_minecraft_links l
+                       WHERE l.minecraft_player_id=c.target_id
+                         AND l.linked_at <= c.issued_at
+                         AND (l.unlinked_at IS NULL OR l.unlinked_at > c.issued_at)
+                       ORDER BY l.linked_at DESC
+                       LIMIT 1
+                   ) AS discord_user_id
+            FROM cases c
+            WHERE c.issued_at >= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM sanctions banned
+                  WHERE banned.case_id=c.case_id
+                    AND banned.sanction_type IN ('BAN','NETWORK_BAN','NETWORK_IDENTITY_BAN')
+              )
+              AND (
+                  EXISTS (
+                      SELECT 1 FROM sanctions mute
+                      WHERE mute.case_id=c.case_id
+                        AND mute.sanction_type IN ('MUTE','PUBLIC_MUTE')
+                        AND mute.status='ACTIVE'
+                        AND (mute.expiration_at IS NULL OR mute.expiration_at > ?)
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM sanctions warning
+                      WHERE warning.case_id=c.case_id
+                        AND warning.sanction_type='WARNING'
+                        AND warning.status IN ('APPLIED','ACTIVE')
+                  )
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM discord_outbox d
+                  WHERE d.idempotency_key=CONCAT('case:', c.case_id, ':player-dm-warn-mute')
+              )
+            ORDER BY c.issued_at, c.case_id
+            LIMIT ?
+            """;
 
     private final DataSource dataSource;
 
@@ -227,73 +277,37 @@ public final class JdbcMinecraftWarnMuteDiscordNotificationStore {
             Instant now,
             int limit
     ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT c.case_id, c.issued_at,
-                       CASE
-                           WHEN EXISTS (
-                               SELECT 1 FROM sanctions mute
-                               WHERE mute.case_id=c.case_id
-                                 AND mute.sanction_type IN ('MUTE','PUBLIC_MUTE')
-                                 AND mute.status='ACTIVE'
-                                 AND (mute.expiration_at IS NULL OR mute.expiration_at > ?)
-                           ) THEN 'MUTE'
-                           ELSE 'WARNING'
-                       END AS punishment_type,
-                       (
-                           SELECT l.discord_user_id
-                           FROM discord_minecraft_links l
-                           WHERE l.minecraft_player_id=c.target_id
-                             AND l.linked_at <= c.issued_at
-                             AND (l.unlinked_at IS NULL OR l.unlinked_at > c.issued_at)
-                           ORDER BY l.linked_at DESC
-                           LIMIT 1
-                       ) AS discord_user_id
-                FROM cases c
-                WHERE c.issued_at >= ?
-                  AND NOT EXISTS (
-                      SELECT 1 FROM sanctions banned
-                      WHERE banned.case_id=c.case_id
-                        AND banned.sanction_type IN ('BAN','NETWORK_BAN','NETWORK_IDENTITY_BAN')
-                  )
-                  AND (
-                      EXISTS (
-                          SELECT 1 FROM sanctions mute
-                          WHERE mute.case_id=c.case_id
-                            AND mute.sanction_type IN ('MUTE','PUBLIC_MUTE')
-                            AND mute.status='ACTIVE'
-                            AND (mute.expiration_at IS NULL OR mute.expiration_at > ?)
-                      )
-                      OR EXISTS (
-                          SELECT 1 FROM sanctions warning
-                          WHERE warning.case_id=c.case_id
-                            AND warning.sanction_type='WARNING'
-                            AND warning.status IN ('APPLIED','ACTIVE')
-                      )
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM discord_outbox d
-                      WHERE d.idempotency_key=CONCAT('case:', c.case_id, ':player-dm-warn-mute')
-                  )
-                ORDER BY c.issued_at, c.case_id
-                LIMIT ?
-                """)) {
-            statement.setTimestamp(1, Timestamp.from(now));
-            statement.setTimestamp(2, Timestamp.from(cutover));
-            statement.setTimestamp(3, Timestamp.from(now));
-            statement.setInt(4, limit);
+        try (PreparedStatement statement = connection.prepareStatement(SELECT_CANDIDATES_SQL)) {
+            bindCandidateQuery(statement, cutover, now, limit);
             try (ResultSet result = statement.executeQuery()) {
-                List<Candidate> candidates = new ArrayList<>();
-                while (result.next()) {
-                    candidates.add(new Candidate(
-                            result.getString("case_id"),
-                            result.getTimestamp("issued_at").toInstant(),
-                            SanctionType.valueOf(result.getString("punishment_type")),
-                            unsignedText(result.getBigDecimal("discord_user_id"))
-                    ));
-                }
-                return candidates;
+                return readCandidates(result);
             }
         }
+    }
+
+    private static void bindCandidateQuery(
+            PreparedStatement statement,
+            Instant cutover,
+            Instant now,
+            int limit
+    ) throws SQLException {
+        statement.setTimestamp(1, Timestamp.from(now));
+        statement.setTimestamp(2, Timestamp.from(cutover));
+        statement.setTimestamp(3, Timestamp.from(now));
+        statement.setInt(4, limit);
+    }
+
+    private static List<Candidate> readCandidates(ResultSet result) throws SQLException {
+        List<Candidate> candidates = new ArrayList<>();
+        while (result.next()) {
+            candidates.add(new Candidate(
+                    result.getString("case_id"),
+                    result.getTimestamp("issued_at").toInstant(),
+                    SanctionType.valueOf(result.getString("punishment_type")),
+                    unsignedText(result.getBigDecimal("discord_user_id"))
+            ));
+        }
+        return candidates;
     }
 
     private static int insertCandidate(Connection connection, Candidate candidate, Instant now) throws SQLException {
