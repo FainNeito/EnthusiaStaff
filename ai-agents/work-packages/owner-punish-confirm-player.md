@@ -1,5 +1,13 @@
 # Owner-directed fork change: confirm punishment by player name
 
+## Owner ProtocolLib split-packet continuation, 2026-10-06
+
+Same owner package / draft fork PR #1. Start owner 8cd6ba521151cbfbdd28a458c4180839d14df4a1; target fork main 711f0fcec08c84c9612d44524119c7bb5382375f is already contained. Canonical main advanced from ceb12e0f to 672fa3d0bf7f832d207a2f2a7b336b1dee2ec191 with relevant tester repair #337 (f1615b23 plus tests 912ed7a6). The older adapter registers only USE_ENTITY and requires a legacy action wrapper; split ATTACK / USE_ENTITY packets can therefore be omitted or ignored. This is source-level regression evidence, not a reproduced live incident.
+
+Requirement PL-01: receive dedicated attack packets when available without reading the legacy action wrapper; retain legacy USE_ENTITY action parsing when the optional ATTACK field is absent. Preserve tester scheduler/restoration fencing, player-name completion, vanish and backend inventory ownership. Implement only the two reviewed #337 adapter/test files from canonical main; do not merge the previously excluded unrelated integration/authority changes. No dependency/API version change. Validate focused tester/Staff/visibility/command suites, then clean all-module test/check/runtimeJars at the frozen product head, plus Wiki/diff/JAR/provider checks. Existing unavailable Docker/MariaDB, hosted/static, staging and client gates remain open. Existing EARS/state helpers remain absent; this record is the bounded spec/task/evidence fallback.
+
+Inventory and TEST correlation still awaits username/time/Staff sequence and command-vs-menu surface. Production, inventory evidence and backups remain untouched. Status PARTIAL / ACTIONABLE_CONTINUATION; next apply the canonical split-packet repair and validate before pushing to PR #1.
+
 ## Consolidated inventory isolation and TEST visibility investigation, 2026-10-05
 
 Owner consolidated the ongoing Staff work here and added two production reports: Hub inventory appearing on SMP and TEST visibility requiring Staff Mode. Continue the same owner package and draft fork PR #1; no competing product PR. Authoritative main `ceb12e0f370db2fe099e7450661df212cac7a4d7` and owner `ceba9a96` were fetched/inspected; executable remains frozen at `a5841e005e20786e6e15b7f02d9021ac4f8d50a0`. Preserve all prior owner protections. No executable change or runtime acceptance is claimed by this checkpoint.
