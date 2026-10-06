@@ -19,6 +19,7 @@ final class JdaPunishmentNotifier {
             "https://discord.com/channels/1410303324745371709/1511217148230373568";
     static final String APPEAL_SITE = "https://enthusia.info/appeal";
     private static final String SECTION_BREAK = "\n\n";
+    private static final String PREVIEW_REASON = "Notification test";
     private static final List<String> PRIVATE_EXPLANATION_PREFIXES = List.of(
             "Discord message reference:",
             "External evidence reference:"
@@ -74,7 +75,7 @@ final class JdaPunishmentNotifier {
             case WARNING -> minecraftWarningOrMuteMessage(new MinecraftWarningOrMuteNotification(
                     userId,
                     "ExamplePlayer",
-                    "Notification test",
+                    PREVIEW_REASON,
                     now,
                     SanctionType.WARNING,
                     Optional.empty()
@@ -82,7 +83,7 @@ final class JdaPunishmentNotifier {
             case MUTE -> minecraftWarningOrMuteMessage(new MinecraftWarningOrMuteNotification(
                     userId,
                     "ExamplePlayer",
-                    "Notification test",
+                    PREVIEW_REASON,
                     now,
                     SanctionType.MUTE,
                     Optional.of(now.plus(Duration.ofHours(1)))
@@ -90,7 +91,7 @@ final class JdaPunishmentNotifier {
             case BAN -> minecraftBanMessage(new MinecraftBanNotification(
                     userId,
                     "ExamplePlayer",
-                    "Notification test",
+                    PREVIEW_REASON,
                     now,
                     Optional.of(now.plus(Duration.ofDays(7)))
             ));
@@ -131,21 +132,21 @@ final class JdaPunishmentNotifier {
             case WARNING -> appliedMessage(
                     type,
                     "instant",
-                    "Notification test",
+                    PREVIEW_REASON,
                     "This is a StaffBot preview sent only to you. No punishment was created or applied.",
                     Optional.empty()
             );
             case MUTE -> appliedMessage(
                     type,
                     "1 hour",
-                    "Notification test",
+                    PREVIEW_REASON,
                     "This is a StaffBot preview sent only to you. No punishment was created or applied.",
                     Optional.of(now.plus(Duration.ofHours(1)))
             );
             case BAN -> appliedMessage(
                     type,
                     "7 days",
-                    "Notification test",
+                    PREVIEW_REASON,
                     "This is a StaffBot preview sent only to you. No punishment was created or applied.",
                     Optional.of(now.plus(Duration.ofDays(7)))
             );
