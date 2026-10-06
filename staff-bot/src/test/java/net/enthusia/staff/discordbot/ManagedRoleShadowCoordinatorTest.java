@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.lang.reflect.Proxy;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import net.dv8tion.jda.api.entities.Guild;
@@ -12,10 +13,22 @@ import net.dv8tion.jda.api.entities.Role;
 import org.junit.jupiter.api.Test;
 
 final class ManagedRoleShadowCoordinatorTest {
+    private static final String PLAYTIME_ROLE_NAME = PLAYTIME_ROLE_NAME;
+    private static final ClassLoader PROXY_CLASS_LOADER = Thread.currentThread().getContextClassLoader();
+    private static final Map<Class<?>, Object> PRIMITIVE_DEFAULTS = Map.of(
+            boolean.class, false,
+            byte.class, (byte) 0,
+            short.class, (short) 0,
+            int.class, 0,
+            long.class, 0L,
+            float.class, 0F,
+            double.class, 0D,
+            char.class, '\0'
+    );
     @Test
     void exactRoleIdDisambiguatesDuplicateDisplayNames() {
-        Role selected = role("1552390213500928122", "Playtime XII");
-        Role duplicate = role("1552390213500928999", "Playtime XII");
+        Role selected = role("1552390213500928122", PLAYTIME_ROLE_NAME);
+        Role duplicate = role("1552390213500928999", PLAYTIME_ROLE_NAME);
         Member desired = member("2000000000000000001", List.of(selected));
         Guild guild = guild(List.of(selected, duplicate));
 
@@ -32,8 +45,8 @@ final class ManagedRoleShadowCoordinatorTest {
 
     @Test
     void nameOnlyClaimRejectsAmbiguousDuplicateRoles() {
-        Role first = role("1552390213500928122", "Playtime XII");
-        Role second = role("1552390213500928999", "Playtime XII");
+        Role first = role("1552390213500928122", PLAYTIME_ROLE_NAME);
+        Role second = role("1552390213500928999", PLAYTIME_ROLE_NAME);
 
         ManagedRoleShadowCoordinator.ClaimResult result = ManagedRoleShadowCoordinator.compare(
                 resolved(Optional.empty(), Set.of(), false),
@@ -65,7 +78,7 @@ final class ManagedRoleShadowCoordinatorTest {
                 "resource",
                 "playtime-numerals",
                 "tier:xii",
-                "Playtime XII",
+                PLAYTIME_ROLE_NAME,
                 roleId,
                 Set.of(),
                 delete
@@ -75,7 +88,7 @@ final class ManagedRoleShadowCoordinatorTest {
 
     private static Guild guild(List<Role> roles) {
         return (Guild) Proxy.newProxyInstance(
-                Guild.class.getClassLoader(),
+                PROXY_CLASS_LOADER,
                 new Class<?>[] {Guild.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getRoles" -> roles;
@@ -90,7 +103,7 @@ final class ManagedRoleShadowCoordinatorTest {
 
     private static Role role(String id, String name) {
         return (Role) Proxy.newProxyInstance(
-                Role.class.getClassLoader(),
+                PROXY_CLASS_LOADER,
                 new Class<?>[] {Role.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getId" -> id;
@@ -103,7 +116,7 @@ final class ManagedRoleShadowCoordinatorTest {
 
     private static Member member(String id, List<Role> roles) {
         return (Member) Proxy.newProxyInstance(
-                Member.class.getClassLoader(),
+                PROXY_CLASS_LOADER,
                 new Class<?>[] {Member.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getId" -> id;
@@ -117,30 +130,10 @@ final class ManagedRoleShadowCoordinatorTest {
         if (!type.isPrimitive()) {
             return null;
         }
-        if (type == boolean.class) {
-            return false;
+        Object value = PRIMITIVE_DEFAULTS.get(type);
+        if (value == null) {
+            throw new IllegalArgumentException("Unsupported primitive type: " + type);
         }
-        if (type == byte.class) {
-            return (byte) 0;
-        }
-        if (type == short.class) {
-            return (short) 0;
-        }
-        if (type == int.class) {
-            return 0;
-        }
-        if (type == long.class) {
-            return 0L;
-        }
-        if (type == float.class) {
-            return 0F;
-        }
-        if (type == double.class) {
-            return 0D;
-        }
-        if (type == char.class) {
-            return '\0';
-        }
-        throw new IllegalArgumentException("Unsupported primitive type: " + type);
+        return value;
     }
 }
