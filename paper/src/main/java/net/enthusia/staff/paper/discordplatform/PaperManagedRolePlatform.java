@@ -185,18 +185,8 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
             DesiredState effective = preserveDeleteDisplayName(desired, current);
             String desiredJson = encode(effective);
             long expected = current.map(ReconciliationState::revision).orElse(-1L);
-            ReconciliationState proposed = new ReconciliationState(
-                    key,
-                    RESOURCE_TYPE,
-                    resourceId(desired.namespace(), desired.localKey()),
-                    desiredJson,
-                    current.flatMap(ReconciliationState::observedStateJson),
-                    stateName,
-                    0,
-                    Optional.of(now),
-                    Optional.empty(),
-                    Math.max(0L, expected)
-            );
+            ReconciliationState proposed = proposedState(
+                    desired, key, desiredJson, current, stateName, now, expected);
             try {
                 currentStore.save(proposed, expected, now);
                 return;
@@ -205,6 +195,29 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
             }
         }
         throw new IllegalStateException("managed-role claim could not be persisted after revision retries", last);
+    }
+
+    private static ReconciliationState proposedState(
+            DesiredState desired,
+            String key,
+            String desiredJson,
+            Optional<ReconciliationState> current,
+            String stateName,
+            Instant now,
+            long expected
+    ) {
+        return new ReconciliationState(
+                key,
+                RESOURCE_TYPE,
+                resourceId(desired.namespace(), desired.localKey()),
+                desiredJson,
+                current.flatMap(ReconciliationState::observedStateJson),
+                stateName,
+                0,
+                Optional.of(now),
+                Optional.empty(),
+                Math.max(0L, expected)
+        );
     }
 
     private DesiredState preserveDeleteDisplayName(
