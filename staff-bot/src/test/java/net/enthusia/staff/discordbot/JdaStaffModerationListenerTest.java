@@ -77,7 +77,10 @@ class JdaStaffModerationListenerTest {
         assertEquals(OptionType.STRING, preview.getOptions().getFirst().getType());
         assertTrue(preview.getOptions().getFirst().isRequired());
         assertEquals(
-                Set.of("warning", "mute", "ban"),
+                Set.of(
+                        "warning", "mute", "ban",
+                        "minecraft-warning", "minecraft-mute", "minecraft-ban"
+                ),
                 preview.getOptions().getFirst().getChoices().stream()
                         .map(choice -> choice.getAsString())
                         .collect(Collectors.toSet())
