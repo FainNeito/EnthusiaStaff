@@ -1,5 +1,14 @@
 # Confirm-player fork handoff
 
+## Owner asset routing hosted verification, 2026-10-06 21:49 UTC
+
+Verified exact implementation PR #1 head db7e70cac49dd5c2e922947e167661cc42cea598; frozen executable 2d81d7f68b2ee33e12bc71f343933b6942f5a905. Canonical main 1cae3bb3, fork main 711f0fce and owner head are unchanged. Both existing review threads remain resolved; no new comments/findings. Untracked reconciliation image remains preserved in the owner checkout.
+
+All four exact-head executable hosted workflows pass: Coverage 37533841399 / job 112509651254 executed clean build, all-module tests including integration-tests:test, aggregate JaCoCo and runtime JAR/provider inspection (10m 43s). Runtime proof 37533841589 / job 112509652809 passed same-JAR Leaf 1.21.11 build 115, Paper 26.2 builds 128/129 and Paper 26.3 build 134; selected modes, visible/vanished wall/floor/ceiling geometry and snapshot/tool identity pass, COMMON_JAR_IDENTICAL=true. Wiki 37533841461 / job 112509651969 passes. Sentinel artifact 37533841546 / job 112509656773 passes; this is artifact construction, not Sentinel restart acceptance. Codacy coverage upload is explicitly skipped for missing secret; automatic draft review and obsolete Pi cancellation remain skipped, not acceptance.
+
+Status remains PARTIAL: source unmerged, broader private/provider/staging/Bedrock/Folia acceptance and missing inventory/TEST correlation remain open. No production incident attribution, restoration, merge, deployment, permission/authority change or backup access. Do not repeat unchanged unavailable gates. Continue only on new source/check/review findings or supplied incident inputs. Hosted exact-head results are recorded on PR #1 without changing its tested tree. This docs-only PR #14 checkpoint updates state; behavioral proof/engine steps are not applicable to this evidence-only edit. Existing EARS/state helper limitation and local test.14 evidence remain documented below.
+
+
 Owner package-record head db7e70cac49dd5c2e922947e167661cc42cea598 on draft fork PR #1; frozen product 2d81d7f68b2ee33e12bc71f343933b6942f5a905. This docs-only PR #14 publishes current unmerged status; neither PR is authorized for merge.
 
 ## Owner asset login routing verification, 2026-10-06
