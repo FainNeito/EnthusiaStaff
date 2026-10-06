@@ -87,10 +87,18 @@ final class DiscordPunishmentRuntime implements AutoCloseable {
                         clock,
                         MinecraftBanDiscordNotificationWorker.workerId()
                 );
+        MinecraftWarnMuteDiscordNotificationWorker minecraftWarnMuteNotifications =
+                new MinecraftWarnMuteDiscordNotificationWorker(
+                        persistence.minecraftWarnMuteNotifications(),
+                        gateway,
+                        clock,
+                        MinecraftWarnMuteDiscordNotificationWorker.workerId()
+                );
         DiscordPunishmentCoordinator coordinator = new DiscordPunishmentCoordinator(
                 () -> {
                     worker.runCycle();
                     minecraftNotifications.runCycle();
+                    minecraftWarnMuteNotifications.runCycle();
                 },
                 configuration.workerInterval()
         );

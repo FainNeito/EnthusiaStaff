@@ -1,6 +1,8 @@
 package net.enthusia.staff.discordbot;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -18,6 +20,7 @@ import net.enthusia.staff.domain.moderation.DiscordGuildId;
 import net.enthusia.staff.domain.moderation.DiscordUserId;
 import net.enthusia.staff.domain.moderation.ModerationSubjectId;
 import net.enthusia.staff.domain.sanction.SanctionLength;
+import net.enthusia.staff.domain.sanction.SanctionType;
 import org.junit.jupiter.api.Test;
 
 class JdaPunishmentNotifierTest {
@@ -112,6 +115,71 @@ class JdaPunishmentNotifierTest {
             assertTrue(message.contains("No punishment was created or applied."));
             assertTrue(message.contains(JdaPunishmentNotifier.APPEAL_SITE));
         }
+    }
+
+    @Test
+    void previewPresentationUsesBrandingFieldsAndAccentColor() {
+        String message = JdaPunishmentNotifier.previewMessage(DiscordConsequenceType.MUTE, NOW);
+        String icon = "https://cdn.discordapp.com/icons/1410303324745371709/example.png";
+        var embed = PunishmentNotificationDiscordPresentation.embed(
+                message, PunishmentNotificationDiscordPresentation.MUTE_COLOR, icon);
+
+        assertEquals("Punishment Alert", embed.getTitle());
+        assertEquals(PunishmentNotificationDiscordPresentation.MUTE_COLOR, embed.getColorRaw());
+        assertTrue(embed.getDescription().contains("You have been"));
+        assertTrue(embed.getFields().stream().anyMatch(field -> "Reason".equals(field.getName())));
+        assertTrue(embed.getFields().stream().anyMatch(field -> "Expires".equals(field.getName())));
+        assertNotNull(embed.getThumbnail());
+        assertEquals(icon, embed.getThumbnail().getUrl());
+        assertEquals(PunishmentNotificationDiscordPresentation.FOOTER, embed.getFooter().getText());
+        assertFalse(embed.getDescription().contains(JdaPunishmentNotifier.APPEAL_SITE));
+        assertFalse(embed.getDescription().contains(JdaPunishmentNotifier.APPEAL_CHANNEL));
+    }
+
+    @Test
+    void actionColorsAreDistinctForWarningMuteAndBan() {
+        assertEquals(PunishmentNotificationDiscordPresentation.WARNING_COLOR,
+                PunishmentNotificationDiscordPresentation.color(DiscordConsequenceType.WARNING));
+        assertEquals(PunishmentNotificationDiscordPresentation.MUTE_COLOR,
+                PunishmentNotificationDiscordPresentation.color(DiscordConsequenceType.MUTE));
+        assertEquals(PunishmentNotificationDiscordPresentation.BAN_COLOR,
+                PunishmentNotificationDiscordPresentation.color(DiscordConsequenceType.BAN));
+        assertEquals(PunishmentNotificationDiscordPresentation.BAN_COLOR,
+                PunishmentNotificationDiscordPresentation.color(SanctionType.BAN));
+    }
+    @Test
+    void linkedMinecraftWarningAndMuteMessagesUseMinecraftContext() {
+        String warning = JdaPunishmentNotifier.minecraftWarningOrMuteMessage(
+                new JdaPunishmentNotifier.MinecraftWarningOrMuteNotification(
+                        TARGET_USER_ID,
+                        "ExamplePlayer",
+                        "Chat spam",
+                        NOW,
+                        SanctionType.WARNING,
+                        Optional.empty()
+                )
+        );
+        String mute = JdaPunishmentNotifier.minecraftWarningOrMuteMessage(
+                new JdaPunishmentNotifier.MinecraftWarningOrMuteNotification(
+                        TARGET_USER_ID,
+                        "ExamplePlayer",
+                        "Repeated chat spam",
+                        NOW,
+                        SanctionType.MUTE,
+                        Optional.of(NOW.plus(Duration.ofHours(6)))
+                )
+        );
+
+        assertTrue(warning.contains("Minecraft account `ExamplePlayer`"));
+        assertTrue(warning.contains("has been `warned` on the Enthusia SMP."));
+        assertTrue(warning.contains("**Reason:** Chat spam"));
+        assertFalse(warning.contains("**Expires:**"));
+
+        assertTrue(mute.contains("Minecraft account `ExamplePlayer`"));
+        assertTrue(mute.contains("has been `muted` on the Enthusia SMP until the time shown below."));
+        assertTrue(mute.contains("**Reason:** Repeated chat spam"));
+        assertTrue(mute.contains("<t:" + NOW.plus(Duration.ofHours(6)).getEpochSecond() + ":R>"));
+        assertTrue(mute.contains(JdaPunishmentNotifier.APPEAL_SITE));
     }
 
     @Test

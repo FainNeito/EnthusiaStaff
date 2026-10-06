@@ -35,6 +35,7 @@ import net.dv8tion.jda.api.modals.Modal;
 import net.enthusia.staff.domain.auth.DiscordConsequenceType;
 import net.enthusia.staff.domain.discord.DiscordDeliveryOutcome;
 import net.enthusia.staff.domain.moderation.DiscordUserId;
+import net.enthusia.staff.domain.sanction.SanctionType;
 
 /** JDA adapter for D06 reads and D07 confirmed Discord-only moderation actions. */
 final class JdaStaffModerationListener extends ListenerAdapter {
@@ -236,14 +237,14 @@ final class JdaStaffModerationListener extends ListenerAdapter {
             unavailable(event);
             return;
         }
-        DiscordConsequenceType type = previewType(option(event, TYPE_OPTION, ""));
+        String preview = option(event, TYPE_OPTION, "");
         long interactionId = event.getIdLong();
         if (!claim(interactionId, event)) {
             return;
         }
         event.deferReply(true).queue(hook -> {
             boolean scheduled = workers.tryExecute(() -> executeNotificationTest(
-                    hook, event.getJDA(), actorId, actorName, type));
+                    hook, event.getJDA(), actorId, actorName, preview));
             if (!scheduled) {
                 hook.sendMessage("The moderation action queue is busy. Try again shortly.").queue();
             }
@@ -255,14 +256,14 @@ final class JdaStaffModerationListener extends ListenerAdapter {
             JDA jda,
             long actorId,
             String actorName,
-            DiscordConsequenceType type
+            String preview
     ) {
         try {
             actors.invoker(new DiscordUserId(Long.toUnsignedString(actorId)), actorName);
-            DiscordDeliveryOutcome outcome = JdaPunishmentNotifier.notifyPreview(
-                    jda, Long.toUnsignedString(actorId), type, Instant.now());
+            String userId = Long.toUnsignedString(actorId);
+            DiscordDeliveryOutcome outcome = deliverNotificationPreview(jda, userId, preview, Instant.now());
             if (outcome == DiscordDeliveryOutcome.DELIVERED) {
-                hook.sendMessage("Sent the real-format " + type.name().toLowerCase(java.util.Locale.ROOT)
+                hook.sendMessage("Sent the real-format " + preview.replace('-', ' ')
                         + " notification preview to your DMs. No punishment or case was created.").queue();
             } else {
                 hook.sendMessage("The preview was not delivered. No punishment or case was created.").queue();
@@ -273,11 +274,25 @@ final class JdaStaffModerationListener extends ListenerAdapter {
         }
     }
 
-    private static DiscordConsequenceType previewType(String raw) {
-        return switch (raw) {
-            case "warning" -> DiscordConsequenceType.WARNING;
-            case "mute" -> DiscordConsequenceType.MUTE;
-            case "ban" -> DiscordConsequenceType.BAN;
+    private static DiscordDeliveryOutcome deliverNotificationPreview(
+            JDA jda,
+            String userId,
+            String preview,
+            Instant now
+    ) {
+        return switch (preview) {
+            case "warning" -> JdaPunishmentNotifier.notifyPreview(
+                    jda, userId, DiscordConsequenceType.WARNING, now);
+            case "mute" -> JdaPunishmentNotifier.notifyPreview(
+                    jda, userId, DiscordConsequenceType.MUTE, now);
+            case "ban" -> JdaPunishmentNotifier.notifyPreview(
+                    jda, userId, DiscordConsequenceType.BAN, now);
+            case "minecraft-warning" -> JdaPunishmentNotifier.notifyMinecraftPreview(
+                    jda, userId, SanctionType.WARNING, now);
+            case "minecraft-mute" -> JdaPunishmentNotifier.notifyMinecraftPreview(
+                    jda, userId, SanctionType.MUTE, now);
+            case "minecraft-ban" -> JdaPunishmentNotifier.notifyMinecraftPreview(
+                    jda, userId, SanctionType.BAN, now);
             default -> throw new IllegalArgumentException("unsupported notification preview type");
         };
     }
@@ -845,9 +860,12 @@ final class JdaStaffModerationListener extends ListenerAdapter {
                 "Punishment notification format to DM to yourself",
                 true
         )
-                .addChoice("Warning", "warning")
-                .addChoice("Mute", "mute")
-                .addChoice("Ban", "ban");
+                .addChoice("Discord Warning", "warning")
+                .addChoice("Discord Mute", "mute")
+                .addChoice("Discord Ban", "ban")
+                .addChoice("Minecraft Warning", "minecraft-warning")
+                .addChoice("Minecraft Mute", "minecraft-mute")
+                .addChoice("Minecraft Ban", "minecraft-ban");
         return Commands.slash(NOTIFICATION_TEST, "DM yourself a safe punishment-notification preview")
                 .addOptions(type)
                 .setDefaultPermissions(discovery);
