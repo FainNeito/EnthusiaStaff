@@ -32,8 +32,8 @@ final class ManagedRoleShadowCoordinatorTest {
 
     @Test
     void nameOnlyClaimRejectsAmbiguousDuplicateRoles() {
-        Role first = role("1552390213500928122", "Guild Alpha");
-        Role second = role("1552390213500928999", "Guild Alpha");
+        Role first = role("1552390213500928122", "Playtime XII");
+        Role second = role("1552390213500928999", "Playtime XII");
 
         ManagedRoleShadowCoordinator.ClaimResult result = ManagedRoleShadowCoordinator.compare(
                 resolved(Optional.empty(), Set.of(), false),
