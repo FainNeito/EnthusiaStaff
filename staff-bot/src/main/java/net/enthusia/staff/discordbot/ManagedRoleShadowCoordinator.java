@@ -198,21 +198,20 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
     }
 
     private static void logTotals(Summary summary, boolean truncated) {
-        if (!LOGGER.isLoggable(System.Logger.Level.INFO)) {
-            return;
+        if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
+            LOGGER.log(
+                    System.Logger.Level.INFO,
+                    "managed_role_shadow_summary complete={0} claims={1} matches={2} drift={3} "
+                            + "missing_members={4} extra_members={5} unlinked_minecraft={6}",
+                    !truncated,
+                    summary.claims(),
+                    summary.matches(),
+                    summary.drifts(),
+                    summary.missingMembers(),
+                    summary.extraMembers(),
+                    summary.unlinkedMinecraftAccounts()
+            );
         }
-        LOGGER.log(
-                System.Logger.Level.INFO,
-                "managed_role_shadow_summary complete={0} claims={1} matches={2} drift={3} "
-                        + "missing_members={4} extra_members={5} unlinked_minecraft={6}",
-                !truncated,
-                summary.claims(),
-                summary.matches(),
-                summary.drifts(),
-                summary.missingMembers(),
-                summary.extraMembers(),
-                summary.unlinkedMinecraftAccounts()
-        );
     }
 
     private static void logTruncation(boolean truncated) {
@@ -229,21 +228,20 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
     }
 
     private static void logDrift(ClaimResult result) {
-        if (!LOGGER.isLoggable(System.Logger.Level.WARNING)) {
-            return;
+        if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "managed_role_shadow_drift resource={0} state={1} desired={2} observed={3} "
+                            + "missing={4} extra={5} unlinked_minecraft={6}",
+                    safeResource(result.resourceId()),
+                    result.state(),
+                    result.desiredMembers(),
+                    result.observedMembers(),
+                    result.missingMembers(),
+                    result.extraMembers(),
+                    result.unlinkedMinecraftAccounts()
+            );
         }
-        LOGGER.log(
-                System.Logger.Level.WARNING,
-                "managed_role_shadow_drift resource={0} state={1} desired={2} observed={3} "
-                        + "missing={4} extra={5} unlinked_minecraft={6}",
-                safeResource(result.resourceId()),
-                result.state(),
-                result.desiredMembers(),
-                result.observedMembers(),
-                result.missingMembers(),
-                result.extraMembers(),
-                result.unlinkedMinecraftAccounts()
-        );
     }
 
     static ClaimResult compare(
