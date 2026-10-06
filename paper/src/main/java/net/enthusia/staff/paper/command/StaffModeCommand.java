@@ -6,6 +6,7 @@ import java.util.function.Supplier;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.enthusia.staff.paper.staff.StaffModeManager;
+import net.enthusia.staff.paper.visibility.VanishManager;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -17,23 +18,32 @@ import org.bukkit.entity.Player;
 public final class StaffModeCommand implements CommandExecutor, TabCompleter {
     private static final String PERMISSION = "enthusiastaff.staffmode";
     private static final String RECOVER = "recover";
+    private static final String TAB = "tab";
+    private static final String TOGGLE_VANISH = "togglevanish";
+    private static final String SHOW = "show";
+    private static final String HIDE = "hide";
     private static final int SINGLE_ARGUMENT = 1;
     private static final int TARGETED_RECOVERY_ARGUMENTS = 2;
+    private static final int TAB_ARGUMENTS = 2;
     private static final List<String> ENTRY_OPTIONS =
-            List.of("recover", "-v", "vanish", "-nv", "visible");
+            List.of("recover", "-v", "vanish", "-nv", "visible", "tab");
+    private static final List<String> TAB_OPTIONS = List.of(SHOW, HIDE);
 
     private final Supplier<OperationalMode> mode;
     private final StaffModeManager manager;
     private final StaffModeVanishEntryCoordinator entry;
+    private final VanishManager vanish;
 
     public StaffModeCommand(
             Supplier<OperationalMode> mode,
             StaffModeManager manager,
-            StaffModeVanishEntryCoordinator entry
+            StaffModeVanishEntryCoordinator entry,
+            VanishManager vanish
     ) {
         this.mode = java.util.Objects.requireNonNull(mode, "mode");
         this.manager = java.util.Objects.requireNonNull(manager, "manager");
         this.entry = java.util.Objects.requireNonNull(entry, "entry");
+        this.vanish = java.util.Objects.requireNonNull(vanish, "vanish");
     }
 
     @Override
@@ -46,6 +56,13 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
         }
         if (!(sender instanceof Player player)) {
             sender.sendMessage(Component.text("Only a player can enter staff mode."));
+            return true;
+        }
+        if (spectatorTabRequested(arguments)) {
+            return configureSpectatorTab(player, arguments[1]);
+        }
+        if (vanishToggleRequested(arguments)) {
+            vanish.toggle(player);
             return true;
         }
         return handlePlayer(player, arguments);
@@ -91,7 +108,7 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
         StaffModeVanishEntryOption option = StaffModeVanishEntryOption.parse(arguments).orElse(null);
         if (option == null) {
             player.sendMessage(StaffMessageStyle.usage(
-                    "Usage: /staff [recover|-v|vanish|-nv|visible]"
+                    "Usage: /staff [recover|-v|vanish|-nv|visible|tab <show|hide>]"
             ));
             return true;
         }
@@ -107,7 +124,7 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
         if (activeSession) {
             if (option != StaffModeVanishEntryOption.REMEMBERED) {
                 player.sendMessage(StaffMessageStyle.style(
-                        "Staff mode is already active. Use /vanish to change visibility before exiting."
+                        "Staff mode is already active. Use the vanish control to change visibility before exiting."
                 ));
                 return true;
             }
@@ -125,13 +142,40 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
             String alias,
             String[] arguments
     ) {
-        if (arguments.length != SINGLE_ARGUMENT) {
-            return List.of();
+        if (arguments.length == SINGLE_ARGUMENT) {
+            String prefix = arguments[0].toLowerCase(Locale.ROOT);
+            return ENTRY_OPTIONS.stream()
+                    .filter(option -> option.startsWith(prefix))
+                    .toList();
         }
-        String prefix = arguments[0].toLowerCase(Locale.ROOT);
-        return ENTRY_OPTIONS.stream()
-                .filter(option -> option.startsWith(prefix))
-                .toList();
+        if (arguments.length == TAB_ARGUMENTS && TAB.equalsIgnoreCase(arguments[0])) {
+            String prefix = arguments[1].toLowerCase(Locale.ROOT);
+            return TAB_OPTIONS.stream()
+                    .filter(option -> option.startsWith(prefix))
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private boolean configureSpectatorTab(Player player, String option) {
+        if (SHOW.equalsIgnoreCase(option)) {
+            vanish.configureSpectatorTab(player, true);
+            return true;
+        }
+        if (HIDE.equalsIgnoreCase(option)) {
+            vanish.configureSpectatorTab(player, false);
+            return true;
+        }
+        player.sendMessage(StaffMessageStyle.usage("Usage: /staff tab <show|hide>"));
+        return true;
+    }
+
+    private static boolean spectatorTabRequested(String[] arguments) {
+        return arguments.length == TAB_ARGUMENTS && TAB.equalsIgnoreCase(arguments[0]);
+    }
+
+    private static boolean vanishToggleRequested(String[] arguments) {
+        return arguments.length == SINGLE_ARGUMENT && TOGGLE_VANISH.equalsIgnoreCase(arguments[0]);
     }
 
     private static boolean targetedRecovery(String[] arguments) {
