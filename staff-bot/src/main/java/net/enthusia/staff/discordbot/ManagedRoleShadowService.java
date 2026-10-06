@@ -95,19 +95,23 @@ final class ManagedRoleShadowService {
         Map<UUID, Set<String>> linkedUsers = new HashMap<>();
         List<ResolvedClaim> result = new ArrayList<>(snapshot.claims().size());
         for (Claim claim : snapshot.claims()) {
-            Set<String> desiredDiscord = new LinkedHashSet<>();
-            int unlinked = 0;
-            for (UUID minecraftId : claim.desiredMinecraftAccounts()) {
-                Set<String> users = linkedUsers.computeIfAbsent(minecraftId, this::discordUsers);
-                if (users.isEmpty()) {
-                    unlinked++;
-                } else {
-                    desiredDiscord.addAll(users);
-                }
-            }
-            result.add(new ResolvedClaim(claim, desiredDiscord, unlinked));
+            result.add(resolveClaim(claim, linkedUsers));
         }
         return List.copyOf(result);
+    }
+
+    private ResolvedClaim resolveClaim(Claim claim, Map<UUID, Set<String>> linkedUsers) {
+        Set<String> desiredDiscord = new LinkedHashSet<>();
+        int unlinked = 0;
+        for (UUID minecraftId : claim.desiredMinecraftAccounts()) {
+            Set<String> users = linkedUsers.computeIfAbsent(minecraftId, this::discordUsers);
+            if (users.isEmpty()) {
+                unlinked++;
+            } else {
+                desiredDiscord.addAll(users);
+            }
+        }
+        return new ResolvedClaim(claim, desiredDiscord, unlinked);
     }
 
     private Set<String> discordUsers(UUID minecraftId) {
