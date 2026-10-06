@@ -18,6 +18,7 @@ import net.enthusia.staff.domain.moderation.DiscordGuildId;
 import net.enthusia.staff.domain.moderation.DiscordUserId;
 import net.enthusia.staff.domain.moderation.ModerationSubjectId;
 import net.enthusia.staff.domain.sanction.SanctionLength;
+import net.enthusia.staff.domain.sanction.SanctionType;
 import org.junit.jupiter.api.Test;
 
 class JdaPunishmentNotifierTest {
@@ -112,6 +113,41 @@ class JdaPunishmentNotifierTest {
             assertTrue(message.contains("No punishment was created or applied."));
             assertTrue(message.contains(JdaPunishmentNotifier.APPEAL_SITE));
         }
+    }
+
+    @Test
+    void linkedMinecraftWarningAndMuteMessagesUseMinecraftContext() {
+        String warning = JdaPunishmentNotifier.minecraftWarningOrMuteMessage(
+                new JdaPunishmentNotifier.MinecraftWarningOrMuteNotification(
+                        TARGET_USER_ID,
+                        "ExamplePlayer",
+                        "Chat spam",
+                        NOW,
+                        SanctionType.WARNING,
+                        Optional.empty()
+                )
+        );
+        String mute = JdaPunishmentNotifier.minecraftWarningOrMuteMessage(
+                new JdaPunishmentNotifier.MinecraftWarningOrMuteNotification(
+                        TARGET_USER_ID,
+                        "ExamplePlayer",
+                        "Repeated chat spam",
+                        NOW,
+                        SanctionType.MUTE,
+                        Optional.of(NOW.plus(Duration.ofHours(6)))
+                )
+        );
+
+        assertTrue(warning.contains("Minecraft account `ExamplePlayer`"));
+        assertTrue(warning.contains("has been `warned` on the Enthusia SMP."));
+        assertTrue(warning.contains("**Reason:** Chat spam"));
+        assertFalse(warning.contains("**Expires:**"));
+
+        assertTrue(mute.contains("Minecraft account `ExamplePlayer`"));
+        assertTrue(mute.contains("has been `muted` on the Enthusia SMP until the time shown below."));
+        assertTrue(mute.contains("**Reason:** Repeated chat spam"));
+        assertTrue(mute.contains("<t:" + NOW.plus(Duration.ofHours(6)).getEpochSecond() + ":R>"));
+        assertTrue(mute.contains(JdaPunishmentNotifier.APPEAL_SITE));
     }
 
     @Test
