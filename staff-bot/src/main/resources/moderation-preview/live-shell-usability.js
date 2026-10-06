@@ -49,9 +49,11 @@ function targetAvatarNode() {
 }
 
 function linkedIdentitySummary() {
-  const minecraftCount = liveModeration.accounts.length;
-  const altCount = identity.alts.length;
-  return `@${identity.username} • Accounts: 1 Discord + ${minecraftCount} Minecraft • ${altCount} linked Minecraft alt${altCount === 1 ? '' : 's'}`;
+  const main = liveModeration.accounts.find((account) => account.main) || liveModeration.accounts[0];
+  const parts = [`@${identity.username}`];
+  if (main) parts.push(`${main.username || main.playerId} · ${friendlyPlatform(main.platform)}`);
+  if (identity.alts.length) parts.push(`${identity.alts.length} alt${identity.alts.length === 1 ? '' : 's'}`);
+  return parts.join(' • ');
 }
 
 function hardenedRenderContextPanel() {
@@ -154,8 +156,9 @@ function messageCoverageNode() {
   return element('details',{className:'coverage-summary'},
     element('summary',{},
       element('strong',{text:countLabel}),
-      element('span',{text:`${mode} · ${range}`})),
+      element('span',{text:mode})),
     element('div',{className:'coverage-details'},
+      element('div',{className:'muted small',text:range}),
       element('p',{text:messageCoverageExplanation()})));
 }
 
