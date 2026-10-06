@@ -124,7 +124,7 @@ public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
             return;
         }
         ChannelBinding current = channel.get();
-        if (current != null && current.identity() == client) {
+        if (current != null && current.identity() == client) { // NOPMD - lifecycle generation uses reference identity.
             channel.compareAndSet(current, null);
         }
     }
@@ -172,7 +172,7 @@ public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
             ChatBridgeOutboundMessage message,
             String payload
     ) {
-        if (channel.get() != expected
+        if (channel.get() != expected // NOPMD - queued work is fenced to the exact bound channel generation.
                 || !expected.connected().getAsBoolean()
                 || message.isExpired(clock.millis())) {
             return;
