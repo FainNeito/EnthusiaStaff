@@ -3,6 +3,7 @@ package net.enthusia.staff.discordbot;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -51,9 +52,14 @@ final class ManagedRoleShadowService {
         }
     }
 
-    record Snapshot(List<Claim> claims, boolean truncated) {
+    record Snapshot(List<Claim> claims, List<String> invalidResourceRefs, boolean truncated) {
         Snapshot {
             claims = List.copyOf(claims);
+            invalidResourceRefs = List.copyOf(invalidResourceRefs);
+        }
+
+        boolean incomplete() {
+            return truncated || !invalidResourceRefs.isEmpty();
         }
     }
 
@@ -80,13 +86,30 @@ final class ManagedRoleShadowService {
 
     Snapshot snapshot() {
         List<ReconciliationState> states = data.managedRoleStates(configuration.maxClaims() + 1);
-        boolean truncated = states.size() > configuration.maxClaims();
-        int count = Math.min(states.size(), configuration.maxClaims());
-        List<Claim> claims = new ArrayList<>(count);
-        for (int index = 0; index < count; index++) {
-            claims.add(decode(states.get(index)));
+        return decodeStates(states, configuration.maxClaims(), json);
+    }
+
+    static Snapshot decodeStates(
+            List<ReconciliationState> states,
+            int maxClaims,
+            ObjectMapper json
+    ) {
+        if (states == null || json == null || maxClaims < 1) {
+            throw new IllegalArgumentException("managed-role shadow decode inputs are invalid");
         }
-        return new Snapshot(claims, truncated);
+        boolean truncated = states.size() > maxClaims;
+        int count = Math.min(states.size(), maxClaims);
+        List<Claim> claims = new ArrayList<>(count);
+        List<String> invalid = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            ReconciliationState state = states.get(index);
+            try {
+                claims.add(decode(state, json));
+            } catch (RuntimeException exception) {
+                invalid.add(safeResourceReference(state));
+            }
+        }
+        return new Snapshot(claims, invalid, truncated);
     }
 
     List<ResolvedClaim> resolve(Snapshot snapshot) {
@@ -123,7 +146,7 @@ final class ManagedRoleShadowService {
                 .orElse(Set.of());
     }
 
-    private Claim decode(ReconciliationState state) {
+    private static Claim decode(ReconciliationState state, ObjectMapper json) {
         if (!RESOURCE_TYPE.equals(state.resourceType())) {
             throw new IllegalStateException("unexpected managed-role resource type");
         }
@@ -218,6 +241,13 @@ final class ManagedRoleShadowService {
             result.add(UUID.fromString(value.asText()));
         }
         return Set.copyOf(result);
+    }
+
+    private static String safeResourceReference(ReconciliationState state) {
+        String source = state.reconciliationKey() + "\n" + state.resourceId();
+        return UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8))
+                .toString()
+                .substring(0, 12);
     }
 
     private static boolean hasControl(String value) {

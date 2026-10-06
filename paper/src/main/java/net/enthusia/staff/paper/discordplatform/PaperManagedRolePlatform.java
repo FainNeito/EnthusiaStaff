@@ -29,6 +29,7 @@ import net.enthusia.discord.platform.api.ManagedRoleReconcileResult;
 import net.enthusia.discord.platform.api.ManagedRoleReconcileStatus;
 import net.enthusia.staff.domain.ports.DiscordModerationPersistenceStore.ReconciliationState;
 import net.enthusia.staff.persistence.JdbcDiscordModerationPersistenceStore;
+import net.enthusia.staff.persistence.ReconciliationRevisionConflictException;
 
 /**
  * Paper-side managed-role claim publisher.
@@ -177,10 +178,10 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
         if (currentStore == null) {
             throw new IllegalStateException("managed-role persistence is unavailable");
         }
-        Instant now = clock.instant();
         String key = reconciliationKey(desired.namespace(), desired.localKey());
-        RuntimeException last = null;
+        ReconciliationRevisionConflictException last = null;
         for (int attempt = 0; attempt < MAX_PERSIST_ATTEMPTS; attempt++) {
+            Instant now = clock.instant();
             Optional<ReconciliationState> current = currentStore.read(key);
             DesiredState effective = preserveDeleteIdentity(desired, current);
             String desiredJson = encode(effective);
@@ -190,7 +191,7 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
             try {
                 currentStore.save(proposed, expected, now);
                 return;
-            } catch (RuntimeException exception) {
+            } catch (ReconciliationRevisionConflictException exception) {
                 last = exception;
             }
         }

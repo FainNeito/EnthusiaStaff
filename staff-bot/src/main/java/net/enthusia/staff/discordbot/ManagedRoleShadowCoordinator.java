@@ -24,6 +24,7 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
     private static final System.Logger LOGGER = System.getLogger(ManagedRoleShadowCoordinator.class.getName());
     private static final int MAX_DRIFT_LOGS = 20;
     private static final int UNIQUE_ROLE_MATCH_COUNT = 1;
+    private static final Duration MEMBER_LOAD_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(20);
 
     enum State {
@@ -137,7 +138,7 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
             if (guild.get() != active || closed.get()) {
                 return;
             }
-            logSummary(claims, members, active, snapshot.truncated());
+            logSummary(claims, members, active, snapshot);
         } catch (RuntimeException exception) {
             logFailure(exception);
         } finally {
@@ -147,7 +148,9 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
 
     private static List<Member> loadMembers(Guild guild) {
         try {
-            return List.copyOf(guild.loadMembers().get());
+            return List.copyOf(guild.loadMembers()
+                    .setTimeout(MEMBER_LOAD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
+                    .get());
         } catch (RuntimeException exception) {
             throw new IllegalStateException("managed-role shadow member load failed", exception);
         }
@@ -157,11 +160,12 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
             List<ManagedRoleShadowService.ResolvedClaim> claims,
             List<Member> members,
             Guild guild,
-            boolean truncated
+            ManagedRoleShadowService.Snapshot snapshot
     ) {
         Summary summary = summarize(claims, members, guild);
-        logTotals(summary, truncated);
-        logTruncation(truncated);
+        logTotals(summary, snapshot);
+        logTruncation(snapshot.truncated());
+        logInvalidClaims(snapshot.invalidResourceRefs(), summary.driftDetails().size());
         logDrifts(summary.driftDetails());
     }
 
@@ -197,19 +201,21 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
         );
     }
 
-    private static void logTotals(Summary summary, boolean truncated) {
+    private static void logTotals(Summary summary, ManagedRoleShadowService.Snapshot snapshot) {
         if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
+            int invalid = snapshot.invalidResourceRefs().size();
             LOGGER.log(
                     System.Logger.Level.INFO,
                     "managed_role_shadow_summary complete={0} claims={1} matches={2} drift={3} "
-                            + "missing_members={4} extra_members={5} unlinked_minecraft={6}",
-                    !truncated,
-                    summary.claims(),
+                            + "missing_members={4} extra_members={5} unlinked_minecraft={6} invalid_claims={7}",
+                    !snapshot.incomplete(),
+                    summary.claims() + invalid,
                     summary.matches(),
-                    summary.drifts(),
+                    summary.drifts() + invalid,
                     summary.missingMembers(),
                     summary.extraMembers(),
-                    summary.unlinkedMinecraftAccounts()
+                    summary.unlinkedMinecraftAccounts(),
+                    invalid
             );
         }
     }
@@ -218,6 +224,20 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
         if (truncated && LOGGER.isLoggable(System.Logger.Level.WARNING)) {
             LOGGER.log(System.Logger.Level.WARNING,
                     "managed_role_shadow_incomplete reason=claim_limit_exceeded");
+        }
+    }
+
+    private static void logInvalidClaims(List<String> invalidResourceRefs, int existingDriftLogs) {
+        int remaining = Math.max(0, MAX_DRIFT_LOGS - existingDriftLogs);
+        for (int index = 0; index < Math.min(invalidResourceRefs.size(), remaining); index++) {
+            if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "managed_role_shadow_drift resource={0} state=INVALID_CLAIM "
+                                + "desired=0 observed=0 missing=0 extra=0 unlinked_minecraft=0",
+                        invalidResourceRefs.get(index)
+                );
+            }
         }
     }
 

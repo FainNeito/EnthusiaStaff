@@ -3,6 +3,7 @@ package net.enthusia.staff.paper.discordplatform;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -13,8 +14,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.discord.platform.api.DiscordPlatformAvailability;
 import net.enthusia.discord.platform.api.ManagedRoleClaim;
 import net.enthusia.discord.platform.api.ManagedRoleDeleteResult;
@@ -22,6 +25,7 @@ import net.enthusia.discord.platform.api.ManagedRoleKey;
 import net.enthusia.discord.platform.api.ManagedRoleNamespace;
 import net.enthusia.discord.platform.api.ManagedRoleReconcileStatus;
 import net.enthusia.staff.domain.ports.DiscordModerationPersistenceStore.ReconciliationState;
+import net.enthusia.staff.persistence.ReconciliationRevisionConflictException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -148,6 +152,66 @@ final class PaperManagedRolePlatformTest {
     }
 
     @Test
+    void retriesOnlyRevisionConflicts() {
+        AtomicInteger saves = new AtomicInteger();
+        PaperManagedRolePlatform.ClaimStore store = new PaperManagedRolePlatform.ClaimStore() {
+            @Override
+            public Optional<ReconciliationState> read(String key) {
+                return Optional.empty();
+            }
+
+            @Override
+            public ReconciliationState save(ReconciliationState state, long expectedRevision, Instant now) {
+                if (saves.getAndIncrement() == 0) {
+                    throw new ReconciliationRevisionConflictException("test revision conflict");
+                }
+                return state;
+            }
+        };
+        PaperManagedRolePlatform platform = new PaperManagedRolePlatform(
+                () -> store, workers, json, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        platform.clientFor(new ManagedRoleNamespace(LUMA_NAMESPACE)).orElseThrow()
+                .reconcile(new ManagedRoleClaim(
+                        new ManagedRoleKey(new ManagedRoleNamespace(LUMA_NAMESPACE), "guild:retry"),
+                        "Retry Guild",
+                        Set.of()))
+                .toCompletableFuture().join();
+
+        assertEquals(2, saves.get());
+    }
+
+    @Test
+    void genericPersistenceFailureIsNotRetried() {
+        AtomicInteger saves = new AtomicInteger();
+        PaperManagedRolePlatform.ClaimStore store = new PaperManagedRolePlatform.ClaimStore() {
+            @Override
+            public Optional<ReconciliationState> read(String key) {
+                return Optional.empty();
+            }
+
+            @Override
+            public ReconciliationState save(ReconciliationState state, long expectedRevision, Instant now) {
+                saves.incrementAndGet();
+                throw new IllegalStateException("database unavailable");
+            }
+        };
+        PaperManagedRolePlatform platform = new PaperManagedRolePlatform(
+                () -> store, workers, json, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        CompletionException failure = assertThrows(CompletionException.class, () ->
+                platform.clientFor(new ManagedRoleNamespace(LUMA_NAMESPACE)).orElseThrow()
+                        .reconcile(new ManagedRoleClaim(
+                                new ManagedRoleKey(new ManagedRoleNamespace(LUMA_NAMESPACE), "guild:failure"),
+                                "Failure Guild",
+                                Set.of()))
+                        .toCompletableFuture().join());
+
+        assertTrue(failure.getCause() instanceof IllegalStateException);
+        assertEquals(1, saves.get());
+    }
+
+    @Test
     void unavailableStorageIsReportedWithoutCreatingUnrestrictedClients() {
         PaperManagedRolePlatform platform = new PaperManagedRolePlatform(
                 (PaperManagedRolePlatform.ClaimStoreProvider) () -> null,
@@ -177,7 +241,7 @@ final class PaperManagedRolePlatformTest {
             ReconciliationState current = rows.get(state.reconciliationKey());
             long currentRevision = current == null ? -1L : current.revision();
             if (currentRevision != expectedRevision) {
-                throw new IllegalStateException("revision conflict");
+                throw new ReconciliationRevisionConflictException("revision conflict");
             }
             long nextRevision = expectedRevision + 1L;
             ReconciliationState stored = new ReconciliationState(
