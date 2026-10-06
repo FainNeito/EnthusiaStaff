@@ -29,6 +29,7 @@ final class ManagedRoleShadowService {
             String namespace,
             String localKey,
             String displayName,
+            Optional<String> existingDiscordRoleId,
             Set<UUID> desiredMinecraftAccounts,
             boolean delete
     ) {
@@ -144,6 +145,7 @@ final class ManagedRoleShadowService {
             } else if (!displayName.isEmpty()) {
                 requireDisplayName(displayName);
             }
+            Optional<String> existingRoleId = existingRoleId(root.path("existingDiscordRoleId"));
             Set<UUID> accounts = accounts(root.path("desiredMinecraftAccounts"));
             return new Claim(
                     state.reconciliationKey(),
@@ -151,6 +153,7 @@ final class ManagedRoleShadowService {
                     namespace,
                     localKey,
                     displayName,
+                    existingRoleId,
                     accounts,
                     delete
             );
@@ -184,6 +187,23 @@ final class ManagedRoleShadowService {
                 || hasControl(displayName)) {
             throw new IllegalStateException("managed-role display name is invalid");
         }
+    }
+
+    private static Optional<String> existingRoleId(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return Optional.empty();
+        }
+        if (!node.isTextual()) {
+            throw new IllegalStateException("managed-role existing Discord role ID must be textual");
+        }
+        String value = node.asText("");
+        if (value.isEmpty()) {
+            return Optional.empty();
+        }
+        if (!value.matches("[0-9]{5,30}")) {
+            throw new IllegalStateException("managed-role existing Discord role ID is invalid");
+        }
+        return Optional.of(value);
     }
 
     private static Set<UUID> accounts(JsonNode node) {
