@@ -36,6 +36,7 @@ import net.enthusia.staff.common.CaseId;
 
 public final class JdbcInventoryJournalStore implements InventoryJournalStore {
     private static final Duration SNAPSHOT_RETENTION = Duration.ofDays(30);
+    private static final Duration ABANDONED_OFFLINE_EDIT_GRACE = Duration.ofMinutes(10);
     private static final String CONFISCATION_OPERATION_TYPE = "CONFISCATION";
     private static final String RESTORATION_OPERATION_TYPE = "RESTORE_CONFISCATED";
     private static final String STATE_COLUMN = "state";
@@ -1207,8 +1208,12 @@ public final class JdbcInventoryJournalStore implements InventoryJournalStore {
             String owningServerId,
             Instant now
     ) throws SQLException {
-        List<AbandonedOfflineEditCandidate> candidates =
-                abandonedOfflineEditCandidates(connection, playerId, owningServerId);
+        List<AbandonedOfflineEditCandidate> candidates = abandonedOfflineEditCandidates(
+                connection,
+                playerId,
+                owningServerId,
+                now.minus(ABANDONED_OFFLINE_EDIT_GRACE)
+        );
         if (candidates.size() != 1) {
             return false;
         }
@@ -1230,7 +1235,7 @@ public final class JdbcInventoryJournalStore implements InventoryJournalStore {
                 Map.of(
                         "scopeId", candidate.scopeId(),
                         "owningServerId", owningServerId,
-                        "reason", "Owning backend is unavailable after the operation lease expired"
+                        "reason", "Owning backend is unavailable after the operation lease expired and the edit exceeded the recovery grace period"
                 ),
                 "inventory:abandoned-offline:" + candidate.operationId(),
                 now
@@ -1241,7 +1246,8 @@ public final class JdbcInventoryJournalStore implements InventoryJournalStore {
     private static List<AbandonedOfflineEditCandidate> abandonedOfflineEditCandidates(
             Connection connection,
             UUID playerId,
-            String owningServerId
+            String owningServerId,
+            Instant staleBefore
     ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT q.patch_id, q.operation_id, q.expected_revision, q.fencing_token,
@@ -1254,12 +1260,14 @@ public final class JdbcInventoryJournalStore implements InventoryJournalStore {
                 WHERE p.player_id = ? AND p.owning_server_id = ?
                     AND o.operation_type = 'OFFLINE_EDIT' AND o.case_id IS NULL
                     AND o.state = 'PENDING' AND q.state = 'PENDING'
+                    AND o.updated_at <= ?
                 ORDER BY q.created_at
                 LIMIT 2
                 FOR UPDATE
                 """)) {
             statement.setBytes(1, UuidBytes.toBytes(playerId));
             statement.setString(2, owningServerId);
+            statement.setTimestamp(3, Timestamp.from(staleBefore));
             try (ResultSet result = statement.executeQuery()) {
                 List<AbandonedOfflineEditCandidate> candidates = new ArrayList<>();
                 while (result.next()) {
