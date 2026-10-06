@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Level;
+import net.enthusia.discord.platform.api.ManagedRolePlatform;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.StaffRank;
@@ -43,6 +44,7 @@ import net.enthusia.staff.paper.config.RestartRequiredConfiguration;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadAction;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadCoordinator;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
+import net.enthusia.staff.paper.discordplatform.PaperManagedRolePlatform;
 import net.enthusia.staff.paper.enforcement.MuteEnforcementListener;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.enthusia.staff.persistence.DatabaseConfig;
@@ -50,6 +52,7 @@ import net.enthusia.staff.persistence.MariaDb;
 import net.enthusia.staff.persistence.MariaDbRuntime;
 import net.enthusia.staff.protocol.PersistentChannelClient;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
@@ -81,6 +84,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     private PaperDatabaseConfiguration.Settings databaseSettings;
     private PaperOperationalTaskCoordinator operationalTasks;
     private PaperCommandBridgeRuntime commandBridge;
+    private Optional<PaperManagedRolePlatform> managedRolePlatform = Optional.empty();
 
     @Override
     public void onEnable() {
@@ -149,6 +153,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
             PaperCommandRegistrar.registerStatus(this, health, reloadAction());
         }
         runtimeComponents.registerServices(this);
+        registerManagedRolePlatform();
         if (policiesReady) {
             muteEnforcement = new MuteEnforcementListener(
                     this,
@@ -178,6 +183,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     }
 
     private void closeNonDatabaseResources() {
+        unregisterManagedRolePlatform();
         resources.close("player activity tracker", getServer().getServicesManager().load(
                 net.enthusia.staff.paper.staff.PlayerActivityListener.class));
         resources.close("investigation join alerts", getServer().getServicesManager().load(
@@ -225,6 +231,28 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                 ),
                 this::publishAlertStatus
         );
+    }
+
+    private void registerManagedRolePlatform() {
+        PaperManagedRolePlatform current = new PaperManagedRolePlatform(
+                () -> storageValue(bindings -> bindings.runtime().dataSource()),
+                workers,
+                json,
+                Clock.systemUTC()
+        );
+        managedRolePlatform = Optional.of(current);
+        getServer().getServicesManager().register(
+                ManagedRolePlatform.class,
+                current,
+                this,
+                ServicePriority.Normal
+        );
+    }
+
+    private void unregisterManagedRolePlatform() {
+        managedRolePlatform.ifPresent(current ->
+                getServer().getServicesManager().unregister(ManagedRolePlatform.class, current));
+        managedRolePlatform = Optional.empty();
     }
 
     private Path dataDirectory() {

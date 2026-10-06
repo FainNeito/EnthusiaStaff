@@ -21,6 +21,7 @@ final class StaffModerationRuntime implements AutoCloseable {
     private final Optional<DiscordRoleSyncService> roleSyncService;
     private final Optional<DiscordRoleSyncPersistenceRuntime> roleSyncPersistence;
     private final Optional<DiscordCommandBridgeCoordinator> commandBridge;
+    private final Optional<ManagedRoleShadowService> managedRoleShadow;
     private final Optional<DiscordPunishmentRuntime> punishments;
     private final HttpStaffAuthorityClient authority;
 
@@ -34,6 +35,7 @@ final class StaffModerationRuntime implements AutoCloseable {
             Optional<DiscordRoleSyncService> roleSync,
             Optional<DiscordRoleSyncPersistenceRuntime> rolePersistence,
             Optional<DiscordCommandBridgeCoordinator> console,
+            Optional<ManagedRoleShadowService> managedRoleShadow,
             Optional<DiscordPunishmentRuntime> punishments,
             HttpStaffAuthorityClient authority
     ) {
@@ -46,6 +48,7 @@ final class StaffModerationRuntime implements AutoCloseable {
         this.roleSyncService = roleSync;
         this.roleSyncPersistence = rolePersistence;
         this.commandBridge = console;
+        this.managedRoleShadow = managedRoleShadow;
         this.punishments = punishments;
         this.authority = authority;
     }
@@ -119,6 +122,8 @@ final class StaffModerationRuntime implements AutoCloseable {
                             new HttpMinecraftCommandBridgeClient(
                                     value.endpoints(), value.credential(), value.timeout())
                     ));
+            Optional<ManagedRoleShadowService> managedRoleShadow = configuration.managedRoleShadow().map(value ->
+                    new ManagedRoleShadowService(data, value, new com.fasterxml.jackson.databind.ObjectMapper()));
             punishments = punishmentConfiguration.map(value -> DiscordPunishmentRuntime.open(
                     configuration.database(),
                     value,
@@ -130,7 +135,7 @@ final class StaffModerationRuntime implements AutoCloseable {
             ));
             return new StaffModerationRuntime(
                     data, reads, actors, authorization, components, profiles,
-                    roleSync, Optional.ofNullable(rolePersistence), console, punishments, authority
+                    roleSync, Optional.ofNullable(rolePersistence), console, managedRoleShadow, punishments, authority
             );
         } catch (RuntimeException exception) {
             punishments.ifPresent(DiscordPunishmentRuntime::close);
@@ -177,6 +182,10 @@ final class StaffModerationRuntime implements AutoCloseable {
 
     Optional<DiscordCommandBridgeCoordinator> commandBridge() {
         return commandBridge;
+    }
+
+    Optional<ManagedRoleShadowService> managedRoleShadow() {
+        return managedRoleShadow;
     }
 
     Optional<DiscordPunishmentService> punishmentService() {

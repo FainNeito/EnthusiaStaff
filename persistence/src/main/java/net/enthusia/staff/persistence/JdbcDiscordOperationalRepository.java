@@ -258,13 +258,25 @@ final class JdbcDiscordOperationalRepository {
             ReconciliationState current = reconciliationByKey(connection, state.reconciliationKey(), true);
             if (current == null) {
                 if (expectedRevision != -1) {
-                    throw new SQLException("reconciliation state does not exist at expected revision");
+                    throw new ReconciliationRevisionConflictException(
+                            "reconciliation state does not exist at expected revision");
                 }
-                insertReconciliation(connection, state, now);
+                try {
+                    insertReconciliation(connection, state, now);
+                } catch (SQLException exception) {
+                    if (JdbcSqlErrors.isDuplicateKey(exception)) {
+                        throw new ReconciliationRevisionConflictException(
+                                "reconciliation create lost revision race",
+                                exception
+                        );
+                    }
+                    throw exception;
+                }
                 return withRevision(state, 0);
             }
             if (current.revision() != expectedRevision) {
-                throw new SQLException("reconciliation revision changed before update");
+                throw new ReconciliationRevisionConflictException(
+                        "reconciliation revision changed before update");
             }
             try (PreparedStatement statement = connection.prepareStatement("""
                     UPDATE discord_reconciliation_state
@@ -276,7 +288,10 @@ final class JdbcDiscordOperationalRepository {
                 bindReconciliation(statement, state, now);
                 statement.setString(10, state.reconciliationKey());
                 statement.setLong(11, expectedRevision);
-                JdbcTransactionSupport.requireSingleUpdate(statement.executeUpdate(), "reconciliation update lost revision race");
+                if (!JdbcTransactionSupport.updatedOne(statement.executeUpdate())) {
+                    throw new ReconciliationRevisionConflictException(
+                            "reconciliation update lost revision race");
+                }
             }
             return withRevision(state, expectedRevision + 1);
         });
