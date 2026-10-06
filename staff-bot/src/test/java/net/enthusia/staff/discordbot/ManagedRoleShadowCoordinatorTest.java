@@ -13,7 +13,7 @@ import net.dv8tion.jda.api.entities.Role;
 import org.junit.jupiter.api.Test;
 
 final class ManagedRoleShadowCoordinatorTest {
-    private static final String PLAYTIME_ROLE_NAME = PLAYTIME_ROLE_NAME;
+    private static final String PLAYTIME_ROLE_NAME = "Playtime XII";
     private static final ClassLoader PROXY_CLASS_LOADER = Thread.currentThread().getContextClassLoader();
     private static final Map<Class<?>, Object> PRIMITIVE_DEFAULTS = Map.of(
             boolean.class, false,
