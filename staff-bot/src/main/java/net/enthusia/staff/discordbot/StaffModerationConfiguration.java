@@ -48,6 +48,7 @@ final class StaffModerationConfiguration {
     private final String componentSigningSecret;
     private final Optional<DiscordRoleSyncConfiguration> roleSyncConfiguration;
     private final Optional<DatabaseConfig> roleSyncDatabaseConfig;
+    private final Optional<ManagedRoleShadowConfiguration> managedRoleShadowConfiguration;
 
     private StaffModerationConfiguration(
             DatabaseConfig database,
@@ -56,7 +57,8 @@ final class StaffModerationConfiguration {
             AuthorityTransport transport,
             String componentSecret,
             Optional<DiscordRoleSyncConfiguration> roleSync,
-            Optional<DatabaseConfig> roleSyncDatabase
+            Optional<DatabaseConfig> roleSyncDatabase,
+            Optional<ManagedRoleShadowConfiguration> managedRoleShadow
     ) {
         this.databaseConfig = Objects.requireNonNull(database, "database");
         this.authorityEndpoint = Objects.requireNonNull(authorityUri, "authorityUri");
@@ -65,6 +67,7 @@ final class StaffModerationConfiguration {
         this.componentSigningSecret = cryptoSecret(componentSecret, COMPONENT_SIGNING_ENV);
         this.roleSyncConfiguration = Objects.requireNonNull(roleSync, "roleSync");
         this.roleSyncDatabaseConfig = Objects.requireNonNull(roleSyncDatabase, "roleSyncDatabase");
+        this.managedRoleShadowConfiguration = Objects.requireNonNull(managedRoleShadow, "managedRoleShadow");
         if (roleSyncConfiguration.isPresent() != roleSyncDatabaseConfig.isPresent()) {
             throw new IllegalArgumentException("role-sync policy and write database configuration must be configured together");
         }
@@ -82,9 +85,15 @@ final class StaffModerationConfiguration {
     static Optional<StaffModerationConfiguration> fromEnvironment(Map<String, String> values) {
         Objects.requireNonNull(values, "values");
         Optional<DiscordRoleSyncConfiguration> roleSync = DiscordRoleSyncConfiguration.fromEnvironment(values);
+        Optional<ManagedRoleShadowConfiguration> managedRoleShadow =
+                ManagedRoleShadowConfiguration.fromEnvironment(values);
         long configured = REQUIRED.stream().filter(envName -> present(values.get(envName))).count();
         if (configured == 0) {
             rejectOrphanRoleSyncSettings(values, roleSync);
+            if (managedRoleShadow.isPresent()) {
+                throw new IllegalArgumentException(
+                        "managed-role shadow requires the staff moderation database configuration");
+            }
             return Optional.empty();
         }
         if (configured != REQUIRED.size()) {
@@ -100,7 +109,7 @@ final class StaffModerationConfiguration {
         return Optional.of(new StaffModerationConfiguration(
                 database, authorityUri(values.get(AUTHORITY_URL_ENV), transport),
                 values.get(AUTHORITY_CREDENTIAL_ENV), transport, values.get(COMPONENT_SIGNING_ENV),
-                roleSync, roleSyncDatabase));
+                roleSync, roleSyncDatabase, managedRoleShadow));
     }
 
     DatabaseConfig database() { return databaseConfig; }
@@ -110,12 +119,17 @@ final class StaffModerationConfiguration {
     String componentSecret() { return componentSigningSecret; }
     Optional<DiscordRoleSyncConfiguration> roleSync() { return roleSyncConfiguration; }
     Optional<DatabaseConfig> roleSyncDatabase() { return roleSyncDatabaseConfig; }
+    Optional<ManagedRoleShadowConfiguration> managedRoleShadow() { return managedRoleShadowConfiguration; }
 
     @Override
     public String toString() {
         return ("StaffModerationConfiguration[authority=<configured>, authorityTransport=%s, roleSync=%s, "
-                + "database=<redacted>, roleSyncDatabase=<redacted>, authoritySecret=<redacted>, componentSecret=<redacted>]")
-                .formatted(authorityTransport.externalName(), roleSyncConfiguration.isPresent() ? "<configured>" : "<none>");
+                + "managedRoleShadow=%s, database=<redacted>, roleSyncDatabase=<redacted>, "
+                + "authoritySecret=<redacted>, componentSecret=<redacted>]")
+                .formatted(
+                        authorityTransport.externalName(),
+                        roleSyncConfiguration.isPresent() ? "<configured>" : "<none>",
+                        managedRoleShadowConfiguration.isPresent() ? "<configured>" : "<none>");
     }
 
     private static Optional<DatabaseConfig> roleSyncDatabase(
