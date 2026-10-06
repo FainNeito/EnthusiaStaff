@@ -223,23 +223,27 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
     }
 
     private static void logDrifts(List<ClaimResult> driftDetails) {
+        for (ClaimResult result : driftDetails) {
+            logDrift(result);
+        }
+    }
+
+    private static void logDrift(ClaimResult result) {
         if (!LOGGER.isLoggable(System.Logger.Level.WARNING)) {
             return;
         }
-        for (ClaimResult result : driftDetails) {
-            LOGGER.log(
-                    System.Logger.Level.WARNING,
-                    "managed_role_shadow_drift resource={0} state={1} desired={2} observed={3} "
-                            + "missing={4} extra={5} unlinked_minecraft={6}",
-                    safeResource(result.resourceId()),
-                    result.state(),
-                    result.desiredMembers(),
-                    result.observedMembers(),
-                    result.missingMembers(),
-                    result.extraMembers(),
-                    result.unlinkedMinecraftAccounts()
-            );
-        }
+        LOGGER.log(
+                System.Logger.Level.WARNING,
+                "managed_role_shadow_drift resource={0} state={1} desired={2} observed={3} "
+                        + "missing={4} extra={5} unlinked_minecraft={6}",
+                safeResource(result.resourceId()),
+                result.state(),
+                result.desiredMembers(),
+                result.observedMembers(),
+                result.missingMembers(),
+                result.extraMembers(),
+                result.unlinkedMinecraftAccounts()
+        );
     }
 
     static ClaimResult compare(
