@@ -182,7 +182,7 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
         RuntimeException last = null;
         for (int attempt = 0; attempt < MAX_PERSIST_ATTEMPTS; attempt++) {
             Optional<ReconciliationState> current = currentStore.read(key);
-            DesiredState effective = preserveDeleteDisplayName(desired, current);
+            DesiredState effective = preserveDeleteIdentity(desired, current);
             String desiredJson = encode(effective);
             long expected = current.map(ReconciliationState::revision).orElse(-1L);
             ReconciliationState proposed = proposedState(
@@ -220,32 +220,47 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
         );
     }
 
-    private DesiredState preserveDeleteDisplayName(
+    private DesiredState preserveDeleteIdentity(
             DesiredState desired,
             Optional<ReconciliationState> current
     ) {
-        if (!desired.delete() || !desired.displayName().isEmpty() || current.isEmpty()) {
+        if (!desired.delete()
+                || (!desired.displayName().isEmpty() && !desired.existingDiscordRoleId().isEmpty())
+                || current.isEmpty()) {
             return desired;
         }
         try {
-            String displayName = json.readTree(current.orElseThrow().desiredStateJson())
-                    .path("displayName")
-                    .asText("");
-            if (displayName.isBlank() || displayName.length() > 100
-                    || displayName.codePoints().anyMatch(Character::isISOControl)) {
-                return desired;
-            }
+            var root = json.readTree(current.orElseThrow().desiredStateJson());
+            String displayName = desired.displayName().isEmpty()
+                    ? validDisplayName(root.path("displayName").asText(""))
+                    : desired.displayName();
+            String existingRoleId = desired.existingDiscordRoleId().isEmpty()
+                    ? validRoleId(root.path("existingDiscordRoleId").asText(""))
+                    : desired.existingDiscordRoleId();
             return new DesiredState(
                     desired.version(),
                     desired.namespace(),
                     desired.localKey(),
                     displayName,
+                    existingRoleId,
                     desired.desiredMinecraftAccounts(),
                     true
             );
         } catch (JsonProcessingException exception) {
             return desired;
         }
+    }
+
+    private static String validDisplayName(String value) {
+        if (value.isBlank() || value.length() > 100
+                || value.codePoints().anyMatch(Character::isISOControl)) {
+            return "";
+        }
+        return value;
+    }
+
+    private static String validRoleId(String value) {
+        return value.matches("[0-9]{5,30}") ? value : "";
     }
 
     private String encode(DesiredState desired) {
@@ -278,6 +293,7 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
             String namespace,
             String localKey,
             String displayName,
+            String existingDiscordRoleId,
             List<String> desiredMinecraftAccounts,
             boolean delete
     ) {
@@ -291,6 +307,7 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
                     claim.key().namespace().value(),
                     claim.key().localKey(),
                     claim.displayName(),
+                    claim.existingDiscordRoleId().orElse(""),
                     accounts,
                     false
             );
@@ -301,6 +318,7 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
                     1,
                     key.namespace().value(),
                     key.localKey(),
+                    "",
                     "",
                     List.of(),
                     true
