@@ -3,7 +3,7 @@ package net.enthusia.staff.paper.discordplatform;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
+import java.security.NoSuchAlgorithmException;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
@@ -157,16 +157,14 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
         }
     }
 
-    private <T> CompletionStage<T> submit(java.util.concurrent.Callable<T> operation, T unavailable) {
+    private <T> CompletionStage<T> submit(Supplier<T> operation, T unavailable) {
         CompletableFuture<T> future = new CompletableFuture<>();
         try {
             workers.execute(() -> {
                 try {
-                    future.complete(operation.call());
+                    future.complete(operation.get());
                 } catch (RuntimeException exception) {
                     future.completeExceptionally(exception);
-                } catch (Exception exception) {
-                    future.completeExceptionally(new IllegalStateException("managed-role operation failed", exception));
                 }
             });
         } catch (RejectedExecutionException exception) {
@@ -229,7 +227,7 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (GeneralSecurityException exception) {
+        } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 unavailable", exception);
         }
     }
@@ -244,8 +242,8 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
     ) {
         private static DesiredState claim(ManagedRoleClaim claim) {
             List<String> accounts = claim.desiredMinecraftAccounts().stream()
-                    .sorted(Comparator.comparing(UUID::toString))
                     .map(UUID::toString)
+                    .sorted()
                     .toList();
             return new DesiredState(
                     1,
