@@ -1130,6 +1130,13 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         if (event.getPreviousServer() == null) {
+            // Asset recovery owns the first hop. Do not let a separate Staff Mode
+            // reconnect redirect override a backend selected for durable asset recovery.
+            if (!selectedServerName(event).equalsIgnoreCase(
+                    event.getOriginalServer().getServerInfo().getName()
+            )) {
+                return;
+            }
             enforceStaffReconnectOwnership(event);
             return;
         }
@@ -1271,6 +1278,36 @@ public final class EnthusiaStaffVelocityPlugin {
                 && inventories.resolveAbandonedOfflineEdit(
                         event.getPlayer().getUniqueId(), required, now
                 )) {
+            Optional<String> remainingOwner = inventories.lockedOwningServer(
+                    event.getPlayer().getUniqueId(),
+                    now
+            );
+            if (remainingOwner.isPresent() && !remainingOwner.orElseThrow().equalsIgnoreCase(requested)) {
+                String remaining = remainingOwner.orElseThrow();
+                Optional<com.velocitypowered.api.proxy.server.RegisteredServer> backend = proxy.getServer(remaining);
+                if (backend.isPresent()) {
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+                    logger.warn(
+                            "Resolved one abandoned offline inventory edit for {} ({}); routing remaining recovery to {}",
+                            event.getPlayer().getUsername(),
+                            event.getPlayer().getUniqueId(),
+                            remaining
+                    );
+                    return true;
+                }
+                logger.warn(
+                        "Resolved one abandoned offline inventory edit for {} ({}), but another recovery owner {} is unavailable",
+                        event.getPlayer().getUsername(),
+                        event.getPlayer().getUniqueId(),
+                        remaining
+                );
+                denyServerSwitch(
+                        event,
+                        "Another protected inventory recovery is assigned to unavailable backend "
+                                + remaining + ". Please contact staff."
+                );
+                return false;
+            }
             logger.warn(
                     "Resolved abandoned offline inventory edit for {} ({}) owned by unavailable backend {}; allowing {}",
                     event.getPlayer().getUsername(),
@@ -1622,6 +1659,13 @@ public final class EnthusiaStaffVelocityPlugin {
         if (authorityMode.get() == OperationalMode.ACTIVE) {
             denyServerSwitch(event, message);
         }
+    }
+
+    private static String selectedServerName(ServerPreConnectEvent event) {
+        return event.getResult().getServer()
+                .orElse(event.getOriginalServer())
+                .getServerInfo()
+                .getName();
     }
 
     private void denyServerSwitch(ServerPreConnectEvent event, String message) {
