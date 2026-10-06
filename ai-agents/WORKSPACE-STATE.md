@@ -1,5 +1,16 @@
 # Workspace state
 
+## Owner asset login routing verification, 2026-10-06
+
+Frozen product head 2d81d7f68b2ee33e12bc71f343933b6942f5a905 adapts only the safe Velocity login routing subset of canonical main 1cae3bb3 (#351). No automatic abandoned-edit conflict terminalization, lease deletion or new store API is included. Existing owner fixes remain intact. Initial protected inventory/economy ownership wins over Staff reconnect even when it already matches the requested backend; conflicting/unavailable owners deny admission with an explicit disconnect. No-asset Staff reconnect behavior is retained. Ordinary switches retain inventory-first short-circuit ordering across operational modes.
+
+Evidence: the three original canonical login regressions failed on prior owner code; the added same-requested-backend precedence and SHADOW_MIGRATION/unavailable-economy regressions each failed during adaptation before corrections. All 25 focused tests now pass. Frozen-head Java 25.0.3 release-21 clean test/check/runtimeJars passes: 1,714 tests, zero failures/errors, two existing Windows symlink skips; 28 tasks executed, 28 cached, one up-to-date. Local Docker integration-tests:test explicitly excluded. Wiki 41 pages, whitespace, runtime ZIP CRC and checked RoseChat API exclusion pass. Exact new-head hosted Coverage/integration/runtime client proof/review remain pending; older 72497684 passes do not validate this new head. Existing EARS/state tooling is absent; bounded requirement/task/evidence is maintained here. Unchanged unavailable orchestration/private gates were not repeated.
+
+Local unmerged test version 0.1.0-staff-bugs-test.14 SHA256: Paper a6481608dc4417661dd7c61d16d4d8abee9167ca8bd48256e0098c2d15aefed1; Velocity 71e93134c0ed9346fddc54e9b838f4cc8d19944fbe53d77adb65b6af9eab13f4; AuthorityBridge f2683923c14a9b9dd65adc590420381008026cf2b0fe6aff6833f1a6ab3afe2e; StaffBot 3d52d105477f9618b812b56fbe4994a8d769173fb058d0e173bd6ed3e2abf9f4. Root aggregate owns these builds; no external pin/schema/provider/dependency changes. Reviewed worker dispatch, initial vs ordinary lifecycle, ownership conflicts, no-asset fallback, failure modes, store non-mutation and prior snapshot/permission/name/vanish preservation.
+
+Status PARTIAL. Push the same fork PR #1 and inspect its exact new-head hosted checks/review. Publish these five status documents through existing docs-only PR #14 without merging. Missing affected-player/time/Staff-transfer/TEST-surface inputs keep production cause unproven; private/provider/Bedrock/Folia/staging and real production acceptance remain open. No product/status merge, deployment, inventory restoration, permissions/authority change or backup access. Source delivery is incomplete until canonical merge and required combined build verification through the normal PR process.
+
+
 ## Owner asset login routing continuation, 2026-10-06
 
 Start owner 72497684237741a31640a00c79a815cb41c6f158; fork main 711f0fce unchanged; canonical main advances to 1cae3bb31be12b7a85a59490ac2d40fcfdb20873 (#351). Existing owner-head Coverage/runtime proof/Wiki/Sentinel artifact checks passed; Codacy upload, draft review and Pi cancellation remain skipped. PR #1 is draft with zero unresolved review threads.
