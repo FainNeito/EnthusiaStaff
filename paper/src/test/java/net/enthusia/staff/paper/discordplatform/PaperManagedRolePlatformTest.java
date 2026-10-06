@@ -8,11 +8,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import net.enthusia.discord.platform.api.DiscordPlatformAvailability;
@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 
 final class PaperManagedRolePlatformTest {
     private static final Instant NOW = Instant.parse("2026-10-05T22:00:00Z");
+    private static final String LUMA_NAMESPACE = LUMA_NAMESPACE;
     private final ExecutorService workers = Executors.newSingleThreadExecutor();
     private final ObjectMapper json = new ObjectMapper();
 
@@ -40,7 +41,7 @@ final class PaperManagedRolePlatformTest {
         FakeStore store = new FakeStore();
         PaperManagedRolePlatform platform = platform(store);
 
-        assertTrue(platform.clientFor(new ManagedRoleNamespace("luma-guilds")).isPresent());
+        assertTrue(platform.clientFor(new ManagedRoleNamespace(LUMA_NAMESPACE)).isPresent());
         assertTrue(platform.clientFor(new ManagedRoleNamespace("playtime-numerals")).isPresent());
         assertTrue(platform.clientFor(new ManagedRoleNamespace("unknown-consumer")).isEmpty());
     }
@@ -49,7 +50,7 @@ final class PaperManagedRolePlatformTest {
     void reconcilePublishesCompleteProviderNeutralDesiredState() throws Exception {
         FakeStore store = new FakeStore();
         PaperManagedRolePlatform platform = platform(store);
-        ManagedRoleNamespace namespace = new ManagedRoleNamespace("luma-guilds");
+        ManagedRoleNamespace namespace = new ManagedRoleNamespace(LUMA_NAMESPACE);
         ManagedRoleKey key = new ManagedRoleKey(namespace, "guild:123e4567-e89b-12d3-a456-426614174000");
         UUID second = UUID.fromString("22222222-2222-2222-2222-222222222222");
         UUID first = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -64,7 +65,7 @@ final class PaperManagedRolePlatformTest {
         assertEquals(PaperManagedRolePlatform.RESOURCE_TYPE, persisted.resourceType());
         assertEquals("PENDING", persisted.state());
         var desired = json.readTree(persisted.desiredStateJson());
-        assertEquals("luma-guilds", desired.path("namespace").asText());
+        assertEquals(LUMA_NAMESPACE, desired.path("namespace").asText());
         assertEquals(key.localKey(), desired.path("localKey").asText());
         assertEquals("Example Guild", desired.path("displayName").asText());
         assertFalse(desired.path("delete").asBoolean());
@@ -103,7 +104,7 @@ final class PaperManagedRolePlatformTest {
     void deletePublishesNamespaceScopedTombstone() throws Exception {
         FakeStore store = new FakeStore();
         PaperManagedRolePlatform platform = platform(store);
-        ManagedRoleNamespace namespace = new ManagedRoleNamespace("luma-guilds");
+        ManagedRoleNamespace namespace = new ManagedRoleNamespace(LUMA_NAMESPACE);
         ManagedRoleKey key = new ManagedRoleKey(namespace, "guild:one");
 
         ManagedRoleDeleteResult result = platform.clientFor(namespace).orElseThrow()
@@ -119,7 +120,7 @@ final class PaperManagedRolePlatformTest {
     void deletePreservesPriorDisplayNameForShadowParity() throws Exception {
         FakeStore store = new FakeStore();
         PaperManagedRolePlatform platform = platform(store);
-        ManagedRoleNamespace namespace = new ManagedRoleNamespace("luma-guilds");
+        ManagedRoleNamespace namespace = new ManagedRoleNamespace(LUMA_NAMESPACE);
         ManagedRoleKey key = new ManagedRoleKey(namespace, "guild:two");
 
         platform.clientFor(namespace).orElseThrow()
@@ -144,7 +145,7 @@ final class PaperManagedRolePlatformTest {
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertEquals(DiscordPlatformAvailability.UNAVAILABLE, platform.availability());
-        assertTrue(platform.clientFor(new ManagedRoleNamespace("luma-guilds")).isPresent());
+        assertTrue(platform.clientFor(new ManagedRoleNamespace(LUMA_NAMESPACE)).isPresent());
     }
 
     private PaperManagedRolePlatform platform(FakeStore store) {
@@ -153,7 +154,7 @@ final class PaperManagedRolePlatformTest {
     }
 
     private static final class FakeStore implements PaperManagedRolePlatform.ClaimStore {
-        private final Map<String, ReconciliationState> rows = new HashMap<>();
+        private final Map<String, ReconciliationState> rows = new ConcurrentHashMap<>();
 
         @Override
         public Optional<ReconciliationState> read(String key) {
