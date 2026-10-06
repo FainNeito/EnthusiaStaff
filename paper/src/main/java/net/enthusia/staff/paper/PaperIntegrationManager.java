@@ -315,6 +315,10 @@ final class PaperIntegrationManager implements Listener {
     }
 
     private void installRoseChatOutboundBridge() {
+        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+            clearIssue(ROSECHAT_OUTBOUND);
+            return;
+        }
         RoseChatOutboundBridgeIntegration.Discovery discovery =
                 RoseChatOutboundBridgeIntegration.discoverAndInstall(
                         dependencies.environment().serverId(),
