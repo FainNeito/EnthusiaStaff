@@ -280,7 +280,8 @@ final class PaperCommandRegistrar {
         );
         bindCompleting("freeze", freezes, freezes);
         bindCompleting("unfreeze", freezes, freezes);
-        bind("staff", new StaffModeCommand(writeMode(), dependencies.players().staffMode()));
+        bind("staff", new StaffModeCommand(writeMode(), dependencies.players().staffMode(),
+                dependencies.players().vanish()));
         bind("vanish", new VanishCommand(writeMode(), dependencies.players().vanish()));
         bind("staffchat", new StaffChatCommand(dependencies.integrations().roseChat()));
         bind("staffwho", new StaffWhoCommand(
