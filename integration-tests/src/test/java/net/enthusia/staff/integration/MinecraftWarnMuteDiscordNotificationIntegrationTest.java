@@ -42,6 +42,20 @@ class MinecraftWarnMuteDiscordNotificationIntegrationTest {
 
     @Test
     void cutoverQueuesOnlyLinkedFutureWarningsAndMutesWithoutDuplicatingBanPath() throws Exception {
+        Fixture fixture = seedFixture();
+
+        JdbcMinecraftWarnMuteDiscordNotificationStore store;
+        try (HikariDataSource dataSource = open()) {
+            store = new JdbcMinecraftWarnMuteDiscordNotificationStore(dataSource);
+            assertEquals(CUTOVER, store.ensureCutover(CUTOVER));
+            assertEquals(CUTOVER, store.ensureCutover(CUTOVER.plusSeconds(5)));
+        }
+
+        seedFuturePunishments(fixture);
+        verifyQueuedNotifications(fixture.muteExpiry());
+    }
+
+    private static Fixture seedFixture() throws Exception {
         UUID oldTarget = seedTarget("OldWarningPlayer");
         UUID muteTarget = seedTarget("LinkedMutePlayer");
         UUID warningTarget = seedTarget("LinkedWarningPlayer");
@@ -54,73 +68,99 @@ class MinecraftWarnMuteDiscordNotificationIntegrationTest {
 
         seedCase("WMOLD00000000001", oldTarget, CUTOVER.minusSeconds(1), "Old warning");
         seedSanction("WMOLD00000000001", oldTarget, "WARNING", "APPLIED", CUTOVER.minusSeconds(1), null);
+        return new Fixture(
+                muteTarget,
+                warningTarget,
+                unlinkedTarget,
+                banTarget,
+                CUTOVER.plus(Duration.ofHours(6))
+        );
+    }
 
-        JdbcMinecraftWarnMuteDiscordNotificationStore store;
+    private static void seedFuturePunishments(Fixture fixture) throws Exception {
+        seedCase("WMMUTE0000000001", fixture.muteTarget(), CUTOVER.plusSeconds(1), "Repeated spam");
+        seedSanction(
+                "WMMUTE0000000001", fixture.muteTarget(), "MUTE", "ACTIVE",
+                CUTOVER.plusSeconds(1), fixture.muteExpiry());
+
+        seedCase("WMWARN0000000001", fixture.warningTarget(), CUTOVER.plusSeconds(2), "Chat spam");
+        seedSanction(
+                "WMWARN0000000001", fixture.warningTarget(), "WARNING", "APPLIED",
+                CUTOVER.plusSeconds(2), null);
+
+        seedCase("WMNONE0000000001", fixture.unlinkedTarget(), CUTOVER.plusSeconds(3), "Mute reason");
+        seedSanction(
+                "WMNONE0000000001", fixture.unlinkedTarget(), "MUTE", "ACTIVE",
+                CUTOVER.plusSeconds(3), fixture.muteExpiry());
+
+        seedCase("WMBAN00000000001", fixture.banTarget(), CUTOVER.plusSeconds(4), "Combined serious case");
+        seedSanction(
+                "WMBAN00000000001", fixture.banTarget(), "WARNING", "APPLIED",
+                CUTOVER.plusSeconds(4), null);
+        seedSanction(
+                "WMBAN00000000001", fixture.banTarget(), "BAN", "ACTIVE",
+                CUTOVER.plusSeconds(4), null);
+    }
+
+    private static void verifyQueuedNotifications(Instant muteExpiry) {
         try (HikariDataSource dataSource = open()) {
-            store = new JdbcMinecraftWarnMuteDiscordNotificationStore(dataSource);
-            assertEquals(CUTOVER, store.ensureCutover(CUTOVER));
-            assertEquals(CUTOVER, store.ensureCutover(CUTOVER.plusSeconds(5)));
-        }
-
-        Instant muteExpiry = CUTOVER.plus(Duration.ofHours(6));
-        seedCase("WMMUTE0000000001", muteTarget, CUTOVER.plusSeconds(1), "Repeated spam");
-        seedSanction("WMMUTE0000000001", muteTarget, "MUTE", "ACTIVE", CUTOVER.plusSeconds(1), muteExpiry);
-
-        seedCase("WMWARN0000000001", warningTarget, CUTOVER.plusSeconds(2), "Chat spam");
-        seedSanction("WMWARN0000000001", warningTarget, "WARNING", "APPLIED", CUTOVER.plusSeconds(2), null);
-
-        seedCase("WMNONE0000000001", unlinkedTarget, CUTOVER.plusSeconds(3), "Mute reason");
-        seedSanction("WMNONE0000000001", unlinkedTarget, "MUTE", "ACTIVE", CUTOVER.plusSeconds(3), muteExpiry);
-
-        seedCase("WMBAN00000000001", banTarget, CUTOVER.plusSeconds(4), "Combined serious case");
-        seedSanction("WMBAN00000000001", banTarget, "WARNING", "APPLIED", CUTOVER.plusSeconds(4), null);
-        seedSanction("WMBAN00000000001", banTarget, "BAN", "ACTIVE", CUTOVER.plusSeconds(4), null);
-
-        try (HikariDataSource dataSource = open()) {
-            store = new JdbcMinecraftWarnMuteDiscordNotificationStore(dataSource);
+            JdbcMinecraftWarnMuteDiscordNotificationStore store =
+                    new JdbcMinecraftWarnMuteDiscordNotificationStore(dataSource);
             assertEquals(3, store.mirrorEligible(CUTOVER.plusSeconds(5), 10));
             assertEquals(0, store.mirrorEligible(CUTOVER.plusSeconds(6), 10));
 
             List<JdbcMinecraftWarnMuteDiscordNotificationStore.Lease> work = store.claimDue(
-                    CUTOVER.plusSeconds(6), 10, "integration-worker", CUTOVER.plusSeconds(36)
-            );
+                    CUTOVER.plusSeconds(6), 10, "integration-worker", CUTOVER.plusSeconds(36));
             assertEquals(2, work.size());
-
-            var mute = work.stream()
-                    .filter(lease -> lease.type() == SanctionType.MUTE)
-                    .findFirst().orElseThrow();
+            var mute = lease(work, SanctionType.MUTE);
             assertEquals(DISCORD_ID, mute.discordUserId());
             assertEquals("LinkedMutePlayer", mute.minecraftName());
             assertEquals("Repeated spam", mute.publicReason());
             assertEquals(muteExpiry, mute.expiresAt().orElseThrow());
             assertEquals(1, mute.attemptCount());
 
-            var warning = work.stream()
-                    .filter(lease -> lease.type() == SanctionType.WARNING)
-                    .findFirst().orElseThrow();
+            var warning = lease(work, SanctionType.WARNING);
             assertEquals("LinkedWarningPlayer", warning.minecraftName());
             assertTrue(warning.expiresAt().isEmpty());
-
-            store.markDelivered(warning, CUTOVER.plusSeconds(7));
-            store.markFailed(
-                    mute,
-                    true,
-                    CUTOVER.plusSeconds(10),
-                    "MINECRAFT_WARN_MUTE_DM_RETRYABLE"
-            );
-
-            var retry = store.claimDue(
-                    CUTOVER.plusSeconds(10), 10, "integration-worker-2", CUTOVER.plusSeconds(40)
-            );
-            assertEquals(1, retry.size());
-            assertEquals(SanctionType.MUTE, retry.getFirst().type());
-            assertEquals(2, retry.getFirst().attemptCount());
-            store.markDelivered(retry.getFirst(), CUTOVER.plusSeconds(11));
-
-            assertTrue(store.claimDue(
-                    CUTOVER.plusSeconds(60), 10, "integration-worker-3", CUTOVER.plusSeconds(90)
-            ).isEmpty());
+            settleAndVerifyRetry(store, warning, mute);
         }
+    }
+
+    private static JdbcMinecraftWarnMuteDiscordNotificationStore.Lease lease(
+            List<JdbcMinecraftWarnMuteDiscordNotificationStore.Lease> work,
+            SanctionType type
+    ) {
+        return work.stream().filter(value -> value.type() == type).findFirst().orElseThrow();
+    }
+
+    private static void settleAndVerifyRetry(
+            JdbcMinecraftWarnMuteDiscordNotificationStore store,
+            JdbcMinecraftWarnMuteDiscordNotificationStore.Lease warning,
+            JdbcMinecraftWarnMuteDiscordNotificationStore.Lease mute
+    ) {
+        store.markDelivered(warning, CUTOVER.plusSeconds(7));
+        store.markFailed(
+                mute, true, CUTOVER.plusSeconds(10), "MINECRAFT_WARN_MUTE_DM_RETRYABLE");
+
+        var retry = store.claimDue(
+                CUTOVER.plusSeconds(10), 10, "integration-worker-2", CUTOVER.plusSeconds(40));
+        assertEquals(1, retry.size());
+        assertEquals(SanctionType.MUTE, retry.getFirst().type());
+        assertEquals(2, retry.getFirst().attemptCount());
+        store.markDelivered(retry.getFirst(), CUTOVER.plusSeconds(11));
+
+        assertTrue(store.claimDue(
+                CUTOVER.plusSeconds(60), 10, "integration-worker-3", CUTOVER.plusSeconds(90)
+        ).isEmpty());
+    }
+
+    private record Fixture(
+            UUID muteTarget,
+            UUID warningTarget,
+            UUID unlinkedTarget,
+            UUID banTarget,
+            Instant muteExpiry
+    ) {
     }
 
     private static UUID seedTarget(String username) throws Exception {
