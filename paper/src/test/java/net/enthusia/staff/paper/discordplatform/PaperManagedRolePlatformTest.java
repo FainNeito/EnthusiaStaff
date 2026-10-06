@@ -118,7 +118,10 @@ final class PaperManagedRolePlatformTest {
     @Test
     void unavailableStorageIsReportedWithoutCreatingUnrestrictedClients() {
         PaperManagedRolePlatform platform = new PaperManagedRolePlatform(
-                () -> null, workers, json, Clock.fixed(NOW, ZoneOffset.UTC));
+                (PaperManagedRolePlatform.ClaimStoreProvider) () -> null,
+                workers,
+                json,
+                Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertEquals(DiscordPlatformAvailability.UNAVAILABLE, platform.availability());
         assertTrue(platform.clientFor(new ManagedRoleNamespace("luma-guilds")).isPresent());
