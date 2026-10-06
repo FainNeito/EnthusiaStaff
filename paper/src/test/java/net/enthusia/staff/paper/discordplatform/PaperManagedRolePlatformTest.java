@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 final class PaperManagedRolePlatformTest {
     private static final Instant NOW = Instant.parse("2026-10-05T22:00:00Z");
     private static final String LUMA_NAMESPACE = "luma-guilds";
+    private static final String LEGACY_ROLE_ID = LEGACY_ROLE_ID;
     private final ExecutorService workers = Executors.newSingleThreadExecutor();
     private final ObjectMapper json = new ObjectMapper();
 
@@ -59,7 +60,7 @@ final class PaperManagedRolePlatformTest {
                 .reconcile(new ManagedRoleClaim(
                         key,
                         "Example Guild",
-                        Optional.of("1552390213500928122"),
+                        Optional.of(LEGACY_ROLE_ID),
                         Set.of(second, first)))
                 .toCompletableFuture().join();
 
@@ -72,7 +73,7 @@ final class PaperManagedRolePlatformTest {
         assertEquals(LUMA_NAMESPACE, desired.path("namespace").asText());
         assertEquals(key.localKey(), desired.path("localKey").asText());
         assertEquals("Example Guild", desired.path("displayName").asText());
-        assertEquals("1552390213500928122", desired.path("existingDiscordRoleId").asText());
+        assertEquals(LEGACY_ROLE_ID, desired.path("existingDiscordRoleId").asText());
         assertFalse(desired.path("delete").asBoolean());
         assertEquals(first.toString(), desired.path("desiredMinecraftAccounts").get(0).asText());
         assertEquals(second.toString(), desired.path("desiredMinecraftAccounts").get(1).asText());
@@ -132,7 +133,7 @@ final class PaperManagedRolePlatformTest {
                 .reconcile(new ManagedRoleClaim(
                         key,
                         "Guild Two",
-                        Optional.of("1552390213500928122"),
+                        Optional.of(LEGACY_ROLE_ID),
                         Set.of(UUID.randomUUID())))
                 .toCompletableFuture().join();
         platform.clientFor(namespace).orElseThrow()
@@ -142,7 +143,7 @@ final class PaperManagedRolePlatformTest {
         var desired = json.readTree(store.only().desiredStateJson());
         assertTrue(desired.path("delete").asBoolean());
         assertEquals("Guild Two", desired.path("displayName").asText());
-        assertEquals("1552390213500928122", desired.path("existingDiscordRoleId").asText());
+        assertEquals(LEGACY_ROLE_ID, desired.path("existingDiscordRoleId").asText());
         assertEquals(0, desired.path("desiredMinecraftAccounts").size());
     }
 
