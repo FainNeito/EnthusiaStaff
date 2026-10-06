@@ -14,12 +14,14 @@ import net.enthusia.staff.domain.ports.FreezeStore;
 import net.enthusia.staff.domain.ports.InventoryJournalStore;
 import net.enthusia.staff.domain.ports.PlayerDirectory;
 import net.enthusia.staff.domain.ports.ReportStore;
+import net.enthusia.staff.domain.ports.StaffPreferenceStore;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
 import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.domain.report.ReportPolicy;
 import net.enthusia.staff.domain.report.ReportPolicyRuntime;
 import net.enthusia.staff.paper.api.InventoryLockService;
 import net.enthusia.staff.paper.api.StaffModeQueryService;
+import net.enthusia.staff.paper.api.StaffAuthorityService;
 import net.enthusia.staff.paper.api.StaffSessionService;
 import net.enthusia.staff.paper.api.StaffVisibilityService;
 import net.enthusia.staff.paper.audit.StaffActionAuditListener;
@@ -189,6 +191,12 @@ record PaperRuntimeComponents(
                 ServicePriority.Normal
         );
         plugin.getServer().getServicesManager().register(
+                StaffAuthorityService.class,
+                staffMode::authorityActiveOrUnrestricted,
+                plugin,
+                ServicePriority.Normal
+        );
+        plugin.getServer().getServicesManager().register(
                 FreezeNetworkReconciler.class,
                 freezeNetworkReconciler,
                 plugin,
@@ -226,6 +234,7 @@ record PaperRuntimeComponents(
                 dependencies.environment().clock(),
                 dependencies.environment().serverId(),
                 dependencies.stores().staffSessionStore(),
+                dependencies.stores().staffPreferenceStore(),
                 dependencies.environment().workers()
         );
         registerListener(plugin, new StaffToolTransferListener(plugin, staffMode));
@@ -516,6 +525,7 @@ record PaperRuntimeComponents(
             Supplier<ReportStore> reportStore,
             Supplier<FreezeStore> freezeStore,
             Supplier<StaffSessionStore> staffSessionStore,
+            Supplier<StaffPreferenceStore> staffPreferenceStore,
             Supplier<VanishStore> vanishStore,
             Supplier<InventoryJournalStore> inventoryJournalStore,
             Supplier<PlayerDirectory> playerDirectory,
