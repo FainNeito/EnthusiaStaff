@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 final class PaperManagedRolePlatformTest {
     private static final Instant NOW = Instant.parse("2026-10-05T22:00:00Z");
     private static final String LUMA_NAMESPACE = "luma-guilds";
-    private static final String LEGACY_ROLE_ID = LEGACY_ROLE_ID;
+    private static final String LEGACY_ROLE_ID = "1552390213500928122";
     private final ExecutorService workers = Executors.newSingleThreadExecutor();
     private final ObjectMapper json = new ObjectMapper();
 
