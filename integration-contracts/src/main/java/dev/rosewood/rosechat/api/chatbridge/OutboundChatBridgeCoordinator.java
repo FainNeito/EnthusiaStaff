@@ -1,7 +1,8 @@
 package dev.rosewood.rosechat.api.chatbridge;
 
 public final class OutboundChatBridgeCoordinator {
-    private OutboundChatBridgeCoordinator() {
+    public OutboundChatBridgeCoordinator() {
+        throw new UnsupportedOperationException("compile-time RoseChat contract only");
     }
 
     @FunctionalInterface
