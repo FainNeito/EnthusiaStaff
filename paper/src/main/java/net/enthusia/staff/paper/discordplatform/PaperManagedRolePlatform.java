@@ -48,7 +48,12 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
         ReconciliationState save(ReconciliationState state, long expectedRevision, Instant now);
     }
 
-    private final Supplier<ClaimStore> store;
+    @FunctionalInterface
+    interface ClaimStoreProvider {
+        ClaimStore get();
+    }
+
+    private final ClaimStoreProvider store;
     private final ExecutorService workers;
     private final ObjectMapper json;
     private final Clock clock;
@@ -66,7 +71,7 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
     }
 
     PaperManagedRolePlatform(
-            Supplier<ClaimStore> store,
+            ClaimStoreProvider store,
             ExecutorService workers,
             ObjectMapper json,
             Clock clock
