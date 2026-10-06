@@ -54,15 +54,34 @@ class JdaStaffModerationListenerTest {
     }
 
     @Test
-    void enforcementRuntimeAddsExactlyTheEightApprovedQuickCommands() {
+    void enforcementRuntimeAddsApprovedQuickCommandsAndSelfPreview() {
         var commands = JdaStaffModerationListener.commands(true);
 
-        assertEquals(17, commands.size());
+        assertEquals(18, commands.size());
         assertTrue(names(commands).containsAll(Set.of(
-                "warn", "mute", "unmute", "kick", "ban", "unban", "restrict", "unrestrict"
+                "warn", "mute", "unmute", "kick", "ban", "unban", "restrict", "unrestrict",
+                "notification-test"
         )));
         assertTrue(commands.stream().allMatch(command ->
                 DefaultMemberPermissions.DISABLED.equals(command.getDefaultPermissions())));
+    }
+
+    @Test
+    void notificationTestIsSelfOnlyAndUsesFixedPreviewChoices() {
+        SlashCommandData preview = (SlashCommandData) command(
+                JdaStaffModerationListener.commands(true), "notification-test"
+        );
+
+        assertEquals(1, preview.getOptions().size());
+        assertEquals("type", preview.getOptions().getFirst().getName());
+        assertEquals(OptionType.STRING, preview.getOptions().getFirst().getType());
+        assertTrue(preview.getOptions().getFirst().isRequired());
+        assertEquals(
+                Set.of("warning", "mute", "ban"),
+                preview.getOptions().getFirst().getChoices().stream()
+                        .map(choice -> choice.getAsString())
+                        .collect(Collectors.toSet())
+        );
     }
 
     @Test

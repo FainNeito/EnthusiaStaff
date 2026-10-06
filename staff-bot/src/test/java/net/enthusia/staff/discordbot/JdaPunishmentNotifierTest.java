@@ -96,6 +96,25 @@ class JdaPunishmentNotifierTest {
     }
 
     @Test
+    void selfPreviewUsesTheProductionMessageShapeWithoutRealPunishmentData() {
+        String warning = JdaPunishmentNotifier.previewMessage(DiscordConsequenceType.WARNING, NOW);
+        String mute = JdaPunishmentNotifier.previewMessage(DiscordConsequenceType.MUTE, NOW);
+        String ban = JdaPunishmentNotifier.previewMessage(DiscordConsequenceType.BAN, NOW);
+
+        assertTrue(warning.contains("You have been `warned`"));
+        assertFalse(warning.contains("**Expires:**"));
+        assertTrue(mute.contains("You have been `muted` on the Enthusia SMP Discord for `1 hour`."));
+        assertTrue(mute.contains("<t:" + NOW.plus(Duration.ofHours(1)).getEpochSecond() + ":R>"));
+        assertTrue(ban.contains("You have been `banned` on the Enthusia SMP Discord for `7 days`."));
+        assertTrue(ban.contains("<t:" + NOW.plus(Duration.ofDays(7)).getEpochSecond() + ":R>"));
+        for (String message : java.util.List.of(warning, mute, ban)) {
+            assertTrue(message.contains("**Reason:** Notification test"));
+            assertTrue(message.contains("No punishment was created or applied."));
+            assertTrue(message.contains(JdaPunishmentNotifier.APPEAL_SITE));
+        }
+    }
+
+    @Test
     void linkedMinecraftBanMessageUsesPlayerNameReasonAndAppealRoutes() {
         String message = JdaPunishmentNotifier.minecraftBanMessage(
                 new JdaPunishmentNotifier.MinecraftBanNotification(
