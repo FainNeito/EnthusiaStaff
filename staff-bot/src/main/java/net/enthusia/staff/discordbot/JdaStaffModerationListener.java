@@ -2,6 +2,7 @@ package net.enthusia.staff.discordbot;
 
 import java.util.ArrayList;
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -32,6 +33,8 @@ import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.interactions.commands.build.OptionData;
 import net.dv8tion.jda.api.modals.Modal;
 import net.enthusia.staff.domain.auth.DiscordConsequenceType;
+import net.enthusia.staff.domain.discord.DiscordDeliveryOutcome;
+import net.enthusia.staff.domain.moderation.DiscordUserId;
 
 /** JDA adapter for D06 reads and D07 confirmed Discord-only moderation actions. */
 final class JdaStaffModerationListener extends ListenerAdapter {
@@ -51,7 +54,9 @@ final class JdaStaffModerationListener extends ListenerAdapter {
     private static final String MODE_OPTION = "mode";
     private static final String SERVER_OPTION = "server";
     private static final String COMMAND_OPTION = "command";
+    private static final String TYPE_OPTION = "type";
     private static final String CONSOLE = "console";
+    private static final String NOTIFICATION_TEST = "notification-test";
     private static final String MODERATE = "moderate";
     private static final String PUNISH = "punish";
     private static final String MODERATE_MINECRAFT = "moderate-minecraft";
@@ -83,6 +88,7 @@ final class JdaStaffModerationListener extends ListenerAdapter {
     private final StaffBotWorkerPool workers;
     private final InteractionReplayGuard interactions;
     private final StaffModerationController controller;
+    private final LinkedStaffActorResolver actors;
     private final Optional<ModerationPreviewHostedLaunchIssuer> webIssuer;
     private final Optional<StaffModerationRuntime> webModeration;
     private volatile ModerationReadRequestAuthorizer webAuthorizer;
@@ -115,12 +121,13 @@ final class JdaStaffModerationListener extends ListenerAdapter {
         this.workers = workers;
         this.interactions = interactions;
         this.punishments = moderation.punishmentService().map(DiscordPunishmentCommandController::new);
+        this.actors = moderation.actors();
         this.commandBridge = moderation.commandBridge();
         this.webIssuer = webIssuer;
         this.webModeration = webIssuer.isPresent() ? Optional.of(moderation) : Optional.empty();
         this.controller = new StaffModerationController(
                 moderation.reads(),
-                moderation.actors(),
+                actors,
                 moderation.authorization(),
                 moderation.components()
         );
@@ -172,6 +179,10 @@ final class JdaStaffModerationListener extends ListenerAdapter {
             dispatchConsole(event, actorId);
             return;
         }
+        if (NOTIFICATION_TEST.equals(event.getName())) {
+            dispatchNotificationTest(event, actorId, actorName);
+            return;
+        }
         if (PUNISHMENT_COMMANDS.contains(event.getName())) {
             dispatchQuickPunishment(event, actorId, actorName);
             return;
@@ -214,6 +225,61 @@ final class JdaStaffModerationListener extends ListenerAdapter {
         if (!scheduled) {
             hook.sendMessage("The moderation action queue is busy. Try again shortly.").queue();
         }
+    }
+
+    private void dispatchNotificationTest(
+            SlashCommandInteractionEvent event,
+            long actorId,
+            String actorName
+    ) {
+        if (punishments.isEmpty()) {
+            unavailable(event);
+            return;
+        }
+        DiscordConsequenceType type = previewType(option(event, TYPE_OPTION, ""));
+        long interactionId = event.getIdLong();
+        if (!claim(interactionId, event)) {
+            return;
+        }
+        event.deferReply(true).queue(hook -> {
+            boolean scheduled = workers.tryExecute(() -> executeNotificationTest(
+                    hook, event.getJDA(), actorId, actorName, type));
+            if (!scheduled) {
+                hook.sendMessage("The moderation action queue is busy. Try again shortly.").queue();
+            }
+        }, failure -> interactions.release(interactionId));
+    }
+
+    private void executeNotificationTest(
+            InteractionHook hook,
+            JDA jda,
+            long actorId,
+            String actorName,
+            DiscordConsequenceType type
+    ) {
+        try {
+            actors.invoker(new DiscordUserId(Long.toUnsignedString(actorId)), actorName);
+            DiscordDeliveryOutcome outcome = JdaPunishmentNotifier.notifyPreview(
+                    jda, Long.toUnsignedString(actorId), type, Instant.now());
+            if (outcome == DiscordDeliveryOutcome.DELIVERED) {
+                hook.sendMessage("Sent the real-format " + type.name().toLowerCase(java.util.Locale.ROOT)
+                        + " notification preview to your DMs. No punishment or case was created.").queue();
+            } else {
+                hook.sendMessage("The preview was not delivered. No punishment or case was created.").queue();
+            }
+        } catch (RuntimeException exception) {
+            log("discord_notification_preview_denied", exception);
+            hook.sendMessage("Current linked staff authority could not be verified for the preview.").queue();
+        }
+    }
+
+    private static DiscordConsequenceType previewType(String raw) {
+        return switch (raw) {
+            case "warning" -> DiscordConsequenceType.WARNING;
+            case "mute" -> DiscordConsequenceType.MUTE;
+            case "ban" -> DiscordConsequenceType.BAN;
+            default -> throw new IllegalArgumentException("unsupported notification preview type");
+        };
     }
 
     private void dispatchReadCommand(SlashCommandInteractionEvent event, long actorId, String actorName) {
@@ -767,8 +833,24 @@ final class JdaStaffModerationListener extends ListenerAdapter {
                 banSlash(discovery),
                 removalSlash(UNBAN, "End the active Discord ban", discovery),
                 restrictSlash(discovery),
-                restrictionRemovalSlash(discovery)
+                restrictionRemovalSlash(discovery),
+                notificationTestSlash(discovery)
         );
+    }
+
+    private static CommandData notificationTestSlash(DefaultMemberPermissions discovery) {
+        OptionData type = new OptionData(
+                OptionType.STRING,
+                TYPE_OPTION,
+                "Punishment notification format to DM to yourself",
+                true
+        )
+                .addChoice("Warning", "warning")
+                .addChoice("Mute", "mute")
+                .addChoice("Ban", "ban");
+        return Commands.slash(NOTIFICATION_TEST, "DM yourself a safe punishment-notification preview")
+                .addOptions(type)
+                .setDefaultPermissions(discovery);
     }
 
     private static CommandData punishmentSlash(
