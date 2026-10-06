@@ -42,7 +42,7 @@ final class VelocityChatBridgeRelay implements AutoCloseable {
         }
     }
 
-    private record Admission(boolean accepted, long expiresAt) {
+    private record Admission(boolean accepted, boolean duplicate, long expiresAt) {
     }
 
     private final Clock clock;
@@ -94,7 +94,9 @@ final class VelocityChatBridgeRelay implements AutoCloseable {
             return false;
         }
         long now = clock.millis();
-        if (!message.sourceServerId().equals(envelope.serverId()) || message.isExpired(now)) {
+        if (!message.sourceServerId().equals(envelope.serverId())
+                || !message.eventId().equals(envelope.messageId())
+                || message.isExpired(now)) {
             return false;
         }
 
@@ -105,7 +107,7 @@ final class VelocityChatBridgeRelay implements AutoCloseable {
 
         Admission admission = reserve(message, now);
         if (!admission.accepted()) {
-            return admission.expiresAt() >= 0L;
+            return admission.duplicate();
         }
 
         try {
@@ -129,18 +131,18 @@ final class VelocityChatBridgeRelay implements AutoCloseable {
         synchronized (dedupeLock) {
             Long existing = dedupeUntil.get(message.eventId());
             if (existing != null && existing >= now) {
-                return new Admission(false, existing);
+                return new Admission(false, true, existing);
             }
             if (existing != null) {
                 dedupeUntil.remove(message.eventId());
             }
             dedupeUntil.entrySet().removeIf(entry -> entry.getValue() < now);
             if (dedupeUntil.size() >= maximumDedupeEntries) {
-                return new Admission(false, -1L);
+                return new Admission(false, false, -1L);
             }
             long expiresAt = message.expiresAtEpochMillis();
             dedupeUntil.put(message.eventId(), expiresAt);
-            return new Admission(true, expiresAt);
+            return new Admission(true, false, expiresAt);
         }
     }
 
