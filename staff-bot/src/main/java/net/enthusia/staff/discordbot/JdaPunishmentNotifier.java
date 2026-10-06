@@ -11,6 +11,7 @@ import net.dv8tion.jda.api.exceptions.ErrorResponseException;
 import net.enthusia.staff.domain.auth.DiscordConsequenceType;
 import net.enthusia.staff.domain.discord.DiscordDeliveryOutcome;
 import net.enthusia.staff.domain.discord.DiscordPunishment;
+import net.enthusia.staff.domain.sanction.SanctionType;
 
 /** Sends player-facing moderation notifications without changing enforcement state. */
 final class JdaPunishmentNotifier {
@@ -42,6 +43,13 @@ final class JdaPunishmentNotifier {
 
     DiscordDeliveryOutcome notifyMinecraftBan(JDA jda, MinecraftBanNotification notification) {
         return notify(jda, notification.discordUserId(), minecraftBanMessage(notification));
+    }
+
+    DiscordDeliveryOutcome notifyMinecraftWarningOrMute(
+            JDA jda,
+            MinecraftWarningOrMuteNotification notification
+    ) {
+        return notify(jda, notification.discordUserId(), minecraftWarningOrMuteMessage(notification));
     }
 
     static DiscordDeliveryOutcome notifyPreview(
@@ -145,6 +153,24 @@ final class JdaPunishmentNotifier {
                 + "` has been `banned` from the Enthusia SMP" + timing + "." + SECTION_BREAK
                 + "**Reason:** " + notification.publicReason() + SECTION_BREAK
                 + expiryText(notification.expiresAt())
+                + appealText();
+    }
+
+    static String minecraftWarningOrMuteMessage(MinecraftWarningOrMuteNotification notification) {
+        String action = notification.type() == SanctionType.WARNING ? "warned" : "muted";
+        String timing = notification.type() == SanctionType.MUTE
+                ? notification.expiresAt().isPresent()
+                        ? " until the time shown below"
+                        : " permanently"
+                : "";
+        String expiry = notification.type() == SanctionType.MUTE
+                ? expiryText(notification.expiresAt())
+                : "";
+        return "# Punishment Alert" + SECTION_BREAK
+                + "Your Minecraft account `" + notification.minecraftName()
+                + "` has been `" + action + "` on the Enthusia SMP" + timing + "." + SECTION_BREAK
+                + "**Reason:** " + notification.publicReason() + SECTION_BREAK
+                + expiry
                 + appealText();
     }
 
@@ -256,6 +282,27 @@ final class JdaPunishmentNotifier {
                     || publicReason == null || publicReason.isBlank()
                     || issuedAt == null || expiresAt == null) {
                 throw new IllegalArgumentException("Minecraft ban notification is incomplete");
+            }
+        }
+    }
+
+    record MinecraftWarningOrMuteNotification(
+            String discordUserId,
+            String minecraftName,
+            String publicReason,
+            Instant issuedAt,
+            SanctionType type,
+            Optional<Instant> expiresAt
+    ) {
+        MinecraftWarningOrMuteNotification {
+            if (discordUserId == null || discordUserId.isBlank()
+                    || minecraftName == null || minecraftName.isBlank()
+                    || publicReason == null || publicReason.isBlank()
+                    || issuedAt == null || type == null || expiresAt == null
+                    || (type != SanctionType.WARNING && type != SanctionType.MUTE)
+                    || (type == SanctionType.WARNING && expiresAt.isPresent())) {
+                throw new IllegalArgumentException(
+                        "Minecraft warning/mute notification is incomplete");
             }
         }
     }
