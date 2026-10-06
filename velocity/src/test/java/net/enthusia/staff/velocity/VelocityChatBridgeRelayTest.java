@@ -118,7 +118,7 @@ class VelocityChatBridgeRelayTest {
         AtomicInteger deliveries = new AtomicInteger();
         relay.installSink(message -> {
             int count = deliveries.incrementAndGet();
-            if (count == 1) {
+            if (count == FIRST_DELIVERY) {
                 firstStarted.countDown();
                 try {
                     releaseFirst.await();
