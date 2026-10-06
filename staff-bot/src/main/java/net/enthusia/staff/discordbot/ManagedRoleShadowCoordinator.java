@@ -23,6 +23,7 @@ import net.dv8tion.jda.api.entities.Role;
 final class ManagedRoleShadowCoordinator implements AutoCloseable {
     private static final System.Logger LOGGER = System.getLogger(ManagedRoleShadowCoordinator.class.getName());
     private static final int MAX_DRIFT_LOGS = 20;
+    private static final int UNIQUE_ROLE_MATCH_COUNT = 1;
     private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(20);
 
     enum State {
@@ -217,7 +218,7 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
                 .filter(role -> !role.isPublicRole() && !role.isManaged())
                 .toList();
 
-        if (roles.size() > 1) {
+        if (roles.size() > UNIQUE_ROLE_MATCH_COUNT) {
             return result(resolved, State.ROLE_AMBIGUOUS, resolved.desiredDiscordUserIds(), Set.of());
         }
         if (roles.isEmpty()) {
