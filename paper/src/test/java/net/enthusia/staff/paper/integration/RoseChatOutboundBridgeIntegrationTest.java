@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Timeout;
 class RoseChatOutboundBridgeIntegrationTest {
     private static final long NOW = 1_800_000_000_000L;
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
+    private static final int FIRST_DELIVERY = 1;
 
     @Test
     void preservesWireIdentityAndSourceServer() throws Exception {
@@ -118,7 +119,7 @@ class RoseChatOutboundBridgeIntegrationTest {
                 () -> true,
                 (id, type, json, timeout) -> {
                     int sequence = sends.incrementAndGet();
-                    if (sequence == 1) {
+                    if (sequence == FIRST_DELIVERY) {
                         firstStarted.countDown();
                         try {
                             releaseFirst.await();
