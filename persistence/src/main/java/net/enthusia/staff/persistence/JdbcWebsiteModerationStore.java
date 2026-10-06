@@ -21,8 +21,10 @@ import net.enthusia.staff.domain.website.PunishmentCodeBinding;
 import net.enthusia.staff.domain.website.PunishmentCodeDisplay;
 import net.enthusia.staff.domain.website.WebsiteAppealCandidate;
 import net.enthusia.staff.domain.website.WebsiteAppealDecisionPreparation;
+import net.enthusia.staff.domain.website.WebsiteAppealMutation;
 import net.enthusia.staff.domain.website.WebsiteAppealPage;
 import net.enthusia.staff.domain.website.WebsiteAppealSubmission;
+import net.enthusia.staff.domain.website.WebsiteAppealView;
 import net.enthusia.staff.domain.website.WebsiteModerationException;
 
 public final class JdbcWebsiteModerationStore implements WebsiteModerationStore {
@@ -33,6 +35,7 @@ public final class JdbcWebsiteModerationStore implements WebsiteModerationStore 
     private final JdbcPunishmentCodeStore punishmentCodes;
     private final JdbcWebsiteAppealStore appeals;
     private final JdbcWebsiteAppealWorkflowStore appealWorkflow;
+    private final JdbcWebsiteAppealLifecycleStore appealLifecycle;
 
     public JdbcWebsiteModerationStore(
             DataSource dataSource,
@@ -62,6 +65,7 @@ public final class JdbcWebsiteModerationStore implements WebsiteModerationStore 
                 punishmentCodeRepository,
                 new JdbcWebsiteAppealRateLimiter(codeProtector)
         );
+        this.appealLifecycle = new JdbcWebsiteAppealLifecycleStore(dataSource, codeProtector, json);
     }
 
     @Override
@@ -195,6 +199,15 @@ public final class JdbcWebsiteModerationStore implements WebsiteModerationStore 
     }
 
     @Override
+    public List<WebsiteAppealView> playerAppeals(
+            String accountId,
+            int limit,
+            Instant now
+    ) {
+        return appealWorkflow.mine(accountId, limit, now);
+    }
+
+    @Override
     public WebsiteAppealSubmission submitAppeal(
             UUID punishmentId,
             String accountId,
@@ -210,6 +223,50 @@ public final class JdbcWebsiteModerationStore implements WebsiteModerationStore 
                 reason,
                 idempotencyKey,
                 now
+        );
+    }
+
+    @Override
+    public WebsiteAppealMutation editAppeal(
+            UUID appealId,
+            long expectedVersion,
+            String accountId,
+            String reason,
+            String idempotencyKey,
+            Instant now
+    ) {
+        return appealLifecycle.edit(
+                appealId, expectedVersion, accountId, reason, idempotencyKey, now
+        );
+    }
+
+    @Override
+    public WebsiteAppealMutation claimAppeal(
+            UUID appealId,
+            long expectedVersion,
+            UUID reviewerAccountId,
+            String reviewerRank,
+            String idempotencyKey,
+            Instant now
+    ) {
+        return appealLifecycle.claim(
+                appealId, expectedVersion, reviewerAccountId, reviewerRank, idempotencyKey, now
+        );
+    }
+
+    @Override
+    public WebsiteAppealMutation reopenAppeal(
+            UUID appealId,
+            long expectedVersion,
+            UUID reviewerAccountId,
+            String reviewerRank,
+            String note,
+            String idempotencyKey,
+            Instant now
+    ) {
+        return appealLifecycle.reopen(
+                appealId, expectedVersion, reviewerAccountId, reviewerRank, note,
+                idempotencyKey, now
         );
     }
 
