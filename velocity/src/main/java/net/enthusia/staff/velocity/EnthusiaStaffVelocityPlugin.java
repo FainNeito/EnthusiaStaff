@@ -171,6 +171,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile boolean activeAuthorityObserved;
     private volatile ScheduledTask operationalStateTask;
     private volatile PersistentChannelServer channelServer;
+    private volatile VelocityChatBridgeRelay chatBridgeRelay;
     private volatile NetworkOutboxWorker outboxWorker;
     private volatile DiscordOutboxWorker discordOutboxWorker;
     private volatile WebsiteModerationStore websiteModerationStore;
@@ -626,6 +627,7 @@ public final class EnthusiaStaffVelocityPlugin {
     @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
     // Clear the published reference before closing; SLF4J placeholders defer formatting.
     private void closeChannelServer() {
+        closeChatBridgeRelay();
         PersistentChannelServer server = channelServer;
         channelServer = null;
         if (server != null) {
@@ -633,6 +635,19 @@ public final class EnthusiaStaffVelocityPlugin {
                 server.close();
             } catch (RuntimeException exception) {
                 logger.warn("Persistent channel cleanup failed ({})", exception.getClass().getSimpleName());
+            }
+        }
+    }
+
+    @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
+    private void closeChatBridgeRelay() {
+        VelocityChatBridgeRelay relay = chatBridgeRelay;
+        chatBridgeRelay = null;
+        if (relay != null) {
+            try {
+                relay.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity chat relay cleanup failed ({})", exception.getClass().getSimpleName());
             }
         }
     }
@@ -726,9 +741,11 @@ public final class EnthusiaStaffVelocityPlugin {
                 backendKeys.put(serverId, secretFromEnvironment(environment)));
         SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
         SSLContext tlsContext = serverTlsContext(loaded);
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(Clock.systemUTC());
+        chatBridgeRelay = relay;
         try {
             PersistentChannelServer server = createChannelServer(
-                    loaded, outbox, backendKeys, proxyKey, tlsContext
+                    loaded, outbox, backendKeys, proxyKey, tlsContext, relay
             );
             server.start();
             channelServer = server;
@@ -744,7 +761,11 @@ public final class EnthusiaStaffVelocityPlugin {
             );
             outboxWorker.start();
         } catch (java.io.IOException exception) {
+            closeChatBridgeRelay();
             throw new IllegalStateException("Unable to bind the persistent backend channel", exception);
+        } catch (RuntimeException exception) {
+            closeChatBridgeRelay();
+            throw exception;
         }
     }
 
@@ -753,7 +774,8 @@ public final class EnthusiaStaffVelocityPlugin {
             NetworkOutboxStore outbox,
             Map<String, SecretKey> backendKeys,
             SecretKey proxyKey,
-            SSLContext tlsContext
+            SSLContext tlsContext,
+            VelocityChatBridgeRelay chatRelay
     ) throws java.net.UnknownHostException {
         return new PersistentChannelServer(
                 new PersistentChannelServer.Configuration(
@@ -767,6 +789,9 @@ public final class EnthusiaStaffVelocityPlugin {
                 ),
                 Clock.systemUTC(),
                 envelope -> {
+                    if (chatRelay.handles(envelope)) {
+                        return chatRelay.accept(envelope);
+                    }
                     if (acceptTransferSnapshot(envelope)) {
                         return true;
                     }
