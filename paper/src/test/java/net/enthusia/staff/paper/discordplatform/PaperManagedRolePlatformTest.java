@@ -116,6 +116,26 @@ final class PaperManagedRolePlatformTest {
     }
 
     @Test
+    void deletePreservesPriorDisplayNameForShadowParity() throws Exception {
+        FakeStore store = new FakeStore();
+        PaperManagedRolePlatform platform = platform(store);
+        ManagedRoleNamespace namespace = new ManagedRoleNamespace("luma-guilds");
+        ManagedRoleKey key = new ManagedRoleKey(namespace, "guild:two");
+
+        platform.clientFor(namespace).orElseThrow()
+                .reconcile(new ManagedRoleClaim(key, "Guild Two", Set.of(UUID.randomUUID())))
+                .toCompletableFuture().join();
+        platform.clientFor(namespace).orElseThrow()
+                .delete(key)
+                .toCompletableFuture().join();
+
+        var desired = json.readTree(store.only().desiredStateJson());
+        assertTrue(desired.path("delete").asBoolean());
+        assertEquals("Guild Two", desired.path("displayName").asText());
+        assertEquals(0, desired.path("desiredMinecraftAccounts").size());
+    }
+
+    @Test
     void unavailableStorageIsReportedWithoutCreatingUnrestrictedClients() {
         PaperManagedRolePlatform platform = new PaperManagedRolePlatform(
                 (PaperManagedRolePlatform.ClaimStoreProvider) () -> null,
