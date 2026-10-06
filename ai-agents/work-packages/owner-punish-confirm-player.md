@@ -1,5 +1,18 @@
 # Owner-directed fork change: confirm punishment by player name
 
+## Consolidated inventory isolation and TEST visibility investigation, 2026-10-05
+
+Owner consolidated the ongoing Staff work here and added two production reports: Hub inventory appearing on SMP and TEST visibility requiring Staff Mode. Continue the same owner package and draft fork PR #1; no competing product PR. Authoritative main `ceb12e0f370db2fe099e7450661df212cac7a4d7` and owner `ceba9a96` were fetched/inspected; executable remains frozen at `a5841e005e20786e6e15b7f02d9021ac4f8d50a0`. Preserve all prior owner protections. No executable change or runtime acceptance is claimed by this checkpoint.
+
+Read-only findings: the preserved older Paper artifact has an unsafe exit path that verifies snapshot checksum but not backend ownership before restoring inventory; its quit listener only clears runtime state. The newly downloaded Paper artifact contains backend ownership checks and native-state quit restoration/detach. Correct Hub/SMP IDs were verified. The currently observed SMP startup predates the newer on-disk JAR, so disk contents do not prove active runtime code. Exact incident attribution and deployed-source equality remain unproven. No known inventory synchronization JAR appeared in the inspected listings; custom provider/Skript paths remain possible.
+
+Active Hub selector defines only SMP and no Staff Mode requirement. Current proxy file registers TEST with server command enabled and queue disabled. An earlier effective-permission check was for a particular account and cannot prove another account/context. Missing command-vs-menu surface, username, timestamp and entry/exit sequence prevent a supported visibility or inventory fix. InventoryRollbackPlus and an existing off-site backup are available; contents were not read or restored. Raw player logs/configuration and reconstructable private evidence stay local and out of GitHub. No console command, production database/player-data access, inventory restoration, permission change, deployment, reload/restart or authority activation occurred.
+
+Requirements: INV-01 backend-local snapshot ownership must be verified before mutation, including exit, recovery and transfer; INV-02 do not replace native destination inventory with source-backend state; TEST-01 allowed TEST access/completion must not depend on Staff Mode. These clarify existing owner bug scope, not new unapproved access policy. SPEAR spec/proof is limited to source/artifact inspection and sanitized operational evidence; engine/behavioral test changes do not apply to this documentation-only diagnostic slice. Existing EARS/state tooling is absent. Prior 1,699-test local evidence remains historical for the unchanged executable; no new runtime/client acceptance.
+
+Status PARTIAL / ACTIONABLE_CONTINUATION for evidence correlation when input arrives. Next: obtain affected username/time, Staff Mode transfer/exit sequence, selector surface and direct TEST response; correlate the locally retained logs with the relevant runtime, then verify backups/snapshots only under authorized access. Existing reviewed transfer restoration repairs already exist in the owner/current source; do not recreate them or activate the replacement without explicit authorization. Docs-only status publication does not authorize merging product or status PRs.
+
+
 ## Owner tester handoff reconciliation verification, 2026-10-05
 
 Same bug-fix owner package remains PARTIAL / ACTIONABLE_CONTINUATION in draft PR #1.
