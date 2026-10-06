@@ -1114,7 +1114,7 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         if (event.getPreviousServer() == null) {
-            enforceStaffReconnectOwnership(event);
+            // Initial asset routing already applies Staff reconnect only when no asset owns admission.
             return;
         }
         enforceModerationSwitchSafety(event);
@@ -1191,17 +1191,18 @@ public final class EnthusiaStaffVelocityPlugin {
     ) {
         String requested = event.getOriginalServer().getServerInfo().getName();
         try {
-            Optional<String> owningServer = inventories.lockedOwningServer(
-                    event.getPlayer().getUniqueId(),
-                    Clock.systemUTC().instant()
-            );
-            if (denyOwnerMismatch(event, owningServer, requested, "inventory")) {
+            UUID playerId = event.getPlayer().getUniqueId();
+            Instant now = Clock.systemUTC().instant();
+            Optional<String> inventoryOwner = inventories.lockedOwningServer(playerId, now);
+            if (event.getPreviousServer() == null) {
+                return initialAssetFencesAllowSwitch(
+                        event, inventoryOwner, economies.lockedOwningServer(playerId), requested
+                );
+            }
+            if (denyOwnerMismatch(event, inventoryOwner, requested, "inventory")) {
                 return false;
             }
-            Optional<String> economyOwner = economies.lockedOwningServer(
-                    event.getPlayer().getUniqueId()
-            );
-            return !denyOwnerMismatch(event, economyOwner, requested, "economy");
+            return !denyOwnerMismatch(event, economies.lockedOwningServer(playerId), requested, "economy");
         } catch (RuntimeException exception) {
             logger.error("Asset fence lookup failed during server connection", exception);
             denyServerSwitchWhenActive(event, "Asset safety status could not be verified.");
@@ -1209,7 +1210,68 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private static boolean denyOwnerMismatch(
+    private boolean initialAssetFencesAllowSwitch(
+            ServerPreConnectEvent event,
+            Optional<String> inventoryOwner,
+            Optional<String> economyOwner,
+            String requested
+    ) {
+        if (inventoryOwner.isPresent() && economyOwner.isPresent()
+                && !inventoryOwner.orElseThrow().equalsIgnoreCase(economyOwner.orElseThrow())) {
+            logger.error(
+                    "Conflicting asset recovery owners for {} ({}): inventory={}, economy={}",
+                    event.getPlayer().getUsername(),
+                    event.getPlayer().getUniqueId(),
+                    inventoryOwner.orElseThrow(),
+                    economyOwner.orElseThrow()
+            );
+            denyServerSwitch(event, "Your protected inventory and economy recovery states disagree. Please contact staff.");
+            return false;
+        }
+
+        Optional<String> owner = inventoryOwner.isPresent() ? inventoryOwner : economyOwner;
+        if (owner.isEmpty()) {
+            enforceStaffReconnectOwnership(event);
+            return true;
+        }
+        // Even when the requested backend already owns the asset, Staff reconnect
+        // must not override that backend with a different snapshot owner.
+        if (owner.orElseThrow().equalsIgnoreCase(requested)) {
+            return true;
+        }
+
+        String required = owner.orElseThrow();
+        Optional<com.velocitypowered.api.proxy.server.RegisteredServer> recoveryBackend = proxy.getServer(required);
+        if (recoveryBackend.isPresent()) {
+            event.setResult(ServerPreConnectEvent.ServerResult.allowed(recoveryBackend.orElseThrow()));
+            logger.info(
+                    "Routing initial backend connection for {} ({}) from {} to recovery owner {}",
+                    event.getPlayer().getUsername(),
+                    event.getPlayer().getUniqueId(),
+                    requested,
+                    required
+            );
+            return true;
+        }
+
+        String assetType = inventoryOwner.isPresent() ? "inventory" : "economy";
+        logger.warn(
+                "Blocking initial backend connection for {} ({}): pending {} owner {} is unavailable; requested {}",
+                event.getPlayer().getUsername(),
+                event.getPlayer().getUniqueId(),
+                assetType,
+                required,
+                requested
+        );
+        denyServerSwitch(
+                event,
+                "A protected " + assetType + " recovery is assigned to unavailable backend "
+                        + required + ". Please contact staff."
+        );
+        return false;
+    }
+
+    private boolean denyOwnerMismatch(
             ServerPreConnectEvent event,
             Optional<String> owner,
             String requested,
@@ -1218,7 +1280,16 @@ public final class EnthusiaStaffVelocityPlugin {
         if (owner.isEmpty() || owner.orElseThrow().equalsIgnoreCase(requested)) {
             return false;
         }
-        denyServerSwitch(event, "A pending " + assetType + " operation must finish on " + owner.orElseThrow() + '.');
+        String required = owner.orElseThrow();
+        logger.warn(
+                "Blocking backend switch for {} ({}): pending {} owner {}; requested {}",
+                event.getPlayer().getUsername(),
+                event.getPlayer().getUniqueId(),
+                assetType,
+                required,
+                requested
+        );
+        denyServerSwitch(event, "A pending " + assetType + " operation must finish on " + required + '.');
         return true;
     }
 
@@ -1535,9 +1606,14 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private static void denyServerSwitch(ServerPreConnectEvent event, String message) {
+    private void denyServerSwitch(ServerPreConnectEvent event, String message) {
         event.setResult(ServerPreConnectEvent.ServerResult.denied());
-        event.getPlayer().sendMessage(VelocityMessageStyle.style(Component.text(message)));
+        Component styled = VelocityMessageStyle.style(Component.text(message));
+        if (event.getPreviousServer() == null) {
+            event.getPlayer().disconnect(styled);
+            return;
+        }
+        event.getPlayer().sendMessage(styled);
     }
 
     @SuppressWarnings("PMD.CloseResource") // Borrows the plugin-owned worker pool; shutdown owns its lifecycle.
