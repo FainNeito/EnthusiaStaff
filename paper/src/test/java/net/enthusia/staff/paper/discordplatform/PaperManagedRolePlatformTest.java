@@ -56,7 +56,11 @@ final class PaperManagedRolePlatformTest {
         UUID first = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
         var result = platform.clientFor(namespace).orElseThrow()
-                .reconcile(new ManagedRoleClaim(key, "Example Guild", Set.of(second, first)))
+                .reconcile(new ManagedRoleClaim(
+                        key,
+                        "Example Guild",
+                        Optional.of("1552390213500928122"),
+                        Set.of(second, first)))
                 .toCompletableFuture().join();
 
         assertEquals(ManagedRoleReconcileStatus.RETRY_SCHEDULED, result.status());
@@ -68,6 +72,7 @@ final class PaperManagedRolePlatformTest {
         assertEquals(LUMA_NAMESPACE, desired.path("namespace").asText());
         assertEquals(key.localKey(), desired.path("localKey").asText());
         assertEquals("Example Guild", desired.path("displayName").asText());
+        assertEquals("1552390213500928122", desired.path("existingDiscordRoleId").asText());
         assertFalse(desired.path("delete").asBoolean());
         assertEquals(first.toString(), desired.path("desiredMinecraftAccounts").get(0).asText());
         assertEquals(second.toString(), desired.path("desiredMinecraftAccounts").get(1).asText());
@@ -124,7 +129,11 @@ final class PaperManagedRolePlatformTest {
         ManagedRoleKey key = new ManagedRoleKey(namespace, "guild:two");
 
         platform.clientFor(namespace).orElseThrow()
-                .reconcile(new ManagedRoleClaim(key, "Guild Two", Set.of(UUID.randomUUID())))
+                .reconcile(new ManagedRoleClaim(
+                        key,
+                        "Guild Two",
+                        Optional.of("1552390213500928122"),
+                        Set.of(UUID.randomUUID())))
                 .toCompletableFuture().join();
         platform.clientFor(namespace).orElseThrow()
                 .delete(key)
@@ -133,6 +142,7 @@ final class PaperManagedRolePlatformTest {
         var desired = json.readTree(store.only().desiredStateJson());
         assertTrue(desired.path("delete").asBoolean());
         assertEquals("Guild Two", desired.path("displayName").asText());
+        assertEquals("1552390213500928122", desired.path("existingDiscordRoleId").asText());
         assertEquals(0, desired.path("desiredMinecraftAccounts").size());
     }
 
