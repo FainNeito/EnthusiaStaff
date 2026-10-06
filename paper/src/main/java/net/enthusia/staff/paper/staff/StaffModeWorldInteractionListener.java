@@ -39,6 +39,8 @@ import org.bukkit.inventory.InventoryHolder;
  * are unrestricted but audited; Developer remains separate from moderation authority.</p>
  */
 public final class StaffModeWorldInteractionListener implements Listener {
+    private static final String CONTAINER_EDIT_ACTION = "container-edit";
+
     private final StaffModeManager staffMode;
 
     public StaffModeWorldInteractionListener(StaffModeManager staffMode) {
@@ -49,6 +51,10 @@ public final class StaffModeWorldInteractionListener implements Listener {
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
         if (!onDuty(player)) {
+            return;
+        }
+        if (staffMode.isUnrestricted(player)) {
+            staffMode.logStaffAction(player, "block-break", describe(event.getBlock()));
             return;
         }
         StaffDutyTier tier = staffMode.dutyTier(player);
@@ -63,6 +69,10 @@ public final class StaffModeWorldInteractionListener implements Listener {
     public void onBlockPlace(BlockPlaceEvent event) {
         Player player = event.getPlayer();
         if (!onDuty(player)) {
+            return;
+        }
+        if (staffMode.isUnrestricted(player)) {
+            staffMode.logStaffAction(player, "block-place", describe(event.getBlockPlaced()));
             return;
         }
         StaffDutyTier tier = staffMode.dutyTier(player);
@@ -94,6 +104,26 @@ public final class StaffModeWorldInteractionListener implements Listener {
         if (!onDuty(player)) {
             return;
         }
+        if (staffMode.isUnrestricted(player)) {
+            auditUnrestrictedInteraction(player, event);
+            return;
+        }
+        enforceRankedInteraction(player, event);
+    }
+
+    private void auditUnrestrictedInteraction(Player player, PlayerInteractEvent event) {
+        Action action = event.getAction();
+        if (action == Action.LEFT_CLICK_AIR || action == Action.RIGHT_CLICK_AIR) {
+            return;
+        }
+        staffMode.logStaffAction(
+                player,
+                "block-interact",
+                action + " " + describe(event.getClickedBlock())
+        );
+    }
+
+    private void enforceRankedInteraction(Player player, PlayerInteractEvent event) {
         Action action = event.getAction();
         StaffDutyTier tier = staffMode.dutyTier(player);
         if (action == Action.RIGHT_CLICK_BLOCK
@@ -109,8 +139,11 @@ public final class StaffModeWorldInteractionListener implements Listener {
         if (StaffModeWorldInteractionPolicy.logsWorldInteraction(tier)
                 && action != Action.LEFT_CLICK_AIR
                 && action != Action.RIGHT_CLICK_AIR) {
-            staffMode.logStaffAction(player, "block-interact",
-                    action + " " + describe(event.getClickedBlock()));
+            staffMode.logStaffAction(
+                    player,
+                    "block-interact",
+                    action + " " + describe(event.getClickedBlock())
+            );
         }
     }
 
@@ -123,6 +156,11 @@ public final class StaffModeWorldInteractionListener implements Listener {
         if (!isProtectedContainerInventory(top)) {
             return;
         }
+        if (staffMode.isUnrestricted(player)) {
+            staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION,
+                    top.getType() + " raw-slot=" + event.getRawSlot() + " action=" + event.getAction());
+            return;
+        }
         StaffDutyTier tier = staffMode.dutyTier(player);
         if (StaffModeWorldInteractionPolicy.blocksContainerEdit(tier)) {
             // Cancel every click while a protected container is open. Cancelling only clicks in
@@ -132,7 +170,7 @@ public final class StaffModeWorldInteractionListener implements Listener {
             return;
         }
         if (StaffModeWorldInteractionPolicy.logsContainerEdit(tier)) {
-            staffMode.logStaffAction(player, "container-edit",
+            staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION,
                     top.getType() + " raw-slot=" + event.getRawSlot() + " action=" + event.getAction());
         }
     }
@@ -146,14 +184,21 @@ public final class StaffModeWorldInteractionListener implements Listener {
         if (!isProtectedContainerInventory(top)) {
             return;
         }
+        if (staffMode.isUnrestricted(player)) {
+            boolean touchesContainer = event.getRawSlots().stream().anyMatch(slot -> slot < top.getSize());
+            if (touchesContainer) {
+                staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION, top.getType() + " drag");
+            }
+            return;
+        }
         StaffDutyTier tier = staffMode.dutyTier(player);
         if (StaffModeWorldInteractionPolicy.blocksContainerEdit(tier)) {
             event.setCancelled(true);
             return;
         }
-        boolean touchesContainer = event.getRawSlots().stream().anyMatch(slot -> slot < top.getSize());
-        if (touchesContainer && StaffModeWorldInteractionPolicy.logsContainerEdit(tier)) {
-            staffMode.logStaffAction(player, "container-edit", top.getType() + " drag");
+        boolean touchesProtectedContainer = event.getRawSlots().stream().anyMatch(slot -> slot < top.getSize());
+        if (touchesProtectedContainer && StaffModeWorldInteractionPolicy.logsContainerEdit(tier)) {
+            staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION, top.getType() + " drag");
         }
     }
 
@@ -189,6 +234,11 @@ public final class StaffModeWorldInteractionListener implements Listener {
         if (!onDuty(player)) {
             return;
         }
+        if (staffMode.isUnrestricted(player)) {
+            staffMode.logStaffAction(player, "armor-stand-edit",
+                    event.getRightClicked().getType().toString());
+            return;
+        }
         StaffDutyTier tier = staffMode.dutyTier(player);
         if (StaffModeWorldInteractionPolicy.blocksContainerEntityEdit(tier)) {
             event.setCancelled(true);
@@ -218,6 +268,10 @@ public final class StaffModeWorldInteractionListener implements Listener {
     }
 
     private void handleContainerEntity(Player player, Cancellable event, String detail) {
+        if (staffMode.isUnrestricted(player)) {
+            staffMode.logStaffAction(player, "container-entity-edit", detail);
+            return;
+        }
         StaffDutyTier tier = staffMode.dutyTier(player);
         if (StaffModeWorldInteractionPolicy.blocksContainerEntityEdit(tier)) {
             event.setCancelled(true);
@@ -234,6 +288,10 @@ public final class StaffModeWorldInteractionListener implements Listener {
 
     private void cancelWorldUse(Player player, Cancellable event, String action, String detail) {
         if (!onDuty(player)) {
+            return;
+        }
+        if (staffMode.isUnrestricted(player)) {
+            staffMode.logStaffAction(player, action, detail);
             return;
         }
         StaffDutyTier tier = staffMode.dutyTier(player);

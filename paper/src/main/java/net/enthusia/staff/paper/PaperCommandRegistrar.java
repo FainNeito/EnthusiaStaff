@@ -42,6 +42,7 @@ import net.enthusia.staff.paper.command.SanctionChangeCommand;
 import net.enthusia.staff.paper.command.SanctionLifecycleCommand;
 import net.enthusia.staff.paper.command.StaffApiCommand;
 import net.enthusia.staff.paper.command.StaffChatCommand;
+import net.enthusia.staff.paper.command.StaffInventoryCommand;
 import net.enthusia.staff.paper.command.StaffModeCommand;
 import net.enthusia.staff.paper.command.StaffModeVanishEntryCoordinator;
 import net.enthusia.staff.paper.command.StaffWhoCommand;
@@ -240,7 +241,7 @@ final class PaperCommandRegistrar {
             ReportStore loaded = reportStore.get();
             return loaded == null ? null : new net.enthusia.staff.paper.report.ActiveDutyReportStore(
                     loaded,
-                    dependencies.players().staffMode()::authorityActive
+                    dependencies.players().staffMode()::authorityActiveOrUnrestricted
             );
         };
         ReportCommand report = new ReportCommand(
@@ -294,6 +295,7 @@ final class PaperCommandRegistrar {
                 dependencies.players().vanish()
         );
         bindCompleting("staff", staffMode, staffMode);
+        bind("staffinv", new StaffInventoryCommand(dependencies.players().staffMode()));
         bind("vanish", new VanishCommand(writeMode(), dependencies.players().vanish()));
         bind("staffchat", new StaffChatCommand(dependencies.integrations().roseChat()));
         bind("staffwho", new StaffWhoCommand(
@@ -411,7 +413,7 @@ final class PaperCommandRegistrar {
     private AuthorizationPolicy activeAuthorization() {
         return new ActiveDutyAuthorizationPolicy(
                 authorization(),
-                dependencies.players().staffMode()::authorityActive
+                dependencies.players().staffMode()::authorityActiveOrUnrestricted
         );
     }
 
