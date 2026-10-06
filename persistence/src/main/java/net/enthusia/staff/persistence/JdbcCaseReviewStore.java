@@ -58,9 +58,8 @@ public final class JdbcCaseReviewStore implements CaseReviewStore {
         }
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT case_id FROM cases WHERE target_id = ?
-                     ORDER BY issued_at DESC LIMIT ?
-                     """)) {
+                     SELECT case_id FROM cases c WHERE target_id = ? AND
+                     """ + NonPunitiveLegacyKick.visibleSql("c") + " ORDER BY issued_at DESC LIMIT ?")) {
             statement.setBytes(1, UuidBytes.toBytes(targetId));
             statement.setInt(2, limit);
             List<CaseId> identifiers = new ArrayList<>();

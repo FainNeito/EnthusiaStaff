@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.io.InputStream;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import net.enthusia.staff.domain.auth.Actor;
 import net.enthusia.staff.domain.auth.DefaultAuthorizationPolicy;
@@ -20,7 +23,9 @@ import net.enthusia.staff.domain.ports.ReasonPolicyRepository;
 import net.enthusia.staff.domain.sanction.SanctionLength;
 import net.enthusia.staff.domain.sanction.SanctionSpec;
 import net.enthusia.staff.domain.sanction.SanctionType;
+import net.enthusia.staff.paper.config.ReasonPolicyConfigurationLoader;
 import org.junit.jupiter.api.Test;
+import java.util.stream.Collectors;
 
 class PunishmentGuiCatalogTest {
     private static final UUID ACTOR_ID = UUID.fromString("30000000-0000-0000-0000-000000000001");
@@ -35,7 +40,7 @@ class PunishmentGuiCatalogTest {
     void developerCanReviewRequestableReasonsWithoutDirectIssueAuthority() {
         PunishmentGuiCatalog catalog = catalog();
 
-        assertEquals(List.of(CHAT, SAFETY), catalog.categories(actor(StaffRank.DEVELOPER), "punish"));
+        assertEquals(List.of(CHAT, SAFETY), categoryIds(catalog, StaffRank.DEVELOPER, "punish"));
         assertEquals(
                 List.of(SAFETY_ADMIN),
                 catalog.reasons(actor(StaffRank.DEVELOPER), BAN_COMMAND, SAFETY).stream()
@@ -61,7 +66,7 @@ class PunishmentGuiCatalogTest {
     void modSeesOnlyAuthorizedReasonsAndCommandTypes() {
         PunishmentGuiCatalog catalog = catalog();
 
-        assertEquals(List.of(CHAT), catalog.categories(actor(StaffRank.MOD), MUTE_COMMAND));
+        assertEquals(List.of(CHAT), categoryIds(catalog, StaffRank.MOD, MUTE_COMMAND));
         assertEquals(
                 List.of(CHAT_MOD),
                 catalog.reasons(actor(StaffRank.MOD), MUTE_COMMAND, CHAT).stream()
@@ -110,6 +115,64 @@ class PunishmentGuiCatalogTest {
                 catalog.describe(removed.id()).orElseThrow().availability()
         );
         assertFalse(catalog.describe(removed.id()).orElseThrow().resolvesToActivePolicy());
+    }
+
+    @Test
+    void categoriesHaveUniqueIconsAndPolarTemplateStaysOutOfManualMenu() {
+        assertEquals(PunishmentGuiCategory.values().length,
+                Arrays.stream(PunishmentGuiCategory.values()).map(PunishmentGuiCategory::material)
+                        .collect(Collectors.toSet()).size());
+        PunishmentGuiCatalog catalog = new PunishmentGuiCatalog(
+                new AtomicReasonPolicyRepository("v1", List.of(
+                        policy("cheating.manual", "cheating", StaffRank.MOD, SanctionType.BAN),
+                        policy("cheating.polar.template", "cheating.polar.template", StaffRank.MOD, SanctionType.BAN)
+                )), new DefaultAuthorizationPolicy());
+
+        assertEquals(List.of("cheating"), categoryIds(catalog, StaffRank.MOD, "punish"));
+        assertEquals(List.of("cheating.manual"), catalog.reasons(actor(StaffRank.MOD), "punish", "cheating")
+                .stream().map(ReasonPolicy::id).toList());
+        assertEquals(Set.of("cheating"), PunishmentGuiCategory.CHEATING.families());
+    }
+
+    @Test
+    void categoryGridKeepsEveryIconClickableAndAwayFromControls() {
+        for (int total = 1; total <= PunishmentGuiCategory.values().length; total++) {
+            java.util.Set<Integer> slots = new java.util.HashSet<>();
+            for (int index = 0; index < total; index++) {
+                int slot = PunishmentGuiRenderer.categorySlot(index, total);
+                assertTrue(slot >= PunishmentGuiRenderer.CONTENT_START && slot < 45);
+                assertTrue(slots.add(slot));
+                assertEquals(index, PunishmentGuiRenderer.categoryIndex(slot, total));
+            }
+            assertEquals(-1, PunishmentGuiRenderer.categoryIndex(PunishmentGuiRenderer.CLOSE_SLOT, total));
+        }
+    }
+
+    @Test
+    void defaultReasonsHaveOneClearCategoryAndNoPolarMenuEntry() {
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream("reason-policies.yml")) {
+            ReasonPolicyConfigurationLoader.LoadedPolicies loaded = new ReasonPolicyConfigurationLoader()
+                    .load(java.util.Objects.requireNonNull(input), "reason-policies.yml");
+            PunishmentGuiCatalog catalog = new PunishmentGuiCatalog(
+                    new AtomicReasonPolicyRepository(loaded.version(), loaded.policies(),
+                            loaded.aliases(), loaded.removedReasons()),
+                    new DefaultAuthorizationPolicy());
+            List<PunishmentGuiCategory> categories = catalog.categories(actor(StaffRank.FOUNDER), "punish");
+            assertEquals(10, categories.size());
+            assertFalse(categories.contains(PunishmentGuiCategory.OTHER));
+            List<String> visibleIds = categories.stream()
+                    .flatMap(category -> catalog.reasons(actor(StaffRank.FOUNDER), "punish", category.id()).stream())
+                    .map(ReasonPolicy::id).toList();
+            assertEquals(loaded.policies().size() - 1, visibleIds.size());
+            assertEquals(visibleIds.size(), Set.copyOf(visibleIds).size());
+            assertFalse(visibleIds.contains("cheating.polar.template"));
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static List<String> categoryIds(PunishmentGuiCatalog catalog, StaffRank rank, String command) {
+        return catalog.categories(actor(rank), command).stream().map(PunishmentGuiCategory::id).toList();
     }
 
     private static PunishmentGuiCatalog catalog() {
