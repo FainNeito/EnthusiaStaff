@@ -1,7 +1,7 @@
 package net.enthusia.staff.velocity;
 
 import java.time.Clock;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -47,7 +47,7 @@ final class VelocityChatBridgeRelay implements AutoCloseable {
 
     private final Clock clock;
     private final int maximumDedupeEntries;
-    private final Map<UUID, Long> dedupeUntil = new HashMap<>();
+    private final Map<UUID, Long> dedupeUntil = new ConcurrentHashMap<>();
     private final Object dedupeLock = new Object();
     private final AtomicReference<SinkSlot> sink = new AtomicReference<>();
     private final ThreadPoolExecutor worker;
@@ -153,7 +153,8 @@ final class VelocityChatBridgeRelay implements AutoCloseable {
     }
 
     private void deliver(SinkSlot expectedSink, ChatBridgeOutboundMessage message) {
-        if (sink.get() != expectedSink || message.isExpired(clock.millis())) {
+        if (sink.get() != expectedSink // NOPMD - queued work is fenced to the exact sink generation.
+                || message.isExpired(clock.millis())) {
             return;
         }
         try {
