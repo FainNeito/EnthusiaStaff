@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Timeout;
 
 class VelocityChatBridgeRelayTest {
     private static final long NOW = 1_800_000_000_000L;
+    private static final String SERVER_ID = SERVER_ID;
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
 
     @Test
@@ -32,8 +33,8 @@ class VelocityChatBridgeRelayTest {
             latch.countDown();
             return true;
         });
-        ChatBridgeOutboundMessage message = message("SMP", NOW + 30_000L);
-        ProtocolEnvelope envelope = envelope("SMP", message.eventId(), message);
+        ChatBridgeOutboundMessage message = message(SERVER_ID, NOW + 30_000L);
+        ProtocolEnvelope envelope = envelope(SERVER_ID, message.eventId(), message);
 
         assertTrue(relay.handles(envelope));
         assertTrue(relay.accept(envelope));
@@ -53,10 +54,10 @@ class VelocityChatBridgeRelayTest {
         });
 
         ChatBridgeOutboundMessage spoofedServer = message("HUB", NOW + 30_000L);
-        assertFalse(relay.accept(envelope("SMP", spoofedServer.eventId(), spoofedServer)));
+        assertFalse(relay.accept(envelope(SERVER_ID, spoofedServer.eventId(), spoofedServer)));
 
-        ChatBridgeOutboundMessage mismatchedEvent = message("SMP", NOW + 30_000L);
-        assertFalse(relay.accept(envelope("SMP", UUID.randomUUID(), mismatchedEvent)));
+        ChatBridgeOutboundMessage mismatchedEvent = message(SERVER_ID, NOW + 30_000L);
+        assertFalse(relay.accept(envelope(SERVER_ID, UUID.randomUUID(), mismatchedEvent)));
         assertEquals(0, deliveries.get());
 
         relay.close();
@@ -65,13 +66,13 @@ class VelocityChatBridgeRelayTest {
     @Test
     void rejectsExpiredMalformedAndUnavailableSink() {
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
-        ChatBridgeOutboundMessage expired = message("SMP", NOW - 1L);
+        ChatBridgeOutboundMessage expired = message(SERVER_ID, NOW - 1L);
 
-        assertFalse(relay.accept(envelope("SMP", expired.eventId(), expired)));
+        assertFalse(relay.accept(envelope(SERVER_ID, expired.eventId(), expired)));
         assertFalse(relay.accept(new ProtocolEnvelope(
                 1,
                 UUID.randomUUID(),
-                "SMP",
+                SERVER_ID,
                 ChatBridgeMessages.OUTBOUND,
                 NOW,
                 "nonce",
@@ -79,8 +80,8 @@ class VelocityChatBridgeRelayTest {
                 "mac"
         )));
 
-        ChatBridgeOutboundMessage valid = message("SMP", NOW + 30_000L);
-        assertFalse(relay.accept(envelope("SMP", valid.eventId(), valid)));
+        ChatBridgeOutboundMessage valid = message(SERVER_ID, NOW + 30_000L);
+        assertFalse(relay.accept(envelope(SERVER_ID, valid.eventId(), valid)));
 
         relay.close();
     }
@@ -95,8 +96,8 @@ class VelocityChatBridgeRelayTest {
             first.countDown();
             return true;
         });
-        ChatBridgeOutboundMessage message = message("SMP", NOW + 30_000L);
-        ProtocolEnvelope envelope = envelope("SMP", message.eventId(), message);
+        ChatBridgeOutboundMessage message = message(SERVER_ID, NOW + 30_000L);
+        ProtocolEnvelope envelope = envelope(SERVER_ID, message.eventId(), message);
 
         assertTrue(relay.accept(envelope));
         assertTrue(relay.accept(envelope));
@@ -130,14 +131,14 @@ class VelocityChatBridgeRelayTest {
             return true;
         });
 
-        ChatBridgeOutboundMessage first = message("SMP", NOW + 30_000L);
-        ChatBridgeOutboundMessage second = message("SMP", NOW + 30_000L);
-        ChatBridgeOutboundMessage third = message("SMP", NOW + 30_000L);
+        ChatBridgeOutboundMessage first = message(SERVER_ID, NOW + 30_000L);
+        ChatBridgeOutboundMessage second = message(SERVER_ID, NOW + 30_000L);
+        ChatBridgeOutboundMessage third = message(SERVER_ID, NOW + 30_000L);
 
-        assertTrue(relay.accept(envelope("SMP", first.eventId(), first)));
+        assertTrue(relay.accept(envelope(SERVER_ID, first.eventId(), first)));
         assertTrue(firstStarted.await(2, TimeUnit.SECONDS));
-        assertTrue(relay.accept(envelope("SMP", second.eventId(), second)));
-        assertFalse(relay.accept(envelope("SMP", third.eventId(), third)));
+        assertTrue(relay.accept(envelope(SERVER_ID, second.eventId(), second)));
+        assertFalse(relay.accept(envelope(SERVER_ID, third.eventId(), third)));
 
         releaseFirst.countDown();
         assertTrue(secondDelivered.await(2, TimeUnit.SECONDS));
@@ -152,7 +153,7 @@ class VelocityChatBridgeRelayTest {
         ProtocolEnvelope envelope = new ProtocolEnvelope(
                 1,
                 UUID.randomUUID(),
-                "SMP",
+                SERVER_ID,
                 "PUNISHMENT_CREATED",
                 NOW,
                 "nonce",
