@@ -61,6 +61,44 @@ final class JdaPunishmentNotifier {
         return notify(jda, userId, previewMessage(type, now));
     }
 
+    static DiscordDeliveryOutcome notifyMinecraftPreview(
+            JDA jda,
+            String userId,
+            SanctionType type,
+            Instant now
+    ) {
+        if (type == null || now == null) {
+            throw new IllegalArgumentException("Minecraft notification preview fields must be present");
+        }
+        String message = switch (type) {
+            case WARNING -> minecraftWarningOrMuteMessage(new MinecraftWarningOrMuteNotification(
+                    userId,
+                    "ExamplePlayer",
+                    "Notification test",
+                    now,
+                    SanctionType.WARNING,
+                    Optional.empty()
+            ));
+            case MUTE -> minecraftWarningOrMuteMessage(new MinecraftWarningOrMuteNotification(
+                    userId,
+                    "ExamplePlayer",
+                    "Notification test",
+                    now,
+                    SanctionType.MUTE,
+                    Optional.of(now.plus(Duration.ofHours(1)))
+            ));
+            case BAN -> minecraftBanMessage(new MinecraftBanNotification(
+                    userId,
+                    "ExamplePlayer",
+                    "Notification test",
+                    now,
+                    Optional.of(now.plus(Duration.ofDays(7)))
+            ));
+            default -> throw new IllegalArgumentException("Minecraft notification preview type is unsupported");
+        };
+        return notify(jda, userId, message);
+    }
+
     private static DiscordDeliveryOutcome notify(JDA jda, String userId, String message) {
         try {
             User user = jda.retrieveUserById(userId).complete();
