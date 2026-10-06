@@ -1344,7 +1344,16 @@ public final class EnthusiaStaffVelocityPlugin {
         if (owner.isEmpty() || owner.orElseThrow().equalsIgnoreCase(requested)) {
             return false;
         }
-        denyServerSwitch(event, "A pending " + assetType + " operation must finish on " + owner.orElseThrow() + '.');
+        String required = owner.orElseThrow();
+        logger.warn(
+                "Blocking backend switch for {} ({}): pending {} owner {}; requested {}",
+                event.getPlayer().getUsername(),
+                event.getPlayer().getUniqueId(),
+                assetType,
+                required,
+                requested
+        );
+        denyServerSwitch(event, "A pending " + assetType + " operation must finish on " + required + '.');
         return true;
     }
 
