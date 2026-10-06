@@ -54,7 +54,7 @@ class JdaStaffModerationListenerTest {
     }
 
     @Test
-    void enforcementRuntimeAddsExactlyTheEightApprovedQuickCommands() {
+    void enforcementRuntimeAddsApprovedQuickCommandsAndSelfPreview() {
         var commands = JdaStaffModerationListener.commands(true);
 
         assertEquals(18, commands.size());
