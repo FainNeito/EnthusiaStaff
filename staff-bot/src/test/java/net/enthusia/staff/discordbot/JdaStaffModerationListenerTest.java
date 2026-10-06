@@ -59,7 +59,9 @@ class JdaStaffModerationListenerTest {
 
         assertEquals(18, commands.size());
         assertTrue(names(commands).containsAll(Set.of(
-                "warn", "mute", "unmute", "kick", "ban", "unban", "restrict", "unrestrict",\n                "notification-test"\n        )));
+                "warn", "mute", "unmute", "kick", "ban", "unban", "restrict", "unrestrict",
+                "notification-test"
+        )));
         assertTrue(commands.stream().allMatch(command ->
                 DefaultMemberPermissions.DISABLED.equals(command.getDefaultPermissions())));
     }
