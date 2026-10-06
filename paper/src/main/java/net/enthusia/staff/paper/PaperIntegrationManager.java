@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.staff.domain.OperationalMode;
@@ -68,7 +69,7 @@ final class PaperIntegrationManager implements Listener {
     private ConfiscationCoordinator confiscation;
     private RoseChatIntegration roseChat;
     private RoseChatOutboundBridgeIntegration roseChatOutbound;
-    private volatile PersistentChannelClient chatChannel;
+    private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
     private MuteCommandFallbackListener muteFallback;
     private boolean roseChatLifecycleRegistered;
@@ -224,7 +225,8 @@ final class PaperIntegrationManager implements Listener {
     }
 
     void bindChatChannel(PersistentChannelClient client) {
-        chatChannel = java.util.Objects.requireNonNull(client, "client");
+        PersistentChannelClient required = java.util.Objects.requireNonNull(client, "client");
+        chatChannel.set(required);
         RoseChatOutboundBridgeIntegration current = roseChatOutbound;
         if (current != null) {
             current.bindChannel(client);
@@ -232,9 +234,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     void unbindChatChannel(PersistentChannelClient client) {
-        if (chatChannel == client) {
-            chatChannel = null;
-        }
+        chatChannel.compareAndSet(client, null);
         RoseChatOutboundBridgeIntegration current = roseChatOutbound;
         if (current != null) {
             current.unbindChannel(client);
@@ -329,7 +329,7 @@ final class PaperIntegrationManager implements Listener {
             return;
         }
         roseChatOutbound = discovery.integration().orElseThrow();
-        PersistentChannelClient currentChannel = chatChannel;
+        PersistentChannelClient currentChannel = chatChannel.get();
         if (currentChannel != null) {
             roseChatOutbound.bindChannel(currentChannel);
         }
