@@ -67,14 +67,28 @@ The existing `PersistentChannelClient` / `PersistentChannelServer` security prop
 force for the Paper <-> Velocity hop: TLS 1.3, HMAC-authenticated envelopes, nonce/timestamp replay
 protection, frame bounds, explicit backend IDs, and per-message acknowledgement.
 
+## Paper -> Velocity SHADOW checkpoint
+
+This branch now implements the first runtime hop in addition to the wire contract:
+
+- EnthusiaStaff Paper mirrors only RoseChat's public outbound bridge API in `integration-contracts`; those types remain compile-time-only and are not shaded into the Paper JAR.
+- Paper installs the RoseChat outbound provider only when `discord-chat-bridge.shadow-enabled: true`. The flag defaults **false**.
+- The provider binds to the already-authenticated `PersistentChannelClient` when that channel is live and unbinds during channel shutdown/reconnect.
+- The RoseChat caller never performs a socket write. Paper uses a bounded single-thread in-memory relay queue and drops chat when disconnected, expired, or saturated.
+- Paper sends `CHAT_BRIDGE_OUTBOUND_V1` with the RoseChat event ID as the authenticated envelope message ID.
+- Velocity intercepts this message type **before** the durable network inbox. Chat is never recorded in `NetworkOutboxStore`.
+- Velocity requires the payload `sourceServerId` to equal the authenticated envelope `serverId`, and the payload event ID to equal the envelope message ID.
+- Velocity uses a bounded in-memory queue and bounded short-lived dedupe state. Already-admitted duplicates are ACKed without duplicate delivery.
+- The Velocity relay has a single-owner sink seam for the next StaffBot transport checkpoint; with no sink installed it does not claim delivery.
+
+Enabling SHADOW does not disable RoseChat's existing DiscordSRV send. DiscordSRV remains the live Minecraft <-> Discord chat transport.
+
 ## Not implemented by this checkpoint
 
-This contract does not yet:
+This checkpoint still does not:
 
-- install the RoseChat bridge provider from EnthusiaStaff Paper;
-- relay chat through Velocity;
-- connect StaffBot to the relay;
-- call JDA;
+- connect StaffBot to the Velocity relay;
+- call JDA through the new path;
 - carry InteractiveChat render artifacts;
 - support Discord -> Minecraft ingress;
 - change or disable DiscordSRV;
