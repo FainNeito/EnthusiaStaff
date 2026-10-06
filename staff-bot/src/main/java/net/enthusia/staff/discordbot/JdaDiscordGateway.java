@@ -108,9 +108,11 @@ final class JdaDiscordGateway implements DiscordGateway {
     }
 
     private Set<GatewayIntent> gatewayIntents() {
-        return moderation.flatMap(StaffModerationRuntime::managedRoleShadow).isPresent()
-                ? Set.of(GatewayIntent.GUILD_MEMBERS)
-                : Set.of();
+        return gatewayIntents(moderation.flatMap(StaffModerationRuntime::managedRoleShadow).isPresent());
+    }
+
+    static Set<GatewayIntent> gatewayIntents(boolean managedRoleShadowEnabled) {
+        return managedRoleShadowEnabled ? Set.of(GatewayIntent.GUILD_MEMBERS) : Set.of();
     }
 
     private void addInteractionListener(JDABuilder builder) {
