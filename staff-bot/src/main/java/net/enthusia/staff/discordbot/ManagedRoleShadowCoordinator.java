@@ -250,10 +250,10 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
             Guild guild
     ) {
         ManagedRoleShadowService.Claim claim = resolved.claim();
-        if (claim.delete() && claim.displayName().isEmpty()) {
+        if (claim.delete() && claim.displayName().isEmpty() && claim.existingDiscordRoleId().isEmpty()) {
             return result(resolved, State.DELETE_UNRESOLVED, Set.of(), Set.of());
         }
-        List<Role> roles = matchingRoles(guild, claim.displayName());
+        List<Role> roles = matchingRoles(guild, claim);
         if (roles.size() > UNIQUE_ROLE_MATCH_COUNT) {
             return result(resolved, State.ROLE_AMBIGUOUS, resolved.desiredDiscordUserIds(), Set.of());
         }
@@ -263,11 +263,19 @@ final class ManagedRoleShadowCoordinator implements AutoCloseable {
         return compareExistingRole(resolved, members, roles.getFirst());
     }
 
-    private static List<Role> matchingRoles(Guild guild, String displayName) {
+    private static List<Role> matchingRoles(Guild guild, ManagedRoleShadowService.Claim claim) {
+        if (claim.existingDiscordRoleId().isPresent()) {
+            Role role = guild.getRoleById(claim.existingDiscordRoleId().orElseThrow());
+            return role != null && manageable(role) ? List.of(role) : List.of();
+        }
         return guild.getRoles().stream()
-                .filter(role -> role.getName().equals(displayName))
-                .filter(role -> !role.isPublicRole() && !role.isManaged())
+                .filter(role -> role.getName().equals(claim.displayName()))
+                .filter(ManagedRoleShadowCoordinator::manageable)
                 .toList();
+    }
+
+    private static boolean manageable(Role role) {
+        return !role.isPublicRole() && !role.isManaged();
     }
 
     private static ClaimResult compareMissingRole(ManagedRoleShadowService.ResolvedClaim resolved) {
