@@ -24,6 +24,8 @@ final class PunishmentNotificationDiscordPresentation {
 
     private static final String ALERT_HEADING = "# Punishment Alert";
     private static final String UPDATE_HEADING = "# Punishment Update";
+    private static final int MARKDOWN_LABEL_PREFIX_LENGTH = 2;
+    private static final int MARKDOWN_LABEL_SEPARATOR_LENGTH = 3;
 
     private PunishmentNotificationDiscordPresentation() {
     }
@@ -118,11 +120,11 @@ final class PunishmentNotificationDiscordPresentation {
             return null;
         }
         int labelEnd = value.indexOf(":**");
-        if (labelEnd < 2) {
+        if (labelEnd < MARKDOWN_LABEL_PREFIX_LENGTH) {
             return null;
         }
-        String name = value.substring(2, labelEnd).strip();
-        String fieldValue = value.substring(labelEnd + 3).strip();
+        String name = value.substring(MARKDOWN_LABEL_PREFIX_LENGTH, labelEnd).strip();
+        String fieldValue = value.substring(labelEnd + MARKDOWN_LABEL_SEPARATOR_LENGTH).strip();
         return name.isEmpty() || fieldValue.isEmpty() ? null : new Field(name, fieldValue);
     }
 
