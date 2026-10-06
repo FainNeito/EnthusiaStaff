@@ -29,7 +29,7 @@ test('message investigation uses explicit server-side history search without rer
   const [shell, message] = await Promise.all([readFile(SHELL, 'utf8'), readFile(MESSAGE, 'utf8')]);
 
   assert.match(shell, /Search Discord history/);
-  assert.match(shell, /Server-side Discord history search/);
+  assert.match(shell, /const mode = state\.contextId \? 'Context loaded' : remote \? 'History search' : 'Recent messages'/);
   assert.match(shell, /runDiscordHistorySearch/);
   assert.match(shell, /search\?\.addEventListener\('input'.*state\.search = event\.target\.value/);
   assert.doesNotMatch(shell, /messageSearch'\)\?\.addEventListener\('input'.*renderWorkspace/);
