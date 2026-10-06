@@ -693,8 +693,12 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
 
     private void closeChannelClient() {
         channelConnected.set(false);
-        lifecycle.removeChannel()
-                .ifPresent(client -> resources.close("persistent Velocity channel", client));
+        lifecycle.removeChannel().ifPresent(client -> {
+            if (integrations != null) {
+                integrations.unbindChatChannel(client);
+            }
+            resources.close("persistent Velocity channel", client);
+        });
     }
 
     private void shutdownWorkers() {
@@ -1019,6 +1023,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
             // source backend uploads its in-memory vanish/staff-mode snapshot to the proxy
             // over this channel without ever blocking the transfer on it.
             runtimeComponents.transferSnapshots().bindSender(started::send);
+            integrations.bindChatChannel(started);
             runtimeComponents.staffMode().setActiveSessionListener(session -> started.send(
                     UUID.randomUUID(),
                     PaperStaffModeHandoffHandler.READY,
