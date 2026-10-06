@@ -159,12 +159,10 @@ public interface InventoryJournalStore {
      * before-state, has no live lease, and has not begun application. Ambiguous or
      * destructive states must remain blocked for explicit recovery.</p>
      */
-    default boolean resolveAbandonedOfflineEdit(
+    boolean resolveAbandonedOfflineEdit(
             UUID playerId,
             String owningServerId,
             Instant now
-    ) {
-        return false;
-    }
+    );
 }
 
