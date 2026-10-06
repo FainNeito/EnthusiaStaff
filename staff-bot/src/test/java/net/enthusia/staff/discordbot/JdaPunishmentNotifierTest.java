@@ -1,6 +1,8 @@
 package net.enthusia.staff.discordbot;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -115,6 +117,36 @@ class JdaPunishmentNotifierTest {
         }
     }
 
+    @Test
+    void previewPresentationUsesBrandingFieldsAndAccentColor() {
+        String message = JdaPunishmentNotifier.previewMessage(DiscordConsequenceType.MUTE, NOW);
+        String icon = "https://cdn.discordapp.com/icons/1410303324745371709/example.png";
+        var embed = PunishmentNotificationDiscordPresentation.embed(
+                message, PunishmentNotificationDiscordPresentation.MUTE_COLOR, icon);
+
+        assertEquals("Punishment Alert", embed.getTitle());
+        assertEquals(PunishmentNotificationDiscordPresentation.MUTE_COLOR, embed.getColorRaw());
+        assertTrue(embed.getDescription().contains("You have been"));
+        assertTrue(embed.getFields().stream().anyMatch(field -> "Reason".equals(field.getName())));
+        assertTrue(embed.getFields().stream().anyMatch(field -> "Expires".equals(field.getName())));
+        assertNotNull(embed.getThumbnail());
+        assertEquals(icon, embed.getThumbnail().getUrl());
+        assertEquals(PunishmentNotificationDiscordPresentation.FOOTER, embed.getFooter().getText());
+        assertFalse(embed.getDescription().contains(JdaPunishmentNotifier.APPEAL_SITE));
+        assertFalse(embed.getDescription().contains(JdaPunishmentNotifier.APPEAL_CHANNEL));
+    }
+
+    @Test
+    void actionColorsAreDistinctForWarningMuteAndBan() {
+        assertEquals(PunishmentNotificationDiscordPresentation.WARNING_COLOR,
+                PunishmentNotificationDiscordPresentation.color(DiscordConsequenceType.WARNING));
+        assertEquals(PunishmentNotificationDiscordPresentation.MUTE_COLOR,
+                PunishmentNotificationDiscordPresentation.color(DiscordConsequenceType.MUTE));
+        assertEquals(PunishmentNotificationDiscordPresentation.BAN_COLOR,
+                PunishmentNotificationDiscordPresentation.color(DiscordConsequenceType.BAN));
+        assertEquals(PunishmentNotificationDiscordPresentation.BAN_COLOR,
+                PunishmentNotificationDiscordPresentation.color(SanctionType.BAN));
+    }
     @Test
     void linkedMinecraftWarningAndMuteMessagesUseMinecraftContext() {
         String warning = JdaPunishmentNotifier.minecraftWarningOrMuteMessage(

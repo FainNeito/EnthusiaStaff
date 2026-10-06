@@ -35,22 +35,26 @@ final class JdaPunishmentNotifier {
     }
 
     DiscordDeliveryOutcome notifyApplied(JDA jda, DiscordPunishment punishment) {
-        return notify(jda, punishment.targetUserId().value(), appliedMessage(punishment));
+        return notify(jda, punishment.targetUserId().value(), appliedMessage(punishment),
+                PunishmentNotificationDiscordPresentation.color(punishment.intent().type()));
     }
 
     DiscordDeliveryOutcome notifyRemoved(JDA jda, DiscordPunishment punishment) {
-        return notify(jda, punishment.targetUserId().value(), removalMessage(punishment));
+        return notify(jda, punishment.targetUserId().value(), removalMessage(punishment),
+                PunishmentNotificationDiscordPresentation.UPDATE_COLOR);
     }
 
     DiscordDeliveryOutcome notifyMinecraftBan(JDA jda, MinecraftBanNotification notification) {
-        return notify(jda, notification.discordUserId(), minecraftBanMessage(notification));
+        return notify(jda, notification.discordUserId(), minecraftBanMessage(notification),
+                PunishmentNotificationDiscordPresentation.BAN_COLOR);
     }
 
     DiscordDeliveryOutcome notifyMinecraftWarningOrMute(
             JDA jda,
             MinecraftWarningOrMuteNotification notification
     ) {
-        return notify(jda, notification.discordUserId(), minecraftWarningOrMuteMessage(notification));
+        return notify(jda, notification.discordUserId(), minecraftWarningOrMuteMessage(notification),
+                PunishmentNotificationDiscordPresentation.color(notification.type()));
     }
 
     static DiscordDeliveryOutcome notifyPreview(
@@ -59,7 +63,8 @@ final class JdaPunishmentNotifier {
             DiscordConsequenceType type,
             Instant now
     ) {
-        return notify(jda, userId, previewMessage(type, now));
+        return notify(jda, userId, previewMessage(type, now),
+                PunishmentNotificationDiscordPresentation.color(type));
     }
 
     static DiscordDeliveryOutcome notifyMinecraftPreview(
@@ -97,15 +102,17 @@ final class JdaPunishmentNotifier {
             ));
             default -> throw new IllegalArgumentException("Minecraft notification preview type is unsupported");
         };
-        return notify(jda, userId, message);
+        return notify(jda, userId, message, PunishmentNotificationDiscordPresentation.color(type));
     }
 
-    private static DiscordDeliveryOutcome notify(JDA jda, String userId, String message) {
+    private static DiscordDeliveryOutcome notify(JDA jda, String userId, String message, int color) {
         try {
             User user = jda.retrieveUserById(userId).complete();
             user.openPrivateChannel().complete()
-                    .sendMessage(message)
+                    .sendMessageEmbeds(PunishmentNotificationDiscordPresentation.embed(
+                            message, color, PunishmentNotificationDiscordPresentation.guildIconUrl(jda)))
                     .setAllowedMentions(List.of())
+                    .addComponents(PunishmentNotificationDiscordPresentation.appealRow())
                     .complete();
             return DiscordDeliveryOutcome.DELIVERED;
         } catch (RuntimeException failure) {
