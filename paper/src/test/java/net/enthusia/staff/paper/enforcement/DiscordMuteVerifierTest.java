@@ -11,8 +11,10 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 import net.enthusia.staff.domain.OperationalMode;
+import net.enthusia.staff.domain.ports.SanctionLookup;
 import net.enthusia.staff.common.CaseId;
 import net.enthusia.staff.domain.sanction.ActiveSanction;
 import net.enthusia.staff.domain.sanction.SanctionType;
@@ -32,14 +34,20 @@ class DiscordMuteVerifierTest {
     }
 
     @Test
-    void unavailableAndThrowingStorageRemainBlocked() {
-        for (boolean fail : new boolean[]{false, true}) {
-            try (var verifier = new DiscordMuteVerifier(() -> OperationalMode.ACTIVE,
-                    () -> fail ? (id, types, now) -> { throw new IllegalStateException("unavailable"); } : null,
-                    Runnable::run, Clock.systemUTC(), Logger.getAnonymousLogger(), Duration.ofSeconds(2), 2)) {
-                assertEquals(MuteEnforcementListener.CachedMuteStatus.UNVERIFIED,
-                        verifier.verify(SENDER).toCompletableFuture().join());
-            }
+    void unavailableStorageRemainsBlocked() {
+        assertBlocked(() -> null);
+    }
+
+    @Test
+    void throwingStorageRemainsBlocked() {
+        assertBlocked(() -> (id, types, now) -> { throw new IllegalStateException("unavailable"); });
+    }
+
+    private static void assertBlocked(Supplier<SanctionLookup> storage) {
+        try (var verifier = new DiscordMuteVerifier(() -> OperationalMode.ACTIVE, storage,
+                Runnable::run, Clock.systemUTC(), Logger.getAnonymousLogger(), Duration.ofSeconds(2), 2)) {
+            assertEquals(MuteEnforcementListener.CachedMuteStatus.UNVERIFIED,
+                    verifier.verify(SENDER).toCompletableFuture().join());
         }
     }
 

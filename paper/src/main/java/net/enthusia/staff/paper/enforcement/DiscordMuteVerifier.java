@@ -33,6 +33,8 @@ final class DiscordMuteVerifier implements AutoCloseable {
     private final Duration timeout;
     private final Semaphore admission;
     private final Set<CompletableFuture<CachedMuteStatus>> pending = ConcurrentHashMap.newKeySet();
+    // Private monitor so callers cannot contend on, or deadlock with, the verifier instance.
+    private final Object lifecycle = new Object();
     private boolean closed;
 
     DiscordMuteVerifier(Supplier<OperationalMode> mode, Supplier<SanctionLookup> sanctions,
@@ -49,28 +51,30 @@ final class DiscordMuteVerifier implements AutoCloseable {
         this.admission = new Semaphore(capacity);
     }
 
-    synchronized CompletionStage<CachedMuteStatus> verify(UUID senderId) {
+    CompletionStage<CachedMuteStatus> verify(UUID senderId) {
         Objects.requireNonNull(senderId, "senderId");
-        if (closed) {
-            return CompletableFuture.completedFuture(CachedMuteStatus.UNVERIFIED);
+        synchronized (lifecycle) {
+            if (closed) {
+                return CompletableFuture.completedFuture(CachedMuteStatus.UNVERIFIED);
+            }
+            if (mode.get() != OperationalMode.ACTIVE) {
+                return CompletableFuture.completedFuture(CachedMuteStatus.CLEAR);
+            }
+            if (!admission.tryAcquire()) {
+                return CompletableFuture.completedFuture(CachedMuteStatus.UNVERIFIED);
+            }
+            CompletableFuture<CachedMuteStatus> result = new CompletableFuture<>();
+            pending.add(result);
+            result.completeOnTimeout(CachedMuteStatus.UNVERIFIED, timeout.toMillis(), TimeUnit.MILLISECONDS);
+            result.whenComplete((status, failure) -> pending.remove(result));
+            try {
+                workers.execute(() -> lookup(senderId, result));
+            } catch (RejectedExecutionException exception) {
+                admission.release();
+                result.complete(CachedMuteStatus.UNVERIFIED);
+            }
+            return result.minimalCompletionStage();
         }
-        if (mode.get() != OperationalMode.ACTIVE) {
-            return CompletableFuture.completedFuture(CachedMuteStatus.CLEAR);
-        }
-        if (!admission.tryAcquire()) {
-            return CompletableFuture.completedFuture(CachedMuteStatus.UNVERIFIED);
-        }
-        CompletableFuture<CachedMuteStatus> result = new CompletableFuture<>();
-        pending.add(result);
-        result.completeOnTimeout(CachedMuteStatus.UNVERIFIED, timeout.toMillis(), TimeUnit.MILLISECONDS);
-        result.whenComplete((status, failure) -> pending.remove(result));
-        try {
-            workers.execute(() -> lookup(senderId, result));
-        } catch (RejectedExecutionException exception) {
-            admission.release();
-            result.complete(CachedMuteStatus.UNVERIFIED);
-        }
-        return result.minimalCompletionStage();
     }
 
     private void lookup(UUID senderId, CompletableFuture<CachedMuteStatus> result) {
@@ -99,9 +103,11 @@ final class DiscordMuteVerifier implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
-        closed = true;
-        pending.forEach(result -> result.complete(CachedMuteStatus.UNVERIFIED));
-        pending.clear();
+    public void close() {
+        synchronized (lifecycle) {
+            closed = true;
+            pending.forEach(result -> result.complete(CachedMuteStatus.UNVERIFIED));
+            pending.clear();
+        }
     }
 }
