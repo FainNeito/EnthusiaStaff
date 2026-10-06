@@ -1,6 +1,7 @@
 package net.enthusia.staff.paper.integration;
 
 import dev.rosewood.rosechat.api.RoseChatAPI;
+import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridge;
 import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridgeCoordinator;
 import dev.rosewood.rosechat.api.chatbridge.OutboundChatMessage;
 import dev.rosewood.rosechat.api.staff.ChannelClassification;
@@ -8,11 +9,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
 import net.enthusia.staff.protocol.PersistentChannelClient;
@@ -24,24 +27,55 @@ import net.enthusia.staff.protocol.PersistentChannelClient;
  * single-thread queue and is dropped when disconnected, expired, or saturated.</p>
  */
 public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
-    private static final int MAXIMUM_QUEUED_MESSAGES = 256;
-    private static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
+    static final int MAXIMUM_QUEUED_MESSAGES = 256;
+    static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
+
+    @FunctionalInterface
+    interface ChannelSender {
+        void send(UUID messageId, String messageType, String payloadJson, Duration timeout);
+    }
+
+    private record ChannelBinding(Object identity, java.util.function.BooleanSupplier connected, ChannelSender sender) {
+        private ChannelBinding {
+            Objects.requireNonNull(identity, "identity");
+            Objects.requireNonNull(connected, "connected");
+            Objects.requireNonNull(sender, "sender");
+        }
+    }
 
     private final String sourceServerId;
     private final Clock clock;
-    private final AtomicReference<PersistentChannelClient> channel = new AtomicReference<>();
+    private final AtomicReference<ChannelBinding> channel = new AtomicReference<>();
     private final ThreadPoolExecutor sender;
     private final OutboundChatBridgeCoordinator.Registration registration;
 
     private RoseChatOutboundBridgeIntegration(String sourceServerId, Clock clock) {
+        this(
+                sourceServerId,
+                clock,
+                bridge -> RoseChatAPI.getInstance().installOutboundChatBridge(bridge),
+                MAXIMUM_QUEUED_MESSAGES
+        );
+    }
+
+    RoseChatOutboundBridgeIntegration(
+            String sourceServerId,
+            Clock clock,
+            Function<OutboundChatBridge, OutboundChatBridgeCoordinator.Registration> installer,
+            int queueCapacity
+    ) {
         this.sourceServerId = requireText(sourceServerId, "sourceServerId");
         this.clock = Objects.requireNonNull(clock, "clock");
+        Objects.requireNonNull(installer, "installer");
+        if (queueCapacity < 1) {
+            throw new IllegalArgumentException("chat relay queue capacity must be positive");
+        }
         this.sender = new ThreadPoolExecutor(
                 1,
                 1,
                 0L,
                 TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(MAXIMUM_QUEUED_MESSAGES),
+                new ArrayBlockingQueue<>(queueCapacity),
                 runnable -> {
                     Thread thread = new Thread(runnable, "EnthusiaStaff-Chat-Relay");
                     thread.setDaemon(true);
@@ -50,7 +84,7 @@ public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
                 new ThreadPoolExecutor.AbortPolicy()
         );
         try {
-            this.registration = RoseChatAPI.getInstance().installOutboundChatBridge(this::publish);
+            this.registration = Objects.requireNonNull(installer.apply(this::publish), "registration");
         } catch (RuntimeException | LinkageError failure) {
             this.sender.shutdownNow();
             throw failure;
@@ -72,12 +106,26 @@ public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
     }
 
     public void bindChannel(PersistentChannelClient client) {
-        channel.set(Objects.requireNonNull(client, "client"));
+        Objects.requireNonNull(client, "client");
+        channel.set(new ChannelBinding(
+                client,
+                client::connected,
+                (messageId, messageType, payloadJson, timeout) ->
+                        client.send(messageId, messageType, payloadJson, timeout)
+        ));
+    }
+
+    void bindChannelForTest(Object identity, java.util.function.BooleanSupplier connected, ChannelSender channelSender) {
+        channel.set(new ChannelBinding(identity, connected, channelSender));
     }
 
     public void unbindChannel(PersistentChannelClient client) {
-        if (client != null) {
-            channel.compareAndSet(client, null);
+        if (client == null) {
+            return;
+        }
+        ChannelBinding current = channel.get();
+        if (current != null && current.identity() == client) {
+            channel.compareAndSet(current, null);
         }
     }
 
@@ -89,12 +137,23 @@ public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
             return;
         }
 
-        PersistentChannelClient current = channel.get();
-        if (current == null || !current.connected()) {
+        ChannelBinding current = channel.get();
+        if (current == null || !current.connected().getAsBoolean()) {
             return;
         }
 
-        ChatBridgeOutboundMessage wire = new ChatBridgeOutboundMessage(
+        ChatBridgeOutboundMessage wire = toWire(sourceServerId, message);
+        String payload = ChatBridgeMessages.encodeOutbound(wire);
+        try {
+            sender.execute(() -> send(current, wire, payload));
+        } catch (RejectedExecutionException ignored) {
+            // Ephemeral chat is intentionally dropped under pressure.
+        }
+    }
+
+    static ChatBridgeOutboundMessage toWire(String sourceServerId, OutboundChatMessage message) {
+        Objects.requireNonNull(message, "message");
+        return new ChatBridgeOutboundMessage(
                 message.eventId(),
                 message.externalMessageId(),
                 message.canonicalMessageId(),
@@ -106,23 +165,19 @@ public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
                 message.displayName(),
                 message.plainText()
         );
-        String payload = ChatBridgeMessages.encodeOutbound(wire);
-        try {
-            sender.execute(() -> send(current, wire, payload));
-        } catch (RejectedExecutionException ignored) {
-            // Ephemeral chat is intentionally dropped under pressure.
-        }
     }
 
     private void send(
-            PersistentChannelClient expected,
+            ChannelBinding expected,
             ChatBridgeOutboundMessage message,
             String payload
     ) {
-        if (channel.get() != expected || !expected.connected() || message.isExpired(clock.millis())) {
+        if (channel.get() != expected
+                || !expected.connected().getAsBoolean()
+                || message.isExpired(clock.millis())) {
             return;
         }
-        expected.send(message.eventId(), ChatBridgeMessages.OUTBOUND, payload, ACK_TIMEOUT);
+        expected.sender().send(message.eventId(), ChatBridgeMessages.OUTBOUND, payload, ACK_TIMEOUT);
     }
 
     @Override
