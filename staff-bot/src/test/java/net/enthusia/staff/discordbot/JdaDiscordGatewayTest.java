@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +15,12 @@ class JdaDiscordGatewayTest {
     @Test
     void restrictionRuntimeEnablesOnlyMemberOverrideCache() {
         assertEquals(Set.of(CacheFlag.MEMBER_OVERRIDES), JdaDiscordGateway.requiredCacheFlags());
+    }
+
+    @Test
+    void managedRoleShadowRequestsOnlyGuildMembersIntent() {
+        assertEquals(Set.of(), JdaDiscordGateway.gatewayIntents(false));
+        assertEquals(Set.of(GatewayIntent.GUILD_MEMBERS), JdaDiscordGateway.gatewayIntents(true));
     }
 
     @Test
