@@ -1,5 +1,13 @@
 # Workspace state
 
+## Owner spectator control hotfix continuation, 2026-10-06
+
+Start owner 4597790fa7c696cce53ffd5de57b846d5e3ee1fa; fork main 711f0fce unchanged. Canonical main f70baee2960510a1b58ba8018f81f0eeed7604fe adds relevant spectator control/self PlayerInfo hotfix. Prior exact-head Coverage, Wiki, Sentinel artifact and four-runtime client proof pass; Codacy upload/draft review/Pi cancellation remain skipped. No new PR findings. Unrelated notification, role-shadow and punishment-menu changes remain excluded.
+
+Requirement SP-01: preserve the actor's own PlayerInfo listing during vanish/audience refresh, without changing other viewers' visibility; SP-02: clickable spectator tab and vanish controls must invoke registered Staff command routes with existing permission/mode checks. Source evidence: periodic presentation explicitly unlists self and audience reconciliation lacks a self-list guard; this is source evidence, not production/client incident attribution. Incorporate only the six canonical hotfix files with a three-way patch, preserving owner automatic vanish entry, player-name completion, mode policies, operation fencing and backend-local snapshots. Validate focused command/staff/visibility tests, clean all-module test/check/runtimeJars, proof compile/runtime CI, Wiki, artifacts and reviewed diff. EARS/state helpers absent; this bounded requirement/task/evidence is the fallback. No schema/provider contract/dependency pin change.
+
+Status PARTIAL / ACTIONABLE_CONTINUATION. Missing inventory/TEST incident inputs and broader private/provider/Bedrock/Folia/staging acceptance remain open. No merge, deployment, authority activation, permission change, inventory restoration or backup access.
+
 ## Owner runtime proof repair checkpoint, 2026-10-06
 
 Frozen proof/workflow head 2ebc9521dab5db8591c439a80a439a1a23bdc95e; production executable remains exactly 480c6388258d9c30448c100f28d8f49eb8d5f1af. Corrected Admin/Founder selected-mode expectations and added explicit vanished Spectator selection/return states for both ranks. Vanished wall/floor/ceiling geometry now runs after the Admin explicitly chooses Spectator. Adventure rejection must preserve Creative. Existing snapshot/tool identity, visible geometry, four runtime versions and no-FAIL gates remain. Static single-quoted client regexes now escape literal pipes once rather than twice, preventing unintended ERE alternatives and strengthening client-mode assertions. No product mode-policy change.
