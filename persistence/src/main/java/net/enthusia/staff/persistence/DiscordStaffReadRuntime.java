@@ -18,6 +18,7 @@ import net.enthusia.staff.domain.history.ModerationHistoryPage;
 import net.enthusia.staff.domain.moderation.DiscordUserId;
 import net.enthusia.staff.domain.player.PlayerIdentity;
 import net.enthusia.staff.domain.player.PlayerResolution;
+import net.enthusia.staff.domain.ports.DiscordModerationPersistenceStore.ReconciliationState;
 import net.enthusia.staff.domain.ports.DiscordModerationPersistenceStore.VersionedSubject;
 import net.enthusia.staff.domain.ports.StaffNoteStore.StaffNote;
 import net.enthusia.staff.domain.sanction.ActiveSanction;
@@ -67,6 +68,49 @@ public final class DiscordStaffReadRuntime implements AutoCloseable {
 
     public Optional<VersionedSubject> subjectForMinecraft(UUID playerId) {
         return identities.subjectForMinecraft(playerId);
+    }
+
+    /**
+     * Reads a bounded snapshot of provider-neutral managed-role claims for StaffBot shadow comparison.
+     * The read-only runtime never mutates reconciliation rows.
+     */
+    public List<ReconciliationState> managedRoleStates(int limit) {
+        if (limit < 1 || limit > 10_001) {
+            throw new IllegalArgumentException("managed-role state limit is outside its safe range");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                     SELECT reconciliation_key, resource_type, resource_id, desired_state_json,
+                            observed_state_json, state, attempt_count, next_attempt_at,
+                            last_error_code, revision
+                     FROM discord_reconciliation_state
+                     WHERE resource_type = 'MANAGED_ROLE'
+                     ORDER BY reconciliation_key
+                     LIMIT ?
+                     """)) {
+            statement.setInt(1, limit);
+            try (var rows = statement.executeQuery()) {
+                java.util.ArrayList<ReconciliationState> states = new java.util.ArrayList<>();
+                while (rows.next()) {
+                    var next = rows.getTimestamp("next_attempt_at");
+                    states.add(new ReconciliationState(
+                            rows.getString("reconciliation_key"),
+                            rows.getString("resource_type"),
+                            rows.getString("resource_id"),
+                            rows.getString("desired_state_json"),
+                            Optional.ofNullable(rows.getString("observed_state_json")),
+                            rows.getString("state"),
+                            rows.getInt("attempt_count"),
+                            Optional.ofNullable(next).map(java.sql.Timestamp::toInstant),
+                            Optional.ofNullable(rows.getString("last_error_code")),
+                            rows.getLong("revision")
+                    ));
+                }
+                return List.copyOf(states);
+            }
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Unable to read managed-role shadow claims", exception);
+        }
     }
 
     public PlayerResolution resolvePlayer(String uuidOrUsername) {

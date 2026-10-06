@@ -1,6 +1,6 @@
 package net.enthusia.staff.persistence;
 
-public final class ModerationPersistenceException extends RuntimeException {
+public class ModerationPersistenceException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
     public ModerationPersistenceException(String message) {
