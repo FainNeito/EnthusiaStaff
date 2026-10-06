@@ -84,7 +84,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     private PaperDatabaseConfiguration.Settings databaseSettings;
     private PaperOperationalTaskCoordinator operationalTasks;
     private PaperCommandBridgeRuntime commandBridge;
-    private PaperManagedRolePlatform managedRolePlatform;
+    private Optional<PaperManagedRolePlatform> managedRolePlatform = Optional.empty();
 
     @Override
     public void onEnable() {
@@ -234,26 +234,25 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     }
 
     private void registerManagedRolePlatform() {
-        managedRolePlatform = new PaperManagedRolePlatform(
+        PaperManagedRolePlatform current = new PaperManagedRolePlatform(
                 () -> storageValue(bindings -> bindings.runtime().dataSource()),
                 workers,
                 json,
                 Clock.systemUTC()
         );
+        managedRolePlatform = Optional.of(current);
         getServer().getServicesManager().register(
                 ManagedRolePlatform.class,
-                managedRolePlatform,
+                current,
                 this,
                 ServicePriority.Normal
         );
     }
 
     private void unregisterManagedRolePlatform() {
-        PaperManagedRolePlatform current = managedRolePlatform;
-        if (current != null) {
-            getServer().getServicesManager().unregister(ManagedRolePlatform.class, current);
-            managedRolePlatform = null;
-        }
+        managedRolePlatform.ifPresent(current ->
+                getServer().getServicesManager().unregister(ManagedRolePlatform.class, current));
+        managedRolePlatform = Optional.empty();
     }
 
     private Path dataDirectory() {
