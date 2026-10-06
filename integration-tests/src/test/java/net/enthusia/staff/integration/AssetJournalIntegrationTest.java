@@ -261,14 +261,18 @@ class AssetJournalIntegrationTest {
             assertEquals("PENDING", patchState(operationId));
             assertEquals(1L, leaseCount(targetId, scopeId));
 
-            assertTrue(store.resolveAbandonedOfflineEdit(targetId, ownerId, NOW.plusSeconds(122)));
+            assertFalse(store.resolveAbandonedOfflineEdit(targetId, ownerId, NOW.plusSeconds(122)));
+            assertEquals("PENDING", patchState(operationId));
+            assertEquals(1L, leaseCount(targetId, scopeId));
+
+            assertTrue(store.resolveAbandonedOfflineEdit(targetId, ownerId, NOW.plusSeconds(602)));
 
             assertEquals("CONFLICT", patchState(operationId));
             assertEquals("CONFLICT", inventoryOperationState(operationId));
             assertEquals(0L, leaseCount(targetId, scopeId));
-            assertTrue(store.lockedOwningServer(targetId, NOW.plusSeconds(123)).isEmpty());
+            assertTrue(store.lockedOwningServer(targetId, NOW.plusSeconds(603)).isEmpty());
             assertEquals(1L, auditCount(operationId, "INVENTORY_OFFLINE_EDIT_ABANDONED"));
-            assertFalse(store.resolveAbandonedOfflineEdit(targetId, ownerId, NOW.plusSeconds(124)));
+            assertFalse(store.resolveAbandonedOfflineEdit(targetId, ownerId, NOW.plusSeconds(604)));
         }
     }
 
