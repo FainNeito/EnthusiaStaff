@@ -28,6 +28,7 @@ import net.enthusia.staff.protocol.PersistentChannelClient;
  */
 public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
     static final int MAXIMUM_QUEUED_MESSAGES = 256;
+    private static final int MINIMUM_QUEUE_CAPACITY = 1;
     static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
 
     @FunctionalInterface
@@ -67,7 +68,7 @@ public final class RoseChatOutboundBridgeIntegration implements AutoCloseable {
         this.sourceServerId = requireText(sourceServerId, "sourceServerId");
         this.clock = Objects.requireNonNull(clock, "clock");
         Objects.requireNonNull(installer, "installer");
-        if (queueCapacity < 1) {
+        if (queueCapacity < MINIMUM_QUEUE_CAPACITY) {
             throw new IllegalArgumentException("chat relay queue capacity must be positive");
         }
         this.sender = new ThreadPoolExecutor(
