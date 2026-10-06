@@ -44,7 +44,16 @@ final class JdaPunishmentNotifier {
         return notify(jda, notification.discordUserId(), minecraftBanMessage(notification));
     }
 
-    private DiscordDeliveryOutcome notify(JDA jda, String userId, String message) {
+    static DiscordDeliveryOutcome notifyPreview(
+            JDA jda,
+            String userId,
+            DiscordConsequenceType type,
+            Instant now
+    ) {
+        return notify(jda, userId, previewMessage(type, now));
+    }
+
+    private static DiscordDeliveryOutcome notify(JDA jda, String userId, String message) {
         try {
             User user = jda.retrieveUserById(userId).complete();
             user.openPrivateChannel().complete()
@@ -59,15 +68,61 @@ final class JdaPunishmentNotifier {
 
     String appliedMessage(DiscordPunishment punishment) {
         DiscordConsequenceType type = punishment.intent().type();
-        String durationClause = hasExpiry(type) ? " for `%s`".formatted(duration(punishment)) : "";
-        String explanation = playerSafeExplanation(punishment.intent().internalExplanation())
+        return appliedMessage(
+                type,
+                duration(punishment),
+                punishment.intent().publicReason(),
+                punishment.intent().internalExplanation(),
+                punishment.expiresAt()
+        );
+    }
+
+    static String previewMessage(DiscordConsequenceType type, Instant now) {
+        if (type == null || now == null) {
+            throw new IllegalArgumentException("notification preview fields must be present");
+        }
+        return switch (type) {
+            case WARNING -> appliedMessage(
+                    type,
+                    "instant",
+                    "Notification test",
+                    "This is a StaffBot preview sent only to you. No punishment was created or applied.",
+                    Optional.empty()
+            );
+            case MUTE -> appliedMessage(
+                    type,
+                    "1 hour",
+                    "Notification test",
+                    "This is a StaffBot preview sent only to you. No punishment was created or applied.",
+                    Optional.of(now.plus(Duration.ofHours(1)))
+            );
+            case BAN -> appliedMessage(
+                    type,
+                    "7 days",
+                    "Notification test",
+                    "This is a StaffBot preview sent only to you. No punishment was created or applied.",
+                    Optional.of(now.plus(Duration.ofDays(7)))
+            );
+            default -> throw new IllegalArgumentException("notification preview type is unsupported");
+        };
+    }
+
+    private static String appliedMessage(
+            DiscordConsequenceType type,
+            String duration,
+            String publicReason,
+            String internalExplanation,
+            Optional<Instant> expiresAt
+    ) {
+        String durationClause = hasExpiry(type) ? " for `%s`".formatted(duration) : "";
+        String explanation = playerSafeExplanation(internalExplanation)
                 .map(value -> "**Staff explanation:** " + value + SECTION_BREAK)
                 .orElse("");
-        String expiry = hasExpiry(type) ? expiryText(punishment.expiresAt()) : "";
+        String expiry = hasExpiry(type) ? expiryText(expiresAt) : "";
         return "# Punishment Alert" + SECTION_BREAK
                 + "You have been `" + actionName(type) + "` on the Enthusia SMP Discord"
                 + durationClause + "." + SECTION_BREAK
-                + "**Reason:** " + punishment.intent().publicReason() + SECTION_BREAK
+                + "**Reason:** " + publicReason + SECTION_BREAK
                 + explanation
                 + expiry
                 + appealText();
