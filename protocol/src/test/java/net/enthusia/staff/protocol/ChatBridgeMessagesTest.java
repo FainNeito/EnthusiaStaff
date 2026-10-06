@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 class ChatBridgeMessagesTest {
 
-    private static final String HELLO = HELLO;
+    private static final String HELLO = "hello";
 
     @Test
     void roundTripPreservesBoundedPublicChatEnvelope() {
