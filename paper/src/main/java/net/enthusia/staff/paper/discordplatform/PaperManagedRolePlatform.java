@@ -179,10 +179,11 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
         }
         Instant now = clock.instant();
         String key = reconciliationKey(desired.namespace(), desired.localKey());
-        String desiredJson = encode(desired);
         RuntimeException last = null;
         for (int attempt = 0; attempt < MAX_PERSIST_ATTEMPTS; attempt++) {
             Optional<ReconciliationState> current = currentStore.read(key);
+            DesiredState effective = preserveDeleteDisplayName(desired, current);
+            String desiredJson = encode(effective);
             long expected = current.map(ReconciliationState::revision).orElse(-1L);
             ReconciliationState proposed = new ReconciliationState(
                     key,
@@ -204,6 +205,34 @@ public final class PaperManagedRolePlatform implements ManagedRolePlatform {
             }
         }
         throw new IllegalStateException("managed-role claim could not be persisted after revision retries", last);
+    }
+
+    private DesiredState preserveDeleteDisplayName(
+            DesiredState desired,
+            Optional<ReconciliationState> current
+    ) {
+        if (!desired.delete() || !desired.displayName().isEmpty() || current.isEmpty()) {
+            return desired;
+        }
+        try {
+            String displayName = json.readTree(current.orElseThrow().desiredStateJson())
+                    .path("displayName")
+                    .asText("");
+            if (displayName.isBlank() || displayName.length() > 100
+                    || displayName.codePoints().anyMatch(Character::isISOControl)) {
+                return desired;
+            }
+            return new DesiredState(
+                    desired.version(),
+                    desired.namespace(),
+                    desired.localKey(),
+                    displayName,
+                    desired.desiredMinecraftAccounts(),
+                    true
+            );
+        } catch (JsonProcessingException exception) {
+            return desired;
+        }
     }
 
     private String encode(DesiredState desired) {
