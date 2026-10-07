@@ -130,6 +130,40 @@ class ChatBridgeMessagesTest {
     }
 
     @Test
+    void healthRoundTripPreservesBoundedReadinessLease() {
+        ChatBridgeHealthMessage message = new ChatBridgeHealthMessage(
+                true,
+                1_800_000_000_000L,
+                1_800_000_015_000L
+        );
+
+        String encoded = ChatBridgeMessages.encodeHealth(message);
+        ChatBridgeHealthMessage decoded = ChatBridgeMessages.decodeHealth(encoded);
+
+        assertEquals(message, decoded);
+        assertFalse(decoded.isExpired(decoded.expiresAtEpochMillis()));
+        assertTrue(decoded.isExpired(decoded.expiresAtEpochMillis() + 1L));
+    }
+
+    @Test
+    void healthRejectsUnknownFieldsAndUnboundedLifetime() {
+        ChatBridgeHealthMessage message = new ChatBridgeHealthMessage(
+                true,
+                1_800_000_000_000L,
+                1_800_000_015_000L
+        );
+        String encoded = ChatBridgeMessages.encodeHealth(message);
+        String widened = encoded.substring(0, encoded.length() - 1) + ",\"unexpected\":true}";
+
+        assertThrows(IllegalArgumentException.class, () -> ChatBridgeMessages.decodeHealth(widened));
+        assertThrows(IllegalArgumentException.class, () -> new ChatBridgeHealthMessage(
+                true,
+                1_800_000_000_000L,
+                1_800_000_000_000L + ChatBridgeHealthMessage.MAX_LIFETIME_MILLIS + 1L
+        ));
+    }
+
+    @Test
     void payloadSizeGuardRunsBeforeJsonParsing() {
         String oversized = "{\"value\":\"" + "x".repeat(ChatBridgeMessages.MAX_PAYLOAD_BYTES) + "\"}";
         assertThrows(IllegalArgumentException.class, () -> ChatBridgeMessages.decodeOutbound(oversized));
