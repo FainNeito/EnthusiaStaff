@@ -21,8 +21,11 @@ import org.junit.jupiter.api.Timeout;
 class VelocityChatBridgeRelayTest {
     private static final long NOW = 1_800_000_000_000L;
     private static final String SERVER_ID = "SMP";
+    private static final long SHORT_LIFETIME_MILLIS = 30_000L;
+    private static final long LONG_LIFETIME_MILLIS = 60_000L;
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
-    private static final Clock EXPIRED_CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW + 30_001L), ZoneOffset.UTC);
+    private static final Clock EXPIRED_CLOCK = Clock.fixed(
+            Instant.ofEpochMilli(NOW + SHORT_LIFETIME_MILLIS + 1L), ZoneOffset.UTC);
     private static final int FIRST_DELIVERY = 1;
 
     @Test
@@ -35,7 +38,7 @@ class VelocityChatBridgeRelayTest {
             latch.countDown();
             return true;
         });
-        ChatBridgeOutboundMessage message = message(SERVER_ID, NOW + 30_000L);
+        ChatBridgeOutboundMessage message = message(SERVER_ID, NOW + SHORT_LIFETIME_MILLIS);
         ProtocolEnvelope envelope = envelope(SERVER_ID, message.eventId(), message);
 
         assertTrue(relay.handles(envelope));
@@ -55,10 +58,10 @@ class VelocityChatBridgeRelayTest {
             return true;
         });
 
-        ChatBridgeOutboundMessage spoofedServer = message("HUB", NOW + 30_000L);
+        ChatBridgeOutboundMessage spoofedServer = message("HUB", NOW + SHORT_LIFETIME_MILLIS);
         assertFalse(relay.accept(envelope(SERVER_ID, spoofedServer.eventId(), spoofedServer)));
 
-        ChatBridgeOutboundMessage mismatchedEvent = message(SERVER_ID, NOW + 30_000L);
+        ChatBridgeOutboundMessage mismatchedEvent = message(SERVER_ID, NOW + SHORT_LIFETIME_MILLIS);
         assertFalse(relay.accept(envelope(SERVER_ID, UUID.randomUUID(), mismatchedEvent)));
         assertEquals(0, deliveries.get());
 
@@ -68,7 +71,7 @@ class VelocityChatBridgeRelayTest {
     @Test
     void rejectsExpiredMalformedAndUnavailableSink() {
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(EXPIRED_CLOCK, 8, 32);
-        ChatBridgeOutboundMessage expired = message(SERVER_ID, NOW + 30_000L);
+        ChatBridgeOutboundMessage expired = message(SERVER_ID, NOW + SHORT_LIFETIME_MILLIS);
 
         assertFalse(relay.accept(envelope(SERVER_ID, expired.eventId(), expired)));
         assertFalse(relay.accept(new ProtocolEnvelope(
@@ -82,7 +85,7 @@ class VelocityChatBridgeRelayTest {
                 "mac"
         )));
 
-        ChatBridgeOutboundMessage valid = message(SERVER_ID, NOW + 60_000L);
+        ChatBridgeOutboundMessage valid = message(SERVER_ID, NOW + LONG_LIFETIME_MILLIS);
         assertFalse(relay.accept(envelope(SERVER_ID, valid.eventId(), valid)));
 
         relay.close();
@@ -98,7 +101,7 @@ class VelocityChatBridgeRelayTest {
             first.countDown();
             return true;
         });
-        ChatBridgeOutboundMessage message = message(SERVER_ID, NOW + 30_000L);
+        ChatBridgeOutboundMessage message = message(SERVER_ID, NOW + SHORT_LIFETIME_MILLIS);
         ProtocolEnvelope envelope = envelope(SERVER_ID, message.eventId(), message);
 
         assertTrue(relay.accept(envelope));
@@ -133,9 +136,9 @@ class VelocityChatBridgeRelayTest {
             return true;
         });
 
-        ChatBridgeOutboundMessage first = message(SERVER_ID, NOW + 30_000L);
-        ChatBridgeOutboundMessage second = message(SERVER_ID, NOW + 30_000L);
-        ChatBridgeOutboundMessage third = message(SERVER_ID, NOW + 30_000L);
+        ChatBridgeOutboundMessage first = message(SERVER_ID, NOW + SHORT_LIFETIME_MILLIS);
+        ChatBridgeOutboundMessage second = message(SERVER_ID, NOW + SHORT_LIFETIME_MILLIS);
+        ChatBridgeOutboundMessage third = message(SERVER_ID, NOW + SHORT_LIFETIME_MILLIS);
 
         assertTrue(relay.accept(envelope(SERVER_ID, first.eventId(), first)));
         assertTrue(firstStarted.await(2, TimeUnit.SECONDS));
