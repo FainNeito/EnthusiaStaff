@@ -72,6 +72,12 @@ The existing persistent-channel security properties remain in force: TLS 1.3,
 HMAC-authenticated envelopes, nonce/timestamp replay protection, frame bounds, explicit peer IDs,
 and per-message acknowledgement.
 
+`CHAT_BRIDGE_HEALTH_V1` is a separate short-lived authority-readiness signal. While the
+validated StaffBot Discord/JDA lifecycle is resumed, StaffBot refreshes a 15-second publishing
+lease every 5 seconds over the authenticated `STAFFBOT` channel. Velocity forwards it only
+to configured Paper backends and never stores it durably. Paper requires a fresh lease before
+AUTHORITATIVE suppression and releases legacy suppression after lease expiry.
+
 ## Paper -> Velocity SHADOW checkpoint
 
 Merged PR #370 established the first runtime hop:
@@ -117,6 +123,9 @@ PR #381 adds the next bounded leg while remaining default-off and staging-only:
   from core bot readiness.
 - StaffBot accepts chat only while a validated Discord identity is current. Disconnect pauses
   admission and clears queued/dedupe state; a revalidated session resumes it.
+- The same lifecycle drives `CHAT_BRIDGE_HEALTH_V1` readiness. A paused/unhealthy Discord
+  gateway cannot keep Paper's AUTHORITATIVE suppression alive merely because the StaffBot TLS
+  socket to Velocity remains connected.
 - StaffBot routes only an explicit `sourceServer/logicalChannel -> Discord channel ID` allowlist.
   During this checkpoint every route must target the fixed staging test channel.
 - StaffBot uses a dedicated bounded single-thread chat queue and bounded event-ID dedupe.
@@ -314,8 +323,10 @@ remain disabled on the final send.
 
 The chat transport now has an explicit `DISABLED / SHADOW / AUTHORITATIVE` migration model.
 AUTHORITATIVE does not delete or disable DiscordSRV globally. After replacement readiness passes,
-EnthusiaStaff acquires RoseChat's reversible legacy-Discord suppression registration; rollback or
-bridge teardown releases that registration before replacement teardown.
+EnthusiaStaff acquires RoseChat's reversible legacy-Discord suppression registration only while
+the Paper transport surfaces, optional rich-provider requirement, and fresh StaffBot
+Discord-publishing lease are all ready. Rollback, bridge teardown, or readiness-lease expiry
+releases that registration before replacement teardown.
 
 The exact cutover/rollback procedure and staging acceptance matrix are in
 `docs/discord-chat-cutover.md`.
