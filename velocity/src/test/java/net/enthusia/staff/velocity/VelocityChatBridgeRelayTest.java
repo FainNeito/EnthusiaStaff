@@ -22,6 +22,7 @@ class VelocityChatBridgeRelayTest {
     private static final long NOW = 1_800_000_000_000L;
     private static final String SERVER_ID = "SMP";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
+    private static final Clock EXPIRED_CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW + 1L), ZoneOffset.UTC);
     private static final int FIRST_DELIVERY = 1;
 
     @Test
