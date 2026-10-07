@@ -1,6 +1,6 @@
 # Integrations, Migration, and Release Readiness
 
-This hub covers provider boundaries, Discord/StaffBot, website/web APIs, LiteBans migration/shadow/cutover, distributed client/runtime acceptance, failure testing, and the evidence required before production authority moves.
+This hub covers provider boundaries, Discord/StaffBot, website/web APIs, historical LiteBans migration/rollback material, distributed client/runtime acceptance, failure testing, and the evidence required for current or future authority transitions.
 
 For Discord product behavior use [[Discord Moderation Platform]]. For StaffBot deployment/recovery use [[Staff Bot Runtime and Operations]]. For the public site, Velocity API, and moderation web workspace use [[Website and Web API]].
 
@@ -19,7 +19,7 @@ For Discord product behavior use [[Discord Moderation Platform]]. For StaffBot d
 | Public Enthusia site + Velocity website API | **Implemented, not production-accepted as a complete service** | Deployment/security/provider/operational acceptance remains. |
 | Staging moderation web workspace | **Available for accepted staging read/simulation scope** | Intentionally no destructive/production authority. |
 | Enthusia-owned provider contracts | **Partial/provider-dependent** | Some provider-side APIs/implementations/acceptance remain incomplete. |
-| LiteBans import/shadow/cutover | **Partial; production acceptance blocked** | Representative private data, accepted shadow/final reconciliation/owner cutover remain. |
+| LiteBans import/shadow/cutover | **Historical migration tooling/evidence** | LiteBans has been removed from the current network; retain the tooling and evidence for audit, rollback history, and legacy compatibility. |
 | Full topology/release acceptance | **Blocked/incomplete** | One exact candidate still needs coherent distributed/provider/client/load/recovery/cutover acceptance. |
 
 ## Discord integration boundaries
@@ -146,19 +146,19 @@ UUID remains authoritative. Supported verified Floodgate evidence may establish 
 
 Representative Geyser/Floodgate client behavior remains a runtime acceptance requirement.
 
-## LiteBans import and shadow comparison
+## Historical LiteBans import and shadow comparison
 
 Migration code inspects source schema, maps supported variants, preserves external IDs/identity/expiration state and records mapping/run state for idempotent dry-run/import/reconciliation.
 
 Automated/synthetic import evidence does not replace representative private LiteBans data, production-like volume, interruption/resume, source-variant and final incremental import proof.
 
-During shadow, LiteBans remains authoritative while EnthusiaStaff records comparisons. Final production acceptance requires the policy-defined continuous accepted non-enforcing observation window and explanation/fix of mismatches; automated shadow tests are not a substitute.
+During the historical shadow procedure, LiteBans remained authoritative while EnthusiaStaff recorded comparisons. That material is retained as migration/rollback evidence; it is not a statement that LiteBans is still active on the current network.
 
 Operator pages: [[LiteBans Migration]] and [[Shadow Mode and Cutover]].
 
 ## Cutover and rollback
 
-Before production authority moves, the exact candidate must prove, where applicable:
+For any future authority migration or destructive cutover, the exact candidate must prove, where applicable:
 
 - final source snapshot/import/reconciliation;
 - exactly one authoritative writer/effect path;
