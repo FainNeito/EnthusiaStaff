@@ -30,9 +30,12 @@ class VelocityChannelMessageRouterTest {
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
         VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
                 Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityRenderedChatBridgeRelay renderedRelay =
+                new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                renderedRelay,
                 inbound,
                 envelope -> {
                     delegated.incrementAndGet();
@@ -61,6 +64,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, delegated.get());
 
         relay.close();
+        renderedRelay.close();
         inbound.close();
     }
 
@@ -74,9 +78,12 @@ class VelocityChannelMessageRouterTest {
         });
         VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
                 Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityRenderedChatBridgeRelay renderedRelay =
+                new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                renderedRelay,
                 inbound,
                 envelope -> true
         );
@@ -91,6 +98,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, deliveries.get());
 
         relay.close();
+        renderedRelay.close();
         inbound.close();
     }
 
@@ -105,9 +113,12 @@ class VelocityChannelMessageRouterTest {
         });
         VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
                 Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityRenderedChatBridgeRelay renderedRelay =
+                new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                renderedRelay,
                 inbound,
                 envelope -> {
                     delegated.incrementAndGet();
@@ -134,6 +145,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(1, delegated.get());
 
         relay.close();
+        renderedRelay.close();
         inbound.close();
     }
 
