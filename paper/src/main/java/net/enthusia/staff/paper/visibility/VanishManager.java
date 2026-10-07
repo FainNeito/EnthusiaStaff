@@ -410,19 +410,46 @@ public final class VanishManager implements Listener {
         recoveryFence.invalidate(playerId);
         java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
         UUID expectedSession = staffMode.activeSessionId(playerId);
-        if (!submit(() -> {
-            if (expectedSession != null && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
+        Runnable enqueue = () -> {
+            if (!submit(() -> {
+                if (expectedSession != null && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
+                    stateWrites.remove(playerId);
+                    result.complete(false);
+                    return;
+                }
+                result.complete(persistSet(playerId, rank, vanished, restoreSelectedMode, selectedGameMode));
+            })) {
                 stateWrites.remove(playerId);
+                message(playerId, "The bounded work queue is full; vanish was not changed.");
                 result.complete(false);
-                return;
             }
-            result.complete(persistSet(playerId, rank, vanished, restoreSelectedMode, selectedGameMode));
-        })) {
-            stateWrites.remove(playerId);
-            player.sendMessage(StaffMessageStyle.style(Component.text("The bounded work queue is full; vanish was not changed.")));
-            result.complete(false);
+        };
+        if (vanished) {
+            validatePendingEnable(playerId, rank, expectedSession, enqueue, result);
+        } else {
+            enqueue.run();
         }
         return result;
+    }
+
+    private void validatePendingEnable(
+            UUID playerId, StaffRank expectedRank, UUID expectedSession, Runnable enqueue,
+            java.util.concurrent.CompletableFuture<Boolean> result) {
+        audiences.onOwner(playerId, current -> {
+            StaffRank liveRank = resolveAndPublishRank(current);
+            if (!VanishEnableAuthorityFence.eligible(expectedRank, liveRank)
+                    || (expectedSession != null
+                    && !expectedSession.equals(staffMode.activeSessionId(playerId)))) {
+                stateWrites.remove(playerId);
+                result.complete(false);
+                message(playerId, "Vanish enable was cancelled because your staff rank or session changed.");
+                return;
+            }
+            enqueue.run();
+        }, () -> {
+            stateWrites.remove(playerId);
+            result.complete(false);
+        });
     }
 
     private boolean persistSet(
@@ -438,7 +465,20 @@ public final class VanishManager implements Listener {
                 message(playerId, "Vanish storage is not ready; no visibility change was made.");
                 return false;
             }
-            persistState(loaded, playerId, rank, vanished, selectedGameMode);
+            if (vanished) {
+                boolean committed = VanishEnableAuthorityFence.commitIfEligible(
+                        rank,
+                        () -> onlineStaffRanks.get(playerId),
+                        () -> persistState(loaded, playerId, rank, true, selectedGameMode),
+                        () -> persistState(loaded, playerId, rank, false, selectedGameMode)
+                );
+                if (!committed) {
+                    message(playerId, "Vanish enable was cancelled because your staff rank changed while saving.");
+                    return false;
+                }
+            } else {
+                persistState(loaded, playerId, rank, false, selectedGameMode);
+            }
             rememberCommittedState(playerId, rank, vanished, restoreSelectedMode, selectedGameMode);
             boolean viewerChanged = publishViewerRank(playerId, rank);
             Set<UUID> hiddenBefore = vanished ? Set.of() : hiddenPresenceViewers(playerId);

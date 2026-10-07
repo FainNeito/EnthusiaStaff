@@ -29,6 +29,13 @@ class StaffModeEntryVanishWiringTest {
         assertTrue(entry.contains("staffMode.exit(current)"));
     }
 
+    @Test void vanishEnableRechecksOwnerAndFencesDurableCommit() throws IOException {
+        String source = read("visibility/VanishManager.java");
+        assertTrue(source.contains("validatePendingEnable("));
+        assertTrue(source.contains("VanishEnableAuthorityFence.commitIfEligible("));
+        assertTrue(source.contains("() -> onlineStaffRanks.get(playerId)"));
+    }
+
     private static String read(String suffix) throws IOException {
         return Files.readString(Path.of("src/main/java/net/enthusia/staff/paper", suffix))
                 .replace("\r\n", "\n");
