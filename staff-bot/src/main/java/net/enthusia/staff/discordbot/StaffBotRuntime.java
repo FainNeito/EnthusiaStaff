@@ -292,13 +292,19 @@ public final class StaffBotRuntime implements AutoCloseable {
         if (chatLifecycle.isEmpty()) {
             return null;
         }
+        StaffBotChatLifecycle chat = chatLifecycle.orElseThrow();
+        boolean failed = false;
         try {
-            chatLifecycle.orElseThrow().pause();
-            chatLifecycle.orElseThrow().close();
-            return null;
+            chat.pause();
         } catch (RuntimeException exception) {
-            return "chat_transport_shutdown_failed";
+            failed = true;
         }
+        try {
+            chat.close();
+        } catch (RuntimeException exception) {
+            failed = true;
+        }
+        return failed ? "chat_transport_shutdown_failed" : null;
     }
 
     private String shutdownGateway() {
