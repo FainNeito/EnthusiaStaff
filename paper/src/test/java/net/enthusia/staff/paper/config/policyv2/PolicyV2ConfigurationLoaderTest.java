@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import net.enthusia.staff.domain.policyv2.PolicyAction;
 import net.enthusia.staff.domain.sanction.SanctionType;
 import org.junit.jupiter.api.Test;
@@ -27,8 +28,31 @@ class PolicyV2ConfigurationLoaderTest {
         var offense = loaded.activeSnapshot().offenses().getFirst();
         assertEquals("chat.example", offense.id());
         assertEquals(EXAMPLE_DISPLAY_NAME, offense.displayName());
+        assertEquals(Duration.ofDays(30), offense.historyPolicy().decayPolicy().halfLife());
+        assertEquals(Duration.ofDays(120), offense.historyPolicy().decayPolicy().patternHalfLife());
         PolicyAction.Exact exact = assertInstanceOf(PolicyAction.Exact.class, offense.rules().getFirst().action());
         assertEquals(SanctionType.WARNING, exact.sanctions().getFirst().type());
+    }
+
+    @Test
+    void legacyExponentialConfigDefaultsPatternHalfLifeToDirectHalfLife() {
+        String legacy = validConfiguration("shadow", POLICY_ONE, EXAMPLE_DISPLAY_NAME)
+                .replaceFirst("(?m)^[ \\t]*pattern-half-life: 120d\\R", "");
+
+        var decay = load(legacy).activeSnapshot().offenses().getFirst().historyPolicy().decayPolicy();
+
+        assertEquals(decay.halfLife(), decay.patternHalfLife());
+    }
+
+    @Test
+    void nonDecayingConfigRejectsPatternHalfLife() {
+        String invalid = validConfiguration("shadow", POLICY_ONE, EXAMPLE_DISPLAY_NAME)
+                .replace("mode: exponential", "mode: non-decaying")
+                .replaceFirst("(?m)^[ \\t]*half-life: 30d\\R", "")
+                .replaceFirst("(?m)^[ \\t]*repeat-half-life-increase-per-prior: 0.25\\R", "")
+                .replaceFirst("(?m)^[ \\t]*maximum-half-life-multiplier: 2.0\\R", "");
+
+        assertThrows(PolicyV2ConfigurationException.class, () -> load(invalid));
     }
 
     @Test
@@ -100,6 +124,7 @@ class PolicyV2ConfigurationLoaderTest {
                           decay:
                             mode: exponential
                             half-life: 30d
+                            pattern-half-life: 120d
                             repeat-half-life-increase-per-prior: 0.25
                             maximum-half-life-multiplier: 2.0
                         resolution-rules:
