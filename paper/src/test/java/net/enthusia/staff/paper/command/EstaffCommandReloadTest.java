@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 
 class EstaffCommandReloadTest {
     private static final String POLICY_V2_OPERATION = "policyv2";
+    private static final String CONFIG_OPERATION = "config";
+    private static final String CONFIG_VALIDATE_ARGUMENT = "validate";
     private static final String TARGET_QUERY = "Target";
     private static final Command COMMAND = new Command("estaff") {
         @Override
@@ -170,7 +172,7 @@ class EstaffCommandReloadTest {
                 "enthusiastaff.reload", true
         ), new ArrayList<>());
 
-        assertEquals(List.of("status", "reload", "config"), command.onTabComplete(
+        assertEquals(List.of("status", "reload", CONFIG_OPERATION), command.onTabComplete(
                 player,
                 COMMAND,
                 "estaff",
@@ -422,7 +424,7 @@ class EstaffCommandReloadTest {
                 sender(Map.of("enthusiastaff.reload", true), messages),
                 COMMAND,
                 "estaff",
-                new String[]{"config", "validate"}
+                new String[]{CONFIG_OPERATION, CONFIG_VALIDATE_ARGUMENT}
         );
 
         assertFalse(reloaded.get());
@@ -450,7 +452,7 @@ class EstaffCommandReloadTest {
                 sender(Map.of("enthusiastaff.reload", true), messages),
                 COMMAND,
                 "estaff",
-                new String[]{"config", "validate"}
+                new String[]{CONFIG_OPERATION, CONFIG_VALIDATE_ARGUMENT}
         );
 
         assertFalse(reloaded.get());
@@ -473,7 +475,7 @@ class EstaffCommandReloadTest {
                 sender(Map.of("enthusiastaff.reload", true), messages),
                 COMMAND,
                 "estaff",
-                new String[]{"config", "reload"}
+                new String[]{CONFIG_OPERATION, "reload"}
         );
 
         assertTrue(reloaded.get());
@@ -489,7 +491,7 @@ class EstaffCommandReloadTest {
                 sender(Map.of(), deniedMessages),
                 COMMAND,
                 "estaff",
-                new String[]{"config", "validate"}
+                new String[]{CONFIG_OPERATION, CONFIG_VALIDATE_ARGUMENT}
         );
 
         assertEquals(
@@ -501,23 +503,23 @@ class EstaffCommandReloadTest {
                 Map.of("enthusiastaff.reload", true),
                 new ArrayList<>()
         );
-        assertEquals(List.of("validate", "reload"), command.onTabComplete(
+        assertEquals(List.of(CONFIG_VALIDATE_ARGUMENT, "reload"), command.onTabComplete(
                 authorized,
                 COMMAND,
                 "estaff",
-                new String[]{"config", ""}
+                new String[]{CONFIG_OPERATION, ""}
         ));
-        assertEquals(List.of("validate"), command.onTabComplete(
+        assertEquals(List.of(CONFIG_VALIDATE_ARGUMENT), command.onTabComplete(
                 authorized,
                 COMMAND,
                 "estaff",
-                new String[]{"config", "v"}
+                new String[]{CONFIG_OPERATION, "v"}
         ));
         assertEquals(List.of(), command.onTabComplete(
                 sender(Map.of(), new ArrayList<>()),
                 COMMAND,
                 "estaff",
-                new String[]{"config", ""}
+                new String[]{CONFIG_OPERATION, ""}
         ));
     }
 

@@ -328,11 +328,13 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
                     "configuration validation report"
             );
         } catch (RuntimeException exception) {
-            LOGGER.log(
-                    Level.WARNING,
-                    "Versioned configuration validation failed unexpectedly: "
-                            + exception.getClass().getSimpleName()
-            );
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(
+                        Level.WARNING,
+                        "Versioned configuration validation failed unexpectedly: "
+                                + exception.getClass().getSimpleName()
+                );
+            }
             sender.sendMessage(StaffMessageStyle.error(
                     "Configuration validation failed unexpectedly; no runtime state was changed."
             ));

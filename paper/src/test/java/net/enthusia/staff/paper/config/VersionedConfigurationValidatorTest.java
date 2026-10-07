@@ -73,8 +73,8 @@ class VersionedConfigurationValidatorTest {
     private void copyResource(String resource) throws IOException {
         Path target = tempDirectory.resolve(resource);
         Files.createDirectories(target.getParent());
-        try (InputStream input = VersionedConfigurationValidatorTest.class
-                .getClassLoader()
+        try (InputStream input = Thread.currentThread()
+                .getContextClassLoader()
                 .getResourceAsStream(resource)) {
             if (input == null) {
                 throw new IOException("Missing test resource " + resource);
