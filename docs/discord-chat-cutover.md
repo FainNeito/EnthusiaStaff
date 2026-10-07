@@ -51,6 +51,10 @@ ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_MODE=AUTHORITATIVE
 ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_CUTOVER_ACK=I_ACKNOWLEDGE_DISCORDSRV_CHAT_CUTOVER
 ```
 
+AUTHORITATIVE also requires at least one explicit symmetric
+`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_INGRESS_ROUTES` entry. This prevents legacy Discord inbound from
+being suppressed when no replacement Discord -> Minecraft route exists.
+
 Production never accepts the legacy boolean by itself and never accepts `SHADOW`.
 
 ## What AUTHORITATIVE changes
