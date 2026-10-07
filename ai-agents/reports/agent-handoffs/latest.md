@@ -1,42 +1,27 @@
 # Latest agent handoff
 
-2026-10-05 current extension: same investigation-tools package now includes fresh-entry automatic vanish and player-name completion, based on normally incorporated `ba6dcabc` / merged #321. Use IT-09..10 and the canonical handoff; old GUI-only heads remain historical.
+Current coordinator handoff: **Configurability / repository cleanup / production acceptance — ACTIONABLE_CONTINUATION**.
 
-2026-10-05: owner extended the same investigation-tools package with GUI streamlining. Follow the canonical investigation handoff and IT-06..08. New work stays in PR #322; no merge/deployment authorization.
+Canonical handoff:
 
-Owner-directed current work: **OWNER-INVESTIGATION-TOOLS — PARTIAL / ACTIONABLE_CONTINUATION**. See [canonical handoff](../package-handoffs/2026-10-04-owner-investigation-tools.md) and [contract](../../work-packages/packages/OWNER-INVESTIGATION-TOOLS.md). This supersedes routing for this worker only; the historical Market handoff below is preserved. No merge or deployment authorization.
+[2026-10-07-configurability-cleanup-coordinator.md](2026-10-07-configurability-cleanup-coordinator.md)
 
+At handoff freeze:
 
-Current handoff: **ES-X03 — EnthusiaMarket destructive provider** — **PARTIAL / ACTIONABLE_CONTINUATION**.
+- live `main`: `444c44a6f3868c66f5eff605d36c099cc8c0da06`;
+- configurability parent: #425;
+- cleanup parent: #426;
+- C0 PR #428 is merged as `e41062728131fafa93c7eb639435607ce0fc8e53`;
+- C1 tracker: #436;
+- C1 PR #449 is OPEN/DRAFT on `config/c1-messages-foundation`;
+- C1 exact head: `06c2d32b7761b7ac834b36d20445bfb865eee94f`;
+- focused C1 tests pass locally on the current-main integration;
+- hosted #449 checks/review must be read live before promotion/merge.
 
-Canonical package handoff:
-ai-agents/reports/package-handoffs/2026-09-22-es-x03-marketcase-completion-validation.md.
+Do not overlap active Policy v2 PR #452 or the separate Discord/DiscordSRV workstreams.
 
-Market [PR #7](https://github.com/wsg138/EnthusiaMarket/pull/7) is
-OPEN/DRAFT/CLEAN on `package/es-x03-market-static-remediation` at
-`81b14c349be0ad404edeedbac5e109e2a375c255`; Staff
-[PR #139](https://github.com/wsg138/EnthusiaStaff/pull/139) is
-OPEN/non-draft/UNSTABLE on `package/es-x03-market-provider` at
-`f6732816f35e3a9634068badb56c220b5d679bd4`. Clean-clone component comparison
-found no product-file delta and hash
-`e7082c5bb1aacbcd95ac8457aa17392a740c3fe5df6154e743eebb4bc6019839`.
+Remaining hands-on acceptance includes #350 Spectator noclip, #392 HUB ProtocolLib warning proof, #395 Helper firework/projectile pass-through, and #343 after upstream LumaGuilds #209 merges.
 
-Market hosted runs `35601165548` and `35601165577` passed. Exact Staff Coverage
-`35733465364` / job `106764602834`, Sentinel artifact `35733465456` / job
-`106764605492`, and durable Sentinel restart job `516` (`PAPER_RESTART_OK`)
-passed. Codacy Diff Coverage and Coverage Variation passed. No live review
-thread remains.
+The repository is live production software. Historical pre-release/LiteBans records remain historical evidence; current-facing docs should not present them as current authority.
 
-Codacy static check `106765372218` remains `ACTION_REQUIRED` with 1,141
-reported issues. Canonical Pi `35733463593` / job `106764599729` stopped before
-private dispatch when its workflow-history lookup returned HTTP 401 Bad
-credentials; no private Pi, Paper, or MariaDB runtime ran.
-
-Continue only small paired fixes for validated static findings, preserving
-Market #7, Staff #139, and exact component parity. The staging owner must
-repair the least-privilege bridge credential before a fresh canonical Pi run.
-Do not use a personal credential or bypass the public bridge.
-
-No production listing, balance, item, player data, database, deployment,
-authority, LiteBans, cutover, or issue #43 acceptance was performed. D09
-remains preserved while X03 owns branch-local V21.
+Live GitHub is authoritative. Read the canonical handoff and the live PR/issue state before acting.
