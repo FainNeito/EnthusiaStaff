@@ -111,7 +111,11 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
                     StaffBotChatTransport::connectionState
             );
             StaffBotChatReadinessPublisher readinessPublisher =
-                    new StaffBotChatReadinessPublisher(clock, client);
+                    new StaffBotChatReadinessPublisher(
+                            clock,
+                            client,
+                            configuration.mode() == StaffBotChatBridgeConfiguration.Mode.AUTHORITATIVE
+                    );
             return new StaffBotChatTransport(
                     ingress,
                     artifactIngress,
