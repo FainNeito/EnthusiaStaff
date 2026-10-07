@@ -65,6 +65,17 @@ class ChatArtifactMessagesTest {
     }
 
     @Test
+    void rejectsDuplicateAttachmentFilenames() {
+        ChatBridgeArtifact first = artifact(8, "Same.png");
+        ChatBridgeArtifact second = artifact(8, "Same.png");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> bundle(List.of(first, second))
+        );
+    }
+
+    @Test
     void enforcesPerArtifactAndAggregateBounds() {
         assertThrows(IllegalArgumentException.class, () -> artifact(
                 ChatBridgeArtifact.MAX_ARTIFACT_BYTES + 1,
