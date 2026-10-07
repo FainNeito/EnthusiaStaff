@@ -21,9 +21,12 @@ import org.junit.jupiter.api.Timeout;
 class StaffBotChatIngressTest {
     private static final long NOW = 1_800_000_000_000L;
     private static final long CHANNEL_ID = 1541286004298752091L;
+    private static final String SOURCE_SERVER = SOURCE_SERVER;
+    private static final String LOGICAL_CHANNEL = LOGICAL_CHANNEL;
+    private static final int FIRST_DELIVERY = 1;
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
     private static final StaffBotChatBridgeConfiguration.Route ROUTE =
-            new StaffBotChatBridgeConfiguration.Route("SMP", "global");
+            new StaffBotChatBridgeConfiguration.Route(SOURCE_SERVER, LOGICAL_CHANNEL);
 
     @Test
     void requiresResumeAndExplicitRoute() throws Exception {
@@ -34,7 +37,7 @@ class StaffBotChatIngressTest {
             delivered.countDown();
             return true;
         });
-        ChatBridgeOutboundMessage message = message("SMP", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage message = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
         ProtocolEnvelope envelope = envelope(message);
 
         assertFalse(ingress.accept(envelope));
@@ -44,10 +47,10 @@ class StaffBotChatIngressTest {
         assertTrue(delivered.await(2, TimeUnit.SECONDS));
         assertEquals(1, deliveries.get());
 
-        ChatBridgeOutboundMessage wrongRoute = message("HUB", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage wrongRoute = message("HUB", LOGICAL_CHANNEL, NOW + 30_000L);
         assertFalse(ingress.accept(envelope(wrongRoute)));
 
-        ChatBridgeOutboundMessage invalidRouteToken = message("SMP", "global chat", NOW + 30_000L);
+        ChatBridgeOutboundMessage invalidRouteToken = message(SOURCE_SERVER, "global chat", NOW + 30_000L);
         assertFalse(ingress.accept(envelope(invalidRouteToken)));
         ingress.close();
     }
@@ -57,7 +60,7 @@ class StaffBotChatIngressTest {
         StaffBotChatIngress ingress = ingress((channelId, message) -> true);
         ingress.resume();
 
-        ChatBridgeOutboundMessage valid = message("SMP", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage valid = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
         assertFalse(ingress.accept(envelope("OTHER", valid.eventId(), valid)));
         assertFalse(ingress.accept(envelope(
                 StaffBotChatBridgeConfiguration.PROXY_ID, UUID.randomUUID(), valid)));
@@ -80,7 +83,7 @@ class StaffBotChatIngressTest {
                 (channelId, message) -> true
         );
         expiredIngress.resume();
-        ChatBridgeOutboundMessage expired = message("SMP", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage expired = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
         assertFalse(expiredIngress.accept(envelope(expired)));
 
         ingress.close();
@@ -97,7 +100,7 @@ class StaffBotChatIngressTest {
             return true;
         });
         ingress.resume();
-        ChatBridgeOutboundMessage message = message("SMP", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage message = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
         ProtocolEnvelope envelope = envelope(message);
 
         assertTrue(ingress.accept(envelope));
@@ -138,9 +141,9 @@ class StaffBotChatIngressTest {
         );
         ingress.resume();
 
-        ChatBridgeOutboundMessage first = message("SMP", "global", NOW + 30_000L);
-        ChatBridgeOutboundMessage second = message("SMP", "global", NOW + 30_000L);
-        ChatBridgeOutboundMessage third = message("SMP", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage first = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
+        ChatBridgeOutboundMessage second = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
+        ChatBridgeOutboundMessage third = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
 
         assertTrue(ingress.accept(envelope(first)));
         assertTrue(firstStarted.await(2, TimeUnit.SECONDS));
@@ -173,8 +176,8 @@ class StaffBotChatIngressTest {
         });
         ingress.resume();
 
-        ChatBridgeOutboundMessage first = message("SMP", "global", NOW + 30_000L);
-        ChatBridgeOutboundMessage queued = message("SMP", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage first = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
+        ChatBridgeOutboundMessage queued = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
         assertTrue(ingress.accept(envelope(first)));
         assertTrue(firstStarted.await(2, TimeUnit.SECONDS));
         assertTrue(ingress.accept(envelope(queued)));
@@ -185,7 +188,7 @@ class StaffBotChatIngressTest {
         assertEquals(1, deliveries.get());
 
         ingress.resume();
-        ChatBridgeOutboundMessage afterReconnect = message("SMP", "global", NOW + 30_000L);
+        ChatBridgeOutboundMessage afterReconnect = message(SOURCE_SERVER, LOGICAL_CHANNEL, NOW + 30_000L);
         assertTrue(ingress.accept(envelope(afterReconnect)));
         Thread.sleep(100L);
         assertEquals(2, deliveries.get());
