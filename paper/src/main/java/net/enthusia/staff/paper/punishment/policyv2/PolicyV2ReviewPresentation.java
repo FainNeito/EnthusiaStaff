@@ -74,7 +74,7 @@ public record PolicyV2ReviewPresentation(
     private static String history(PolicyV2ManualReview review) {
         if (review.draft().isPolicyGap()) {
             return review.historyInputs().isEmpty()
-                    ? "No stored Policy v2 history is available; no relationship was inferred."
+                    ? "No stored behavioral history is available; no relationship was inferred."
                     : "Stored history exists, but unclassified conduct is not automatically related or scored.";
         }
         HistoryAssessment assessment = review.resolution().history();
@@ -119,6 +119,12 @@ public record PolicyV2ReviewPresentation(
         if (review.resolution().action() instanceof PolicyAction.Exact exact) {
             return exact.sanctions().stream().map(PolicyV2ReviewPresentation::sanction).toList();
         }
+        if (review.resolution().action() instanceof PolicyAction.ExactWithApproval exact) {
+            return exact.sanctions().stream().map(PolicyV2ReviewPresentation::sanction).toList();
+        }
+        if (review.resolution().action() instanceof PolicyAction.RemedyOnly) {
+            return List.of("No punitive sanction; complete the required remedy or compliance condition.");
+        }
         if (review.resolution().action() instanceof PolicyAction.Bounded bounded) {
             List<String> options = new ArrayList<>();
             for (int index = 0; index < bounded.allowedOptions().size(); index++) {
@@ -154,6 +160,10 @@ public record PolicyV2ReviewPresentation(
     private static String why(PolicyV2ManualReview review) {
         if (review.resolution().action() instanceof PolicyAction.RequiresReview) {
             return "Configured policy cannot safely resolve these facts; Admin/Founder review is required.";
+        }
+        if (review.resolution().action() instanceof PolicyAction.ExactWithApproval exact) {
+            return "Configured policy fixes this outcome, but "
+                    + humanize(exact.minimumRank().name()) + " or higher approval is required.";
         }
         if (review.resolution().action() instanceof PolicyAction.Bounded) {
             return "Configured policy matched the confirmed conduct and history and allows a limited approved choice.";
