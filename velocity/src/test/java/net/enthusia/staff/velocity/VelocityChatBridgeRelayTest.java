@@ -67,7 +67,7 @@ class VelocityChatBridgeRelayTest {
     @Test
     void rejectsExpiredMalformedAndUnavailableSink() {
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
-        ChatBridgeOutboundMessage expired = message(SERVER_ID, NOW - 1L);
+        ChatBridgeOutboundMessage expired = messageAt(SERVER_ID, NOW - 30_000L, NOW - 1L);
 
         assertFalse(relay.accept(envelope(SERVER_ID, expired.eventId(), expired)));
         assertFalse(relay.accept(new ProtocolEnvelope(
@@ -167,12 +167,20 @@ class VelocityChatBridgeRelayTest {
     }
 
     private static ChatBridgeOutboundMessage message(String sourceServerId, long expiresAt) {
+        return messageAt(sourceServerId, NOW, expiresAt);
+    }
+
+    private static ChatBridgeOutboundMessage messageAt(
+            String sourceServerId,
+            long createdAt,
+            long expiresAt
+    ) {
         UUID eventId = UUID.randomUUID();
         return new ChatBridgeOutboundMessage(
                 eventId,
                 "rosechat-mc-" + eventId,
                 "rosechat-canonical-" + eventId,
-                NOW,
+                createdAt,
                 expiresAt,
                 sourceServerId,
                 "global",
