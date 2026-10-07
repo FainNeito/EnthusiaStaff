@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -86,30 +87,45 @@ final class VelocityChatBridgeRelay implements AutoCloseable {
         if (!handles(envelope)) {
             return false;
         }
-
-        final ChatBridgeOutboundMessage message;
-        try {
-            message = ChatBridgeMessages.decodeOutbound(envelope.payloadJson());
-        } catch (IllegalArgumentException failure) {
+        Optional<ChatBridgeOutboundMessage> decoded = decode(envelope.payloadJson());
+        if (decoded.isEmpty()) {
             return false;
         }
+        ChatBridgeOutboundMessage message = decoded.orElseThrow();
         long now = clock.millis();
-        if (!message.sourceServerId().equals(envelope.serverId())
-                || !message.eventId().equals(envelope.messageId())
-                || message.isExpired(now)) {
+        if (!matchesAuthenticatedEnvelope(envelope, message, now)) {
             return false;
         }
+        return admit(message, now);
+    }
 
+    private static Optional<ChatBridgeOutboundMessage> decode(String payloadJson) {
+        try {
+            return Optional.of(ChatBridgeMessages.decodeOutbound(payloadJson));
+        } catch (IllegalArgumentException failure) {
+            return Optional.empty();
+        }
+    }
+
+    private static boolean matchesAuthenticatedEnvelope(
+            ProtocolEnvelope envelope,
+            ChatBridgeOutboundMessage message,
+            long now
+    ) {
+        return message.sourceServerId().equals(envelope.serverId())
+                && message.eventId().equals(envelope.messageId())
+                && !message.isExpired(now);
+    }
+
+    private boolean admit(ChatBridgeOutboundMessage message, long now) {
         SinkSlot currentSink = sink.get();
         if (currentSink == null) {
             return false;
         }
-
         Admission admission = reserve(message, now);
         if (!admission.accepted()) {
             return admission.duplicate();
         }
-
         try {
             worker.execute(() -> deliver(currentSink, message));
             return true;
