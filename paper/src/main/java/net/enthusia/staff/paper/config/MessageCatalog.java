@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 import net.kyori.adventure.text.Component;
 
 public record MessageCatalog(Map<MessageKey, String> templates) {
+    private static final String MESSAGE_PREFIX = "message ";
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{([a-z][a-z0-9-]*)}");
 
     public MessageCatalog {
@@ -18,7 +19,7 @@ public record MessageCatalog(Map<MessageKey, String> templates) {
         for (MessageKey key : MessageKey.values()) {
             String template = templates.get(key);
             if (template == null || template.isBlank()) {
-                throw new IllegalArgumentException("message " + key.path() + " must be present and non-blank");
+                throw new IllegalArgumentException(MESSAGE_PREFIX + key.path() + " must be present and non-blank");
             }
             validateTemplate(key, template);
             copy.put(key, template);
@@ -69,7 +70,7 @@ public record MessageCatalog(Map<MessageKey, String> templates) {
         Objects.requireNonNull(valueFormatter, "valueFormatter");
         if (!values.keySet().equals(key.placeholders())) {
             throw new IllegalArgumentException(
-                    "message " + key.path() + " requires placeholders " + key.placeholders()
+                    MESSAGE_PREFIX + key.path() + " requires placeholders " + key.placeholders()
                             + " but received " + values.keySet()
             );
         }
@@ -87,7 +88,7 @@ public record MessageCatalog(Map<MessageKey, String> templates) {
     private static void requireNoPlaceholders(MessageKey key) {
         if (!key.placeholders().isEmpty()) {
             throw new IllegalArgumentException(
-                    "message " + key.path() + " requires placeholders " + key.placeholders()
+                    MESSAGE_PREFIX + key.path() + " requires placeholders " + key.placeholders()
             );
         }
     }
@@ -101,12 +102,14 @@ public record MessageCatalog(Map<MessageKey, String> templates) {
         Set<String> expected = key.placeholders();
         if (!found.equals(expected)) {
             throw new IllegalArgumentException(
-                    "message " + key.path() + " must use placeholders " + expected + " but uses " + found
+                    MESSAGE_PREFIX + key.path() + " must use placeholders " + expected + " but uses " + found
             );
         }
         String stripped = PLACEHOLDER.matcher(template).replaceAll("");
         if (stripped.indexOf('{') >= 0 || stripped.indexOf('}') >= 0) {
-            throw new IllegalArgumentException("message " + key.path() + " contains an invalid placeholder token");
+            throw new IllegalArgumentException(
+                    MESSAGE_PREFIX + key.path() + " contains an invalid placeholder token"
+            );
         }
         SafeMessageMiniMessage.validate(template);
     }

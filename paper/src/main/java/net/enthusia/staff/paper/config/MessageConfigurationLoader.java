@@ -53,36 +53,7 @@ public final class MessageConfigurationLoader {
 
     MessageConfigurationSnapshot load(Reader reader, String sourceName) {
         try {
-            JsonNode root = yaml.readTree(reader);
-            requireObject(root, ROOT_PATH);
-            rejectUnknown(root, ROOT_FIELDS, ROOT_PATH);
-
-            int schemaVersion = integer(root, "schema-version", ROOT_PATH);
-            if (schemaVersion != MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION) {
-                throw invalid(ROOT_PATH + ".schema-version must be "
-                        + MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION);
-            }
-
-            JsonNode messages = required(root, "messages", ROOT_PATH);
-            requireObject(messages, ROOT_PATH + ".messages");
-            Map<String, String> flattened = new LinkedHashMap<>();
-            flatten(messages, "", flattened, ROOT_PATH + ".messages");
-
-            EnumMap<MessageKey, String> templates = new EnumMap<>(MessageKey.class);
-            for (Map.Entry<String, String> entry : flattened.entrySet()) {
-                MessageKey key = MessageKey.fromPath(entry.getKey());
-                if (key == null) {
-                    throw invalid(ROOT_PATH + ".messages contains unknown key " + entry.getKey());
-                }
-                templates.put(key, entry.getValue());
-            }
-            for (MessageKey key : MessageKey.values()) {
-                if (!templates.containsKey(key)) {
-                    throw invalid(ROOT_PATH + ".messages." + key.path() + " is required");
-                }
-            }
-
-            return new MessageConfigurationSnapshot(schemaVersion, new MessageCatalog(templates));
+            return parse(reader);
         } catch (IOException exception) {
             throw new ConfigurationValidationException("Unable to parse " + sourceName, exception);
         } catch (ConfigurationValidationException exception) {
@@ -92,6 +63,54 @@ public final class MessageConfigurationLoader {
                     "Invalid messages.yml: " + exception.getMessage(),
                     exception
             );
+        }
+    }
+
+    private MessageConfigurationSnapshot parse(Reader reader) throws IOException {
+        JsonNode root = yaml.readTree(reader);
+        requireObject(root, ROOT_PATH);
+        rejectUnknown(root, ROOT_FIELDS, ROOT_PATH);
+
+        int schemaVersion = requiredSchemaVersion(root);
+        JsonNode messages = required(root, "messages", ROOT_PATH);
+        requireObject(messages, ROOT_PATH + ".messages");
+
+        return new MessageConfigurationSnapshot(
+                schemaVersion,
+                new MessageCatalog(parseTemplates(messages))
+        );
+    }
+
+    private static int requiredSchemaVersion(JsonNode root) {
+        int schemaVersion = integer(root, "schema-version", ROOT_PATH);
+        if (schemaVersion != MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION) {
+            throw invalid(ROOT_PATH + ".schema-version must be "
+                    + MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION);
+        }
+        return schemaVersion;
+    }
+
+    private static EnumMap<MessageKey, String> parseTemplates(JsonNode messages) {
+        Map<String, String> flattened = new LinkedHashMap<>();
+        flatten(messages, "", flattened, ROOT_PATH + ".messages");
+
+        EnumMap<MessageKey, String> templates = new EnumMap<>(MessageKey.class);
+        for (Map.Entry<String, String> entry : flattened.entrySet()) {
+            MessageKey key = MessageKey.fromPath(entry.getKey());
+            if (key == null) {
+                throw invalid(ROOT_PATH + ".messages contains unknown key " + entry.getKey());
+            }
+            templates.put(key, entry.getValue());
+        }
+        requireAllMessageKeys(templates);
+        return templates;
+    }
+
+    private static void requireAllMessageKeys(Map<MessageKey, String> templates) {
+        for (MessageKey key : MessageKey.values()) {
+            if (!templates.containsKey(key)) {
+                throw invalid(ROOT_PATH + ".messages." + key.path() + " is required");
+            }
         }
     }
 
