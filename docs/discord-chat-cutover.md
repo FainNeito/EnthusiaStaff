@@ -86,8 +86,8 @@ The registration affects only RoseChat's legacy Discord chat path. It does not d
 The suppression registration is released **before** replacement bridge teardown or Paper channel
 unbind. Releasing it makes RoseChat's legacy Discord chat path eligible again.
 
-StaffBot publishes a short-lived readiness lease only while its validated Discord/JDA chat
-lifecycle is resumed. Velocity forwards that lease ephemerally to Paper; it is never written to
+StaffBot publishes a short-lived readiness lease only while it is explicitly configured
+AUTHORITATIVE and its validated Discord/JDA chat lifecycle is resumed. Velocity forwards that lease ephemerally to Paper; it is never written to
 the moderation/network inbox. Paper refuses AUTHORITATIVE suppression without a fresh lease and
 checks lease expiry once per second. A JDA disconnect, StaffBot pause, transport loss, or missed
 heartbeat therefore restores legacy chat eligibility without waiting for a Paper restart.
