@@ -1,6 +1,8 @@
 package net.enthusia.staff.paper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.rosewood.rosechat.api.RoseChatAPI;
+import dev.rosewood.rosechat.api.chatbridge.LegacyDiscordChatSuppression;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
@@ -62,6 +64,7 @@ final class PaperIntegrationManager implements Listener {
     private static final String ROSECHAT_OUTBOUND = "rosechat-discord-bridge";
     private static final String ROSECHAT_RENDER = "rosechat-discord-render";
     private static final String ROSECHAT_INBOUND = "rosechat-discord-ingress";
+    private static final String ROSECHAT_AUTHORITY = "rosechat-discord-authority";
     private static final String INTERACTIVE_CHAT_RENDERER = "interactivechat-rich-renderer";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
@@ -80,6 +83,8 @@ final class PaperIntegrationManager implements Listener {
     private RoseChatOutboundRenderBridgeIntegration roseChatOutboundRender;
     private RoseChatInboundBridgeIntegration roseChatInbound;
     private InteractiveChatStagingArtifactProvider interactiveChatRenderer;
+    private LegacyDiscordChatSuppression.Registration legacyDiscordSuppression;
+    private volatile DiscordChatBridgeMode activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
     private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
     private MuteCommandFallbackListener muteFallback;
