@@ -1,9 +1,14 @@
 package net.enthusia.staff.discordbot;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import net.dv8tion.jda.api.JDA;
@@ -13,6 +18,7 @@ import net.dv8tion.jda.api.entities.ApplicationInfo;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.ExceptionEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.events.session.SessionDisconnectEvent;
 import net.dv8tion.jda.api.events.session.SessionRecreateEvent;
@@ -23,6 +29,7 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.ChunkingFilter;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
+import net.enthusia.staff.protocol.ChatBridgeInboundMessage;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
 
 /** JDA 6.5 adapter. JDA owns Discord REST bucket/global rate limits and Gateway reconnect scheduling. */
@@ -32,8 +39,12 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
     private final StaffBotConfiguration configuration;
     private final StaffBotWorkerPool workers;
     private final InteractionReplayGuard interactions;
+    private static final Duration INBOUND_CHAT_LIFETIME = Duration.ofSeconds(30);
+
     private final Optional<StaffModerationRuntime> moderation;
+    private final Optional<StaffBotChatBridgeConfiguration> chatConfiguration;
     private final Object lifecycleLock = new Object();
+    private DiscordChatIngress chatIngress;
     private JDA jda;
     private JdaStaffModerationListener moderationListener;
     private JdaModerationUiPreviewListener previewListener;
@@ -43,7 +54,7 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
     private ManagedRoleShadowCoordinator managedRoleShadowCoordinator;
 
     JdaDiscordGateway(StaffBotConfiguration configuration) {
-        this(configuration, null, null, Optional.empty());
+        this(configuration, null, null, Optional.empty(), Optional.empty());
     }
 
     JdaDiscordGateway(
@@ -52,12 +63,39 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
             InteractionReplayGuard interactions,
             Optional<StaffModerationRuntime> moderation
     ) {
+        this(configuration, workers, interactions, moderation, Optional.empty());
+    }
+
+    JdaDiscordGateway(
+            StaffBotConfiguration configuration,
+            StaffBotWorkerPool workers,
+            InteractionReplayGuard interactions,
+            Optional<StaffModerationRuntime> moderation,
+            Optional<StaffBotChatBridgeConfiguration> chatConfiguration
+    ) {
         this.configuration = configuration;
         this.workers = workers;
         this.interactions = interactions;
         this.moderation = moderation == null ? Optional.empty() : moderation;
+        this.chatConfiguration = chatConfiguration == null ? Optional.empty() : chatConfiguration;
         validateInteractionResources();
         validateRoleSyncBoundary();
+    }
+
+    void installChatIngress(DiscordChatIngress ingress) {
+        Objects.requireNonNull(ingress, "ingress");
+        synchronized (lifecycleLock) {
+            if (jda != null) {
+                throw new IllegalStateException("Discord chat ingress must be installed before gateway start");
+            }
+            if (chatConfiguration.map(configuration -> configuration.ingressRoutes().isEmpty()).orElse(true)) {
+                throw new IllegalStateException("Discord chat ingress is not configured");
+            }
+            if (chatIngress != null) {
+                throw new IllegalStateException("Discord chat ingress is already installed");
+            }
+            chatIngress = ingress;
+        }
     }
 
     private void validateInteractionResources() {
@@ -97,6 +135,7 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
                     configuration.environment(), observer, this::disableInteractions);
             JDABuilder builder = baseBuilder(listener);
             addInteractionListener(builder);
+            addChatIngressListener(builder);
             jda = builder.build();
         }
     }
@@ -114,11 +153,43 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
     }
 
     private Set<GatewayIntent> gatewayIntents() {
-        return gatewayIntents(moderation.flatMap(StaffModerationRuntime::managedRoleShadow).isPresent());
+        return gatewayIntents(
+                moderation.flatMap(StaffModerationRuntime::managedRoleShadow).isPresent(),
+                chatConfiguration.map(configuration -> !configuration.ingressRoutes().isEmpty()).orElse(false)
+        );
     }
 
     static Set<GatewayIntent> gatewayIntents(boolean managedRoleShadowEnabled) {
-        return managedRoleShadowEnabled ? Set.of(GatewayIntent.GUILD_MEMBERS) : Set.of();
+        return gatewayIntents(managedRoleShadowEnabled, false);
+    }
+
+    static Set<GatewayIntent> gatewayIntents(boolean managedRoleShadowEnabled, boolean discordChatIngressEnabled) {
+        EnumSet<GatewayIntent> intents = EnumSet.noneOf(GatewayIntent.class);
+        if (managedRoleShadowEnabled) {
+            intents.add(GatewayIntent.GUILD_MEMBERS);
+        }
+        if (discordChatIngressEnabled) {
+            intents.add(GatewayIntent.GUILD_MESSAGES);
+            intents.add(GatewayIntent.MESSAGE_CONTENT);
+        }
+        return Set.copyOf(intents);
+    }
+
+    private void addChatIngressListener(JDABuilder builder) {
+        Optional<StaffBotChatBridgeConfiguration> configured = chatConfiguration
+                .filter(configuration -> !configuration.ingressRoutes().isEmpty());
+        if (configured.isEmpty()) {
+            return;
+        }
+        DiscordChatIngress ingress = chatIngress;
+        if (ingress == null) {
+            throw new IllegalStateException("configured Discord chat ingress has no transport sink");
+        }
+        builder.addEventListeners(new DiscordChatIngressListener(
+                configuration.environment().guildId(),
+                configured.orElseThrow().ingressRoutes(),
+                ingress
+        ));
     }
 
     private void addInteractionListener(JDABuilder builder) {
@@ -368,6 +439,71 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
                 callback.run();
                 return true;
             }
+        }
+    }
+
+    private static final class DiscordChatIngressListener extends ListenerAdapter {
+        private final long guildId;
+        private final Map<Long, StaffBotChatBridgeConfiguration.Route> routes;
+        private final DiscordChatIngress ingress;
+
+        private DiscordChatIngressListener(
+                long guildId,
+                Map<Long, StaffBotChatBridgeConfiguration.Route> routes,
+                DiscordChatIngress ingress
+        ) {
+            this.guildId = guildId;
+            this.routes = Map.copyOf(routes);
+            this.ingress = Objects.requireNonNull(ingress, "ingress");
+        }
+
+        @Override
+        public void onMessageReceived(MessageReceivedEvent event) {
+            if (!event.isFromGuild()
+                    || event.getGuild().getIdLong() != guildId
+                    || event.isWebhookMessage()
+                    || event.getAuthor().isBot()) {
+                return;
+            }
+            StaffBotChatBridgeConfiguration.Route route = routes.get(event.getChannel().getIdLong());
+            if (route == null) {
+                return;
+            }
+            String plainText = normalizeDiscordText(event.getMessage().getContentRaw());
+            if (plainText.isBlank()) {
+                return;
+            }
+            String messageId = event.getMessageId();
+            long createdAt = event.getMessage().getTimeCreated().toInstant().toEpochMilli();
+            UUID eventId = UUID.nameUUIDFromBytes(
+                    ("discord-chat:" + messageId).getBytes(StandardCharsets.UTF_8));
+            String displayName = event.getMember() == null
+                    ? event.getAuthor().getName()
+                    : event.getMember().getEffectiveName();
+            try {
+                ingress.offer(new ChatBridgeInboundMessage(
+                        eventId,
+                        "discord-" + messageId,
+                        "discord-canonical-" + messageId,
+                        createdAt,
+                        createdAt + INBOUND_CHAT_LIFETIME.toMillis(),
+                        event.getChannel().getIdLong(),
+                        event.getAuthor().getId(),
+                        displayName,
+                        route.sourceServerId(),
+                        route.logicalChannelId(),
+                        plainText
+                ));
+            } catch (IllegalArgumentException ignored) {
+                // Malformed/stale Discord content is dropped at the provider-neutral boundary.
+            }
+        }
+
+        private static String normalizeDiscordText(String content) {
+            if (content == null) {
+                return "";
+            }
+            return content.replace('\r', ' ').replace('\n', ' ');
         }
     }
 
