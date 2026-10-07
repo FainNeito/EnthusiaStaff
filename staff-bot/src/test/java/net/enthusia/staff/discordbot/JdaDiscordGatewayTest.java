@@ -84,6 +84,55 @@ class JdaDiscordGatewayTest {
     }
 
     @Test
+    void linkedSenderPresentationIsAdditiveAndSafeAcrossFallbacks() {
+        ChatBridgeOutboundMessage plain = chatMessage("hello");
+        assertEquals(
+                "[SMP · @DiscordName] Player: hello",
+                JdaDiscordGateway.chatContent(plain, java.util.Optional.of("@DiscordName"))
+        );
+
+        ChatBridgeRenderedMessage rendered = renderedMessage(
+                "hello",
+                "**[VIP] Player:** *hello*",
+                "[VIP] Player: hello"
+        );
+        assertEquals(
+                "[SMP · @DiscordName] **[VIP] Player:** *hello*",
+                JdaDiscordGateway.renderedChatContent(
+                        rendered,
+                        java.util.Optional.of("@DiscordName")
+                )
+        );
+    }
+
+    @Test
+    void linkedPrefixStillHonorsDiscordContentLimit() {
+        ChatBridgeRenderedMessage rendered = renderedMessage(
+                "hello",
+                "*".repeat(2_100),
+                "[VIP] Player: " + "x".repeat(2_100)
+        );
+
+        String content = JdaDiscordGateway.renderedChatContent(
+                rendered,
+                java.util.Optional.of("@DiscordName")
+        );
+
+        assertEquals(2_000, content.length());
+        assertTrue(content.startsWith("[SMP · @DiscordName] [VIP] Player: "));
+        assertFalse(Character.isHighSurrogate(content.charAt(content.length() - 1)));
+    }
+
+    @Test
+    void discordDisplayNamesAreEscapedBeforeMarkdownPresentation() {
+        assertEquals(
+                "Name\\*With\\_Markdown\\|",
+                JdaDiscordGateway.escapeDiscordMarkdown("Name*With_Markdown|")
+        );
+        assertEquals("linked", JdaDiscordGateway.escapeDiscordMarkdown("\n\t"));
+    }
+
+    @Test
     void renderedChatUsesResolvedMarkdownWithoutDuplicatingSender() {
         ChatBridgeRenderedMessage message = renderedMessage(
                 "hello",
