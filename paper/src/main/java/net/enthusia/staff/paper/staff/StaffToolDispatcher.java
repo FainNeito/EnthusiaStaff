@@ -420,7 +420,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
     }
 
     private void handlePlayerCommand(Player player, String label, String[] arguments) {
-        if (!staffMode.active(player.getUniqueId())) {
+        if (!staffMode.authorityActiveOrUnrestricted(player.getUniqueId())) {
             player.sendMessage(StaffMessageStyle.style(Component.text("Enter staff mode before using /" + label + '.')));
             return;
         }
@@ -464,7 +464,8 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             String alias,
             String[] arguments
     ) {
-        if (!(sender instanceof Player player) || !staffMode.active(player.getUniqueId())) {
+        if (!(sender instanceof Player player)
+                || !staffMode.authorityActiveOrUnrestricted(player.getUniqueId())) {
             return List.of();
         }
         if (arguments.length != ACTION_ARGUMENTS) {

@@ -1360,10 +1360,17 @@ public final class StaffModeManager implements Listener {
 
     boolean authorizedForTool(Player player, StaffToolDefinition tool) {
         UUID playerId = player.getUniqueId();
-        if (!active.containsKey(playerId) || transitions.contains(playerId)) {
+        if (transitions.contains(playerId)) {
             return false;
         }
-        StaffRank rank = rankForAction(player);
+        boolean activeSession = active.containsKey(playerId);
+        boolean unrestricted = isUnrestricted(player);
+        if (!activeSession && !unrestricted) {
+            return false;
+        }
+        StaffRank rank = activeSession
+                ? rankForAction(player)
+                : PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
         return rank != null && !transitions.contains(playerId) && tool.availableFor(rank);
     }
 
