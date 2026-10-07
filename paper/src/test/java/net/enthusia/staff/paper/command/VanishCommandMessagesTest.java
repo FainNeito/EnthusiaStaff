@@ -17,12 +17,13 @@ import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
 class VanishCommandMessagesTest {
+    private static final String VANISH_LABEL = "vanish";
     @Test
     void deniedPermissionUsesShippedWordingWithoutTouchingVanish() {
         List<Component> messages = new ArrayList<>();
         VanishCommand command = new VanishCommand(() -> OperationalMode.ACTIVE, null);
 
-        assertTrue(command.onCommand(sender(false, messages), null, "vanish", new String[0]));
+        assertTrue(command.onCommand(sender(false, messages), null, VANISH_LABEL, new String[0]));
 
         assertEquals(
                 List.of("You do not have permission to change vanish or spectator tab visibility."),
@@ -35,7 +36,7 @@ class VanishCommandMessagesTest {
         List<Component> messages = new ArrayList<>();
         VanishCommand command = new VanishCommand(() -> OperationalMode.ACTIVE, null);
 
-        assertTrue(command.onCommand(sender(true, messages), null, "vanish", new String[0]));
+        assertTrue(command.onCommand(sender(true, messages), null, VANISH_LABEL, new String[0]));
 
         assertEquals(
                 List.of("Only a player can change vanish or spectator tab visibility."),
@@ -67,7 +68,7 @@ class VanishCommandMessagesTest {
         VanishCommand command = new VanishCommand(() -> OperationalMode.ACTIVE, null);
         command.configureMessages(() -> custom);
 
-        assertTrue(command.onCommand(sender(false, messages), null, "vanish", new String[0]));
+        assertTrue(command.onCommand(sender(false, messages), null, VANISH_LABEL, new String[0]));
         assertEquals(List.of("Custom vanish denial."), messages.stream().map(VanishCommandMessagesTest::text).toList());
     }
 
@@ -93,10 +94,10 @@ class VanishCommandMessagesTest {
 
         VanishCommand command = new VanishCommand(() -> OperationalMode.ACTIVE, null);
         command.configureMessages(live::get);
-        assertTrue(command.onCommand(sender(false, messages), null, "vanish", new String[0]));
+        assertTrue(command.onCommand(sender(false, messages), null, VANISH_LABEL, new String[0]));
 
         live.set(new MessageCatalog(templates));
-        assertTrue(command.onCommand(sender(false, messages), null, "vanish", new String[0]));
+        assertTrue(command.onCommand(sender(false, messages), null, VANISH_LABEL, new String[0]));
 
         assertEquals(
                 List.of(
@@ -109,7 +110,7 @@ class VanishCommandMessagesTest {
 
     private static CommandSender sender(boolean allowed, List<Component> messages) {
         return (CommandSender) Proxy.newProxyInstance(
-                CommandSender.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[]{CommandSender.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "hasPermission" -> allowed;
@@ -124,7 +125,7 @@ class VanishCommandMessagesTest {
 
     private static Player player(List<Component> messages) {
         return (Player) Proxy.newProxyInstance(
-                Player.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[]{Player.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "hasPermission" -> true;
