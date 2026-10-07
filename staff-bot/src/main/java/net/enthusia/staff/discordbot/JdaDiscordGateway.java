@@ -1,6 +1,7 @@
 package net.enthusia.staff.discordbot;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -22,9 +23,10 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.ChunkingFilter;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
+import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
 
 /** JDA 6.5 adapter. JDA owns Discord REST bucket/global rate limits and Gateway reconnect scheduling. */
-final class JdaDiscordGateway implements DiscordGateway {
+final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
     private static final System.Logger LOGGER = System.getLogger(JdaDiscordGateway.class.getName());
 
     private final StaffBotConfiguration configuration;
@@ -233,6 +235,55 @@ final class JdaDiscordGateway implements DiscordGateway {
                 aiModerationReadApi = null;
             }
         }
+    }
+
+    @Override
+    public boolean send(long channelId, ChatBridgeOutboundMessage message) {
+        if (message == null) {
+            return false;
+        }
+        JDA api;
+        synchronized (lifecycleLock) {
+            api = jda;
+        }
+        if (api == null) {
+            return false;
+        }
+        TextChannel channel = api.getTextChannelById(channelId);
+        if (channel == null || channel.getGuild().getIdLong() != configuration.environment().guildId()) {
+            return false;
+        }
+        if (!channel.getGuild().getSelfMember().hasPermission(
+                channel, Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND)) {
+            return false;
+        }
+
+        String content = chatContent(message);
+        try {
+            channel.sendMessage(content)
+                    .setAllowedMentions(List.of())
+                    .complete();
+            return true;
+        } catch (RuntimeException failure) {
+            return false;
+        }
+    }
+
+    static String chatContent(ChatBridgeOutboundMessage message) {
+        String prefix = "[" + message.sourceServerId() + "] " + message.displayName() + ": ";
+        int available = Math.max(0, 2_000 - prefix.length());
+        String text = message.plainText();
+        if (text.length() > available) {
+            int end = available;
+            if (end > 0
+                    && end < text.length()
+                    && Character.isHighSurrogate(text.charAt(end - 1))
+                    && Character.isLowSurrogate(text.charAt(end))) {
+                end--;
+            }
+            text = text.substring(0, end);
+        }
+        return prefix + text;
     }
 
     @Override

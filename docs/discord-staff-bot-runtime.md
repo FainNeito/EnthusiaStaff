@@ -50,6 +50,14 @@ Optional variables:
 - `ENTHUSIA_STAFF_BOT_INTERACTION_CAPACITY`: default `4096`, bounded `16..65536`;
 - `ENTHUSIA_STAFF_BOT_INTERACTION_TTL_SECONDS`: default `900`, bounded to at most 24 hours.
 
+Migration-only outbound chat is a separate opt-in and is rejected in the production StaffBot environment.
+`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ENABLED` defaults false. When true in staging, the runtime also
+requires the Velocity host/port, a base64 HMAC key for peer ID `STAFFBOT`, the Velocity proxy
+signing key, a TLS trust store/password, and an explicit `sourceServer/logicalChannel=channelId`
+route allowlist. Every route is currently constrained to the fixed staging test channel. Queue and
+dedupe capacities are separately bounded. See `staff-bot/runtime.env.example` and
+`docs/discord-chat-transport.md` for the full variable set and transport semantics.
+
 `StaffBotConfiguration.toString()` always renders the token as `<redacted>`. Lifecycle logging records only environment/state and fixed reason categories; it does not log token values, Discord message content, evidence, user identities, or private moderation data.
 
 ## Intents and workload bounds
