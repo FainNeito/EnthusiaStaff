@@ -72,9 +72,9 @@ The existing persistent-channel security properties remain in force: TLS 1.3,
 HMAC-authenticated envelopes, nonce/timestamp replay protection, frame bounds, explicit peer IDs,
 and per-message acknowledgement.
 
-`CHAT_BRIDGE_HEALTH_V1` is a separate short-lived authority-readiness signal. While the
-validated StaffBot Discord/JDA lifecycle is resumed, StaffBot refreshes a 15-second publishing
-lease every 5 seconds over the authenticated `STAFFBOT` channel. Velocity forwards it only
+`CHAT_BRIDGE_HEALTH_V1` is a separate short-lived authority-readiness signal. While StaffBot is explicitly AUTHORITATIVE and the validated Discord/JDA lifecycle is resumed,
+StaffBot refreshes a 15-second publishing lease every 5 seconds over the authenticated `STAFFBOT`
+channel. Velocity forwards it only
 to configured Paper backends and never stores it durably. Paper requires a fresh lease before
 AUTHORITATIVE suppression and releases legacy suppression after lease expiry.
 
