@@ -172,8 +172,10 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile ScheduledTask operationalStateTask;
     private volatile PersistentChannelServer channelServer;
     private volatile VelocityChatBridgeRelay chatBridgeRelay;
+    private volatile VelocityRenderedChatBridgeRelay renderedChatBridgeRelay;
     private volatile VelocityDiscordChatIngressRelay discordChatIngressRelay;
     private volatile VelocityChatBridgeRelay.Registration chatBridgeSinkRegistration;
+    private volatile VelocityRenderedChatBridgeRelay.Registration renderedChatBridgeSinkRegistration;
     private volatile NetworkOutboxWorker outboxWorker;
     private volatile DiscordOutboxWorker discordOutboxWorker;
     private volatile WebsiteModerationStore websiteModerationStore;
@@ -653,6 +655,28 @@ public final class EnthusiaStaffVelocityPlugin {
 
     @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
     private void closeChatBridgeRelay() {
+        VelocityRenderedChatBridgeRelay.Registration renderedRegistration =
+                renderedChatBridgeSinkRegistration;
+        renderedChatBridgeSinkRegistration = null;
+        if (renderedRegistration != null) {
+            try {
+                renderedRegistration.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity styled chat sink cleanup failed ({})",
+                        exception.getClass().getSimpleName());
+            }
+        }
+        VelocityRenderedChatBridgeRelay renderedRelay = renderedChatBridgeRelay;
+        renderedChatBridgeRelay = null;
+        if (renderedRelay != null) {
+            try {
+                renderedRelay.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity styled chat relay cleanup failed ({})",
+                        exception.getClass().getSimpleName());
+            }
+        }
+
         VelocityChatBridgeRelay.Registration registration = chatBridgeSinkRegistration;
         chatBridgeSinkRegistration = null;
         if (registration != null) {
@@ -770,9 +794,11 @@ public final class EnthusiaStaffVelocityPlugin {
         SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
         SSLContext tlsContext = serverTlsContext(loaded);
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(Clock.systemUTC());
+        VelocityRenderedChatBridgeRelay renderedRelay = new VelocityRenderedChatBridgeRelay(Clock.systemUTC());
         VelocityDiscordChatIngressRelay inboundRelay = new VelocityDiscordChatIngressRelay(
                 Set.copyOf(requiredBackends), Clock.systemUTC());
         chatBridgeRelay = relay;
+        renderedChatBridgeRelay = renderedRelay;
         discordChatIngressRelay = inboundRelay;
         try {
             PersistentChannelServer server = createChannelServer(
@@ -783,6 +809,7 @@ public final class EnthusiaStaffVelocityPlugin {
                     proxyKey,
                     tlsContext,
                     relay,
+                    renderedRelay,
                     inboundRelay
             );
             server.start();
@@ -790,6 +817,8 @@ public final class EnthusiaStaffVelocityPlugin {
             channelServer = server;
             if (peerKeys.containsKey(VelocityStaffBotChatSink.PEER_ID)) {
                 chatBridgeSinkRegistration = relay.installSink(new VelocityStaffBotChatSink(server));
+                renderedChatBridgeSinkRegistration = renderedRelay.installSink(
+                        new VelocityStaffBotRenderedChatSink(server));
             }
             outboxWorker = new NetworkOutboxWorker(
                     this,
@@ -819,6 +848,7 @@ public final class EnthusiaStaffVelocityPlugin {
             SecretKey proxyKey,
             SSLContext tlsContext,
             VelocityChatBridgeRelay chatRelay,
+            VelocityRenderedChatBridgeRelay renderedChatRelay,
             VelocityDiscordChatIngressRelay discordIngressRelay
     ) throws java.net.UnknownHostException {
         return new PersistentChannelServer(
@@ -835,6 +865,7 @@ public final class EnthusiaStaffVelocityPlugin {
                 new VelocityChannelMessageRouter(
                         paperBackendIds,
                         chatRelay,
+                        renderedChatRelay,
                         discordIngressRelay,
                         envelope -> {
                             if (acceptTransferSnapshot(envelope)) {
