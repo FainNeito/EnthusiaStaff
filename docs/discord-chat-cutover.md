@@ -66,8 +66,9 @@ The replacement transport must already have:
 - Discord -> Minecraft inbound bridge;
 - authenticated Paper -> Velocity channel connection.
 
-When both InteractiveChat and `InteractiveChatDiscordSrvAddon` are currently enabled, the
-temporary rich-render compatibility provider must also be registered successfully.
+When InteractiveChat is enabled, at least one `RichChatArtifactProvider` must be registered.
+Today that can be the temporary InteractiveChatDiscordSrvAddon compatibility adapter; later the
+permanent renderer companion can satisfy the same provider-neutral readiness check.
 
 Only after those readiness checks pass does EnthusiaStaff call RoseChat's
 `suppressLegacyDiscordChat()` registration.
@@ -109,7 +110,7 @@ controlled server with the actual dependency set.
 | StaffBot queue saturation | Minecraft chat still succeeds; bridge may drop | Discord message may drop; no durable backlog |
 | Velocity/Paper disconnect | legacy send restored on Paper channel unbind in AUTHORITATIVE mode | no stale replay |
 | RoseChat reload/disable | legacy suppression released | bridge revalidated after return |
-| InteractiveChat/addon disable | legacy suppression released when temporary compatibility renderer was part of readiness | n/a |
+| InteractiveChat/rich-provider loss | legacy suppression released/revalidated; cutover must not proceed without a rich provider while InteractiveChat is enabled | n/a |
 | Duplicate transport frame | no duplicate final chat send | no duplicate Minecraft delivery |
 
 ## Shadow validation sequence
