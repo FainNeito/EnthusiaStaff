@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
+import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
 import org.junit.jupiter.api.Test;
 
 class JdaDiscordGatewayTest {
@@ -54,4 +56,31 @@ class JdaDiscordGatewayTest {
         assertTrue(fence.runIfCurrent(currentSession, () -> invoked.set(true)));
         assertTrue(invoked.get());
     }
+    @Test
+    void chatContentIncludesSourceAndSenderAndHonorsDiscordLimit() {
+        ChatBridgeOutboundMessage shortMessage = chatMessage("hello");
+        assertEquals("[SMP] Player: hello", JdaDiscordGateway.chatContent(shortMessage));
+
+        ChatBridgeOutboundMessage longMessage = chatMessage("x".repeat(2_000));
+        String rendered = JdaDiscordGateway.chatContent(longMessage);
+        assertEquals(2_000, rendered.length());
+        assertTrue(rendered.startsWith("[SMP] Player: "));
+    }
+
+    private static ChatBridgeOutboundMessage chatMessage(String text) {
+        UUID eventId = UUID.randomUUID();
+        return new ChatBridgeOutboundMessage(
+                eventId,
+                "rosechat-mc-" + eventId,
+                "rosechat-canonical-" + eventId,
+                1_800_000_000_000L,
+                1_800_000_030_000L,
+                "SMP",
+                "global",
+                UUID.randomUUID(),
+                "Player",
+                text
+        );
+    }
+
 }
