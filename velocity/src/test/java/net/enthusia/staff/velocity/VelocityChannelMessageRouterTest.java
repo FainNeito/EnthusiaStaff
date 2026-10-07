@@ -46,6 +46,7 @@ class VelocityChannelMessageRouterTest {
                 artifactRelay,
                 renderedRelay,
                 inbound,
+                healthRelay(),
                 envelope -> {
                     delegated.incrementAndGet();
                     return true;
@@ -98,6 +99,7 @@ class VelocityChannelMessageRouterTest {
                 artifactRelay,
                 renderedRelay,
                 inbound,
+                healthRelay(),
                 envelope -> true
         );
         ChatBridgeOutboundMessage message = message(STAFF_BOT_PEER);
@@ -137,6 +139,7 @@ class VelocityChannelMessageRouterTest {
                 artifactRelay,
                 renderedRelay,
                 inbound,
+                healthRelay(),
                 envelope -> {
                     delegated.incrementAndGet();
                     return true;
@@ -187,6 +190,7 @@ class VelocityChannelMessageRouterTest {
                 artifactRelay,
                 renderedRelay,
                 inbound,
+                healthRelay(),
                 envelope -> {
                     delegated.incrementAndGet();
                     return true;
@@ -247,6 +251,7 @@ class VelocityChannelMessageRouterTest {
                 artifactRelay,
                 renderedRelay,
                 inbound,
+                healthRelay(),
                 envelope -> {
                     delegated.incrementAndGet();
                     return true;
@@ -283,6 +288,16 @@ class VelocityChannelMessageRouterTest {
         artifactRelay.close();
         renderedRelay.close();
         inbound.close();
+    }
+
+    private static VelocityStaffBotChatHealthRelay healthRelay() {
+        return new VelocityStaffBotChatHealthRelay(
+                Set.of(PAPER_SERVER),
+                CLOCK,
+                (peerId, messageId, messageType, payload, timeout) ->
+                        java.util.concurrent.CompletableFuture.completedFuture(
+                                net.enthusia.staff.protocol.PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED)
+        );
     }
 
     private static ChatBridgeArtifactBundle artifactBundle(String sourceServerId) {
