@@ -31,6 +31,7 @@ final class DiscordChatSenderIdentityResolver {
     private final long ttlMillis;
     private final Function<UUID, Optional<String>> lookup;
     private final Map<UUID, Entry> cache = new LinkedHashMap<>();
+    private long generation;
 
     DiscordChatSenderIdentityResolver(Function<UUID, Optional<String>> lookup) {
         this(Clock.systemUTC(), DEFAULT_CAPACITY, DEFAULT_TTL, lookup);
@@ -61,7 +62,9 @@ final class DiscordChatSenderIdentityResolver {
     Optional<String> resolve(UUID minecraftPlayerId) {
         Objects.requireNonNull(minecraftPlayerId, "minecraftPlayerId");
         long now = clock.millis();
+        long lookupGeneration;
         synchronized (this) {
+            lookupGeneration = generation;
             Entry existing = cache.get(minecraftPlayerId);
             if (existing != null && existing.expiresAtEpochMillis() >= now) {
                 return existing.discordUserId();
@@ -83,6 +86,9 @@ final class DiscordChatSenderIdentityResolver {
 
         long expiresAt = Math.addExact(clock.millis(), ttlMillis);
         synchronized (this) {
+            if (generation != lookupGeneration) {
+                return Optional.empty();
+            }
             Entry refreshed = cache.get(minecraftPlayerId);
             if (refreshed != null && refreshed.expiresAtEpochMillis() >= clock.millis()) {
                 return refreshed.discordUserId();
@@ -100,6 +106,7 @@ final class DiscordChatSenderIdentityResolver {
     }
 
     synchronized void clear() {
+        generation++;
         cache.clear();
     }
 
