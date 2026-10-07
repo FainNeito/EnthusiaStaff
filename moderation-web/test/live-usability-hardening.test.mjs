@@ -42,6 +42,23 @@ test('message investigation uses explicit server-side history search without rer
   assert.match(message, /https:\/\/discord\.com\/channels\//);
 });
 
+test('message workspace renders Discord image and GIF media without noisy paging copy', async () => {
+  const [shell, message, browse, css] = await Promise.all([
+    readFile(SHELL, 'utf8'), readFile(MESSAGE, 'utf8'), readFile(BROWSE, 'utf8'), readFile(CSS, 'utf8')
+  ]);
+
+  assert.match(message, /richAttachmentNode/);
+  assert.match(message, /contentType\.startsWith\('image\/'\)/);
+  assert.match(message, /discordMediaNode/);
+  assert.match(message, /video\.autoplay = true/);
+  assert.match(message, /video\.loop = true/);
+  assert.match(message, /cdn\.discordapp\.com/);
+  assert.match(message, /media\.discordapp\.net/);
+  assert.match(css, /\.message-media-preview/);
+  assert.doesNotMatch(browse, /Partial until Discord history is fully paged/);
+  assert.doesNotMatch(shell, /A normal channel page retrieves recent Discord messages/);
+});
+
 test('message menus are exclusive, dismiss outside, support keyboard use, and copy message IDs', async () => {
   const source = await readFile(MESSAGE, 'utf8');
 

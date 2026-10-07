@@ -34,6 +34,7 @@ test('content security policy permits only required profile and server logo imag
 
   assert.match(source, /https:\/\/cdn\.discordapp\.com/);
   assert.match(source, /https:\/\/media\.discordapp\.net/);
+  assert.match(source, /media-src 'self' https:\/\/cdn\.discordapp\.com https:\/\/media\.discordapp\.net/);
   assert.match(source, /https:\/\/textures\.minecraft\.net/);
   assert.match(source, /https:\/\/enthusia\.info/);
 });
