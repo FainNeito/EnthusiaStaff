@@ -408,7 +408,9 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
             action.complete();
             return true;
         } catch (RuntimeException failure) {
-            return sendRenderedText(channel, content);
+            // Delivery is ambiguous once the REST request is submitted; do not risk a duplicate
+            // text-only message after an attachment send failure.
+            return false;
         } finally {
             closeUploads(uploads);
         }
@@ -423,7 +425,8 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
         List<FileUpload> uploads = new ArrayList<>(ordered.size());
         try {
             for (ChatBridgeArtifact artifact : ordered) {
-                uploads.add(FileUpload.fromData(artifact.data(), artifact.filename()));
+                uploads.add(FileUpload.fromData(artifact.data(), artifact.filename())
+                        .setDescription(artifact.altText()));
             }
             return uploads;
         } catch (RuntimeException failure) {
