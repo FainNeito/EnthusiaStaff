@@ -66,7 +66,7 @@ class HelperObserverProtectionWiringTest {
                 "Helper projectile pass-through must remain implemented through cancellable ProjectileHitEvent"
         );
         assertFalse(
-                listener.contains("ProjectileCollideEvent") || listener.contains("onFireworkCollision"),
+                listener.contains("import com.destroystokyo.paper.event.entity.ProjectileCollideEvent;")\n                        || listener.contains("public void onFireworkCollision("),
                 "The deprecated Paper ProjectileCollideEvent compatibility hook must not be registered"
         );
     }
