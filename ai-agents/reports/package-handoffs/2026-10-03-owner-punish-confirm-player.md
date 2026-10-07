@@ -1,5 +1,14 @@
 # Confirm-player fork handoff
 
+## Owner detached recovery hosted verification, 2026-10-07 01:19 UTC
+
+Exact PR #1 head 8d6cf9b909a95a4f33f851140c7a324dfaf1dc7a, frozen executable f28186e71bf187931fd0c7791ca0b5a4d83a9c9d: four executable hosted workflows pass. Coverage 37554496468 / job 112577473384 executed clean all-module build/tests including integration-tests:test, aggregate JaCoCo and runtime JAR/provider inspection (11m 5s); the new detached EXITING/RECOVERY_REQUIRED/stale-fence database regressions passed in that hosted suite. Runtime 37554496469 / job 112577475013 passed same-JAR Leaf 1.21.11 build 115 and Paper 26.2 builds 128/129 and 26.3 build 134; selected modes, visible/vanished geometry and snapshot/tool identity pass, COMMON_JAR_IDENTICAL=true. Wiki 37554496477 / job 112577473900 passes. Sentinel artifact 37554496406 / job 112577473558 passes; artifact construction is not restart acceptance. Codacy upload skipped for missing secret; automatic draft review and obsolete Pi cancellation remain non-passes.
+
+Owner/fork heads unchanged; canonical main d2e0c79a inspected. New optional chat relay API/transport and moderation GIF/history features are separate scope, excluded. Existing review threads remain resolved. Updated bot comment changes only old summary checks/title text; its substantive findings still reference old f1999 and are already addressed. No new valid findings. Untracked owner reconciliation image preserved.
+
+Status PARTIAL. Exact results are recorded on PR #1 without changing its tested tree. This evidence-only status PR #14 edit has no behavioral proof/engine step. EARS/state tooling absent; bounded evidence remains below; unchanged unavailable gates not repeated. Canonical delivery, private/provider/staging/Bedrock/Folia/real production acceptance and missing inventory/TEST correlation remain open. No merge, deployment, production data mutation, permission/authority change, inventory restoration or backup access. Next action only on new source/check/review findings or supplied incident inputs.
+
+
 Owner package-record head 8d6cf9b909a95a4f33f851140c7a324dfaf1dc7a on draft PR #1; frozen executable f28186e71bf187931fd0c7791ca0b5a4d83a9c9d. This PR #14 is documentation-only; no merge is authorized.
 
 ## Owner detached recovery local verification, 2026-10-07
