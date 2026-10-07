@@ -35,6 +35,32 @@ class StaffBotRuntimeTest {
     }
 
     @Test
+    void chatTransportFollowsValidatedDiscordIdentityLifecycle() throws Exception {
+        Fixture fixture = new Fixture(true, true);
+        FakeChatLifecycle chat = new FakeChatLifecycle();
+        try (StaffBotRuntime runtime = fixture.runtime(null, chat)) {
+            runtime.start();
+            assertTrue(chat.started);
+            assertEquals(0, chat.resumeCount);
+            assertEquals(0, chat.pauseCount);
+
+            fixture.gateway.emitIdentity(validStagingIdentity());
+            assertTrue(runtime.awaitReady(Duration.ofMillis(100)));
+            assertEquals(1, chat.resumeCount);
+
+            fixture.gateway.emitDisconnect();
+            assertEquals(1, chat.pauseCount);
+
+            fixture.gateway.emitIdentity(validStagingIdentity());
+            assertEquals(2, chat.resumeCount);
+        }
+
+        assertTrue(chat.closed);
+        assertTrue(chat.pauseCount >= 2);
+        assertTrue(fixture.gateway.shutdownRequested);
+    }
+
+    @Test
     void previewRuntimeCreatesWithoutModerationDependencies() throws Exception {
         StaffBotConfiguration configuration = StaffBotConfiguration.fromEnvironment(Map.of(
                 StaffBotConfiguration.ENVIRONMENT_KEY, "staging",
@@ -174,10 +200,14 @@ class StaffBotRuntimeTest {
         }
 
         private StaffBotRuntime runtime() {
-            return runtime(null);
+            return runtime(null, null);
         }
 
         private StaffBotRuntime runtime(FakeTunnel tunnel) {
+            return runtime(tunnel, null);
+        }
+
+        private StaffBotRuntime runtime(FakeTunnel tunnel, FakeChatLifecycle chat) {
             StaffBotConfiguration configuration = new StaffBotConfiguration(
                     StaffBotEnvironment.STAGING,
                     "test-only-token",
@@ -195,7 +225,35 @@ class StaffBotRuntimeTest {
                     endpoint,
                     gateway,
                     Optional.empty(),
-                    Optional.ofNullable(tunnel));
+                    Optional.ofNullable(tunnel),
+                    Optional.ofNullable(chat));
+        }
+    }
+
+    private static final class FakeChatLifecycle implements StaffBotChatLifecycle {
+        private boolean started;
+        private boolean closed;
+        private int resumeCount;
+        private int pauseCount;
+
+        @Override
+        public void start() {
+            started = true;
+        }
+
+        @Override
+        public void resume() {
+            resumeCount++;
+        }
+
+        @Override
+        public void pause() {
+            pauseCount++;
+        }
+
+        @Override
+        public void close() {
+            closed = true;
         }
     }
 
