@@ -28,6 +28,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
     private final StaffBotRenderedChatIngress renderedIngress;
     private final Map<Long, StaffBotChatBridgeConfiguration.Route> ingressRoutes;
     private final PersistentChannelClient client;
+    private final StaffBotChatReadinessPublisher readinessPublisher;
     private final ThreadPoolExecutor discordSender;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean acceptingDiscord = new AtomicBoolean();
@@ -40,6 +41,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
             StaffBotRenderedChatIngress renderedIngress,
             Map<Long, StaffBotChatBridgeConfiguration.Route> ingressRoutes,
             PersistentChannelClient client,
+            StaffBotChatReadinessPublisher readinessPublisher,
             int queueCapacity
     ) {
         this.ingress = Objects.requireNonNull(ingress, "ingress");
@@ -47,6 +49,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
         this.renderedIngress = Objects.requireNonNull(renderedIngress, "renderedIngress");
         this.ingressRoutes = Map.copyOf(Objects.requireNonNull(ingressRoutes, "ingressRoutes"));
         this.client = Objects.requireNonNull(client, "client");
+        this.readinessPublisher = Objects.requireNonNull(readinessPublisher, "readinessPublisher");
         this.discordSender = new ThreadPoolExecutor(
                 1,
                 1,
@@ -71,20 +74,21 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
         Objects.requireNonNull(egress, "egress");
         Objects.requireNonNull(renderedEgress, "renderedEgress");
 
+        Clock clock = Clock.systemUTC();
         StaffBotChatIngress ingress = new StaffBotChatIngress(
                 configuration,
-                Clock.systemUTC(),
+                clock,
                 egress
         );
         StaffBotChatArtifactStore artifactStore = new StaffBotChatArtifactStore();
         StaffBotChatArtifactIngress artifactIngress = new StaffBotChatArtifactIngress(
                 configuration,
-                Clock.systemUTC(),
+                clock,
                 artifactStore
         );
         StaffBotRenderedChatIngress renderedIngress = new StaffBotRenderedChatIngress(
                 configuration,
-                Clock.systemUTC(),
+                clock,
                 renderedEgress,
                 artifactStore
         );
@@ -100,18 +104,25 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
                             configuration.proxyKey(),
                             tls
                     ),
-                    Clock.systemUTC(),
+                    clock,
                     envelope -> artifactIngress.accept(envelope)
                             || ingress.accept(envelope)
                             || renderedIngress.accept(envelope),
                     StaffBotChatTransport::connectionState
             );
+            StaffBotChatReadinessPublisher readinessPublisher =
+                    new StaffBotChatReadinessPublisher(
+                            clock,
+                            client,
+                            configuration.mode() == StaffBotChatBridgeConfiguration.Mode.AUTHORITATIVE
+                    );
             return new StaffBotChatTransport(
                     ingress,
                     artifactIngress,
                     renderedIngress,
                     configuration.ingressRoutes(),
                     client,
+                    readinessPublisher,
                     configuration.queueCapacity()
             );
         } catch (RuntimeException failure) {
@@ -132,6 +143,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
         }
         try {
             client.start();
+            readinessPublisher.start();
         } catch (RuntimeException failure) {
             started.set(false);
             throw failure;
@@ -146,6 +158,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
             ingress.resume();
             artifactIngress.resume();
             renderedIngress.resume();
+            readinessPublisher.resume();
         }
     }
 
@@ -157,6 +170,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
         ingress.pause();
         artifactIngress.pause();
         renderedIngress.pause();
+        readinessPublisher.pause();
     }
 
     @Override
@@ -216,6 +230,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
         acceptingDiscord.set(false);
         generation.incrementAndGet();
         discordSender.shutdownNow();
+        readinessPublisher.close();
         client.close();
         renderedIngress.close();
         artifactIngress.close();

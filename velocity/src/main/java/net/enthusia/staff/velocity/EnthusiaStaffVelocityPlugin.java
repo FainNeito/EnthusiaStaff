@@ -822,6 +822,8 @@ public final class EnthusiaStaffVelocityPlugin {
         VelocityRenderedChatBridgeRelay renderedRelay = new VelocityRenderedChatBridgeRelay(Clock.systemUTC());
         VelocityDiscordChatIngressRelay inboundRelay = new VelocityDiscordChatIngressRelay(
                 Set.copyOf(requiredBackends), Clock.systemUTC());
+        VelocityStaffBotChatHealthRelay healthRelay =
+                new VelocityStaffBotChatHealthRelay(Set.copyOf(requiredBackends), Clock.systemUTC());
         chatBridgeRelay = relay;
         chatArtifactRelay = artifactRelay;
         renderedChatBridgeRelay = renderedRelay;
@@ -837,10 +839,12 @@ public final class EnthusiaStaffVelocityPlugin {
                     relay,
                     artifactRelay,
                     renderedRelay,
-                    inboundRelay
+                    inboundRelay,
+                    healthRelay
             );
             server.start();
             inboundRelay.bind(server);
+            healthRelay.bind(server);
             channelServer = server;
             if (peerKeys.containsKey(VelocityStaffBotChatSink.PEER_ID)) {
                 chatBridgeSinkRegistration = relay.installSink(new VelocityStaffBotChatSink(server));
@@ -879,7 +883,8 @@ public final class EnthusiaStaffVelocityPlugin {
             VelocityChatBridgeRelay chatRelay,
             VelocityChatArtifactRelay artifactRelay,
             VelocityRenderedChatBridgeRelay renderedChatRelay,
-            VelocityDiscordChatIngressRelay discordIngressRelay
+            VelocityDiscordChatIngressRelay discordIngressRelay,
+            VelocityStaffBotChatHealthRelay chatHealthRelay
     ) throws java.net.UnknownHostException {
         return new PersistentChannelServer(
                 new PersistentChannelServer.Configuration(
@@ -898,6 +903,7 @@ public final class EnthusiaStaffVelocityPlugin {
                         artifactRelay,
                         renderedChatRelay,
                         discordIngressRelay,
+                        chatHealthRelay,
                         envelope -> {
                             if (acceptTransferSnapshot(envelope)) {
                                 return true;

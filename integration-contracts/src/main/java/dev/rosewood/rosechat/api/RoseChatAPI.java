@@ -1,6 +1,7 @@
 package dev.rosewood.rosechat.api;
 
 import dev.rosewood.rosechat.api.chatbridge.InboundChatMessage;
+import dev.rosewood.rosechat.api.chatbridge.LegacyDiscordChatSuppression;
 import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridge;
 import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridgeCoordinator;
 import dev.rosewood.rosechat.api.chatbridge.OutboundChatRenderBridge;
@@ -11,6 +12,14 @@ public final class RoseChatAPI {
     }
 
     public static RoseChatAPI getInstance() {
+        throw new UnsupportedOperationException("compile-time RoseChat contract only");
+    }
+
+    public LegacyDiscordChatSuppression.Registration suppressLegacyDiscordChat() {
+        throw new UnsupportedOperationException("compile-time RoseChat contract only");
+    }
+
+    public boolean isLegacyDiscordChatSuppressed() {
         throw new UnsupportedOperationException("compile-time RoseChat contract only");
     }
 

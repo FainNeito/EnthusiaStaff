@@ -17,6 +17,7 @@ final class VelocityChannelMessageRouter implements ChannelMessageHandler {
     private final VelocityChatArtifactRelay artifactRelay;
     private final VelocityRenderedChatBridgeRelay renderedChatRelay;
     private final VelocityDiscordChatIngressRelay discordIngressRelay;
+    private final VelocityStaffBotChatHealthRelay chatHealthRelay;
     private final ChannelMessageHandler paperHandler;
 
     VelocityChannelMessageRouter(
@@ -25,6 +26,7 @@ final class VelocityChannelMessageRouter implements ChannelMessageHandler {
             VelocityChatArtifactRelay artifactRelay,
             VelocityRenderedChatBridgeRelay renderedChatRelay,
             VelocityDiscordChatIngressRelay discordIngressRelay,
+            VelocityStaffBotChatHealthRelay chatHealthRelay,
             ChannelMessageHandler paperHandler
     ) {
         this.paperBackendIds = Set.copyOf(Objects.requireNonNull(paperBackendIds, "paperBackendIds"));
@@ -35,6 +37,7 @@ final class VelocityChannelMessageRouter implements ChannelMessageHandler {
         this.artifactRelay = Objects.requireNonNull(artifactRelay, "artifactRelay");
         this.renderedChatRelay = Objects.requireNonNull(renderedChatRelay, "renderedChatRelay");
         this.discordIngressRelay = Objects.requireNonNull(discordIngressRelay, "discordIngressRelay");
+        this.chatHealthRelay = Objects.requireNonNull(chatHealthRelay, "chatHealthRelay");
         this.paperHandler = Objects.requireNonNull(paperHandler, "paperHandler");
     }
 
@@ -42,6 +45,9 @@ final class VelocityChannelMessageRouter implements ChannelMessageHandler {
     public boolean handle(ProtocolEnvelope envelope) {
         Objects.requireNonNull(envelope, "envelope");
         if (VelocityStaffBotChatSink.PEER_ID.equals(envelope.serverId())) {
+            if (chatHealthRelay.handles(envelope)) {
+                return chatHealthRelay.accept(envelope);
+            }
             return discordIngressRelay.handles(envelope) && discordIngressRelay.accept(envelope);
         }
         if (!paperBackendIds.contains(envelope.serverId())) {

@@ -11,9 +11,11 @@ import java.util.regex.Pattern;
 import javax.crypto.SecretKey;
 import net.enthusia.staff.common.security.SecretKeyMaterial;
 
-/** Default-off staging configuration for the ephemeral Velocity -> StaffBot chat relay. */
+/** Default-off configuration for the ephemeral Velocity <-> StaffBot chat relay. */
 final class StaffBotChatBridgeConfiguration {
     static final String ENABLED_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ENABLED";
+    static final String MODE_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_MODE";
+    static final String CUTOVER_ACK_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_CUTOVER_ACK";
     static final String HOST_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_HOST";
     static final String PORT_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_PORT";
     static final String CLIENT_HMAC_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_CLIENT_SECRET";
@@ -30,6 +32,7 @@ final class StaffBotChatBridgeConfiguration {
 
     private static final String ENABLED_VALUE = "true";
     private static final String DISABLED_VALUE = "false";
+    private static final String AUTHORITATIVE_ACK = "I_ACKNOWLEDGE_DISCORDSRV_CHAT_CUTOVER";
     private static final int DEFAULT_PORT = 28_765;
     private static final int DEFAULT_QUEUE_CAPACITY = 256;
     private static final int DEFAULT_DEDUPE_CAPACITY = 4_096;
@@ -37,6 +40,7 @@ final class StaffBotChatBridgeConfiguration {
     private static final int MAX_DEDUPE_CAPACITY = 65_536;
     private static final Pattern ROUTE_TOKEN = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
 
+    private final Mode mode;
     private final String host;
     private final int port;
     private final SecretKey clientKey;
@@ -49,6 +53,7 @@ final class StaffBotChatBridgeConfiguration {
     private final int dedupeCapacity;
 
     private StaffBotChatBridgeConfiguration(
+            Mode mode,
             String host,
             int port,
             SecretConfiguration secrets,
@@ -56,6 +61,7 @@ final class StaffBotChatBridgeConfiguration {
             Map<Long, Route> ingressRoutes,
             QueueBounds bounds
     ) {
+        this.mode = Objects.requireNonNull(mode, "mode");
         this.host = requireText(host, HOST_ENV);
         this.port = bounded(PORT_ENV, port, 1, 65_535);
         this.clientKey = secrets.clientKey();
@@ -83,20 +89,43 @@ final class StaffBotChatBridgeConfiguration {
     ) {
         Objects.requireNonNull(environment, "environment");
         Objects.requireNonNull(values, "values");
-        if (!enabled(values.get(ENABLED_ENV))) {
+        Optional<Mode> selectedMode = mode(environment, values);
+        if (selectedMode.isEmpty()) {
             return Optional.empty();
         }
+        Mode mode = selectedMode.orElseThrow();
 
-        long stagingChannelId = stagingChannelId(environment);
+        OptionalLong pinnedChannel = pinnedChannel(environment);
+        if (environment == StaffBotEnvironment.PRODUCTION) {
+            if (mode != Mode.AUTHORITATIVE) {
+                throw new IllegalArgumentException(
+                        "production Discord chat bridge requires AUTHORITATIVE mode");
+            }
+            if (!AUTHORITATIVE_ACK.equals(values.get(CUTOVER_ACK_ENV))) {
+                throw new IllegalArgumentException(
+                        CUTOVER_ACK_ENV + " must explicitly acknowledge production chat cutover");
+            }
+        }
+
         String host = requireText(values.get(HOST_ENV), HOST_ENV);
         int port = integer(values.get(PORT_ENV), DEFAULT_PORT, PORT_ENV, 1, 65_535);
         Map<Route, Long> outboundRoutes = routes(
-                requireText(values.get(ROUTES_ENV), ROUTES_ENV), stagingChannelId);
+                requireText(values.get(ROUTES_ENV), ROUTES_ENV), pinnedChannel);
         Map<Long, Route> inboundRoutes = ingressRoutes(
-                values.get(INGRESS_ROUTES_ENV), stagingChannelId, outboundRoutes);
+                values.get(INGRESS_ROUTES_ENV), pinnedChannel, outboundRoutes);
+        if (mode == Mode.AUTHORITATIVE) {
+            java.util.Set<Long> outboundChannels = java.util.Set.copyOf(outboundRoutes.values());
+            if (!inboundRoutes.keySet().equals(outboundChannels)) {
+                throw new IllegalArgumentException(
+                        "AUTHORITATIVE Discord chat bridge requires one replacement ingress mapping "
+                                + "for every routed Discord channel"
+                );
+            }
+        }
         SecretConfiguration secrets = secretConfiguration(values);
         try {
             return Optional.of(new StaffBotChatBridgeConfiguration(
+                    mode,
                     host,
                     port,
                     secrets,
@@ -109,15 +138,75 @@ final class StaffBotChatBridgeConfiguration {
         }
     }
 
-    private static long stagingChannelId(StaffBotEnvironment environment) {
+    private static Optional<Mode> mode(
+            StaffBotEnvironment environment,
+            Map<String, String> values
+    ) {
+        String rawMode = values.get(MODE_ENV);
+        boolean legacyEnabled = legacyEnabled(values);
+        if (rawMode == null || rawMode.isBlank()) {
+            return legacyMode(environment, legacyEnabled);
+        }
+
+        Mode selected = Mode.parse(rawMode);
+        validateLegacyMode(values, selected, legacyEnabled);
+        validateModeEnvironment(environment, selected);
+        return selected == Mode.DISABLED ? Optional.empty() : Optional.of(selected);
+    }
+
+    private static boolean legacyEnabled(Map<String, String> values) {
+        String legacyValue = values.get(ENABLED_ENV);
+        return legacyValue != null && !legacyValue.isBlank() && enabled(legacyValue);
+    }
+
+    private static Optional<Mode> legacyMode(
+            StaffBotEnvironment environment,
+            boolean legacyEnabled
+    ) {
+        if (!legacyEnabled) {
+            return Optional.empty();
+        }
         if (environment != StaffBotEnvironment.STAGING) {
-            throw new IllegalArgumentException("Discord chat bridge is staging-only during migration");
+            throw new IllegalArgumentException(
+                    "production chat bridge requires explicit " + MODE_ENV + "=AUTHORITATIVE");
+        }
+        return Optional.of(Mode.SHADOW);
+    }
+
+    private static void validateLegacyMode(
+            Map<String, String> values,
+            Mode selected,
+            boolean legacyEnabled
+    ) {
+        String legacyValue = values.get(ENABLED_ENV);
+        if (legacyValue == null || legacyValue.isBlank()) {
+            return;
+        }
+        boolean modeEnabled = selected != Mode.DISABLED;
+        if (legacyEnabled != modeEnabled) {
+            throw new IllegalArgumentException(
+                    ENABLED_ENV + " conflicts with explicit " + MODE_ENV);
+        }
+    }
+
+    private static void validateModeEnvironment(
+            StaffBotEnvironment environment,
+            Mode selected
+    ) {
+        if (selected == Mode.SHADOW && environment != StaffBotEnvironment.STAGING) {
+            throw new IllegalArgumentException("SHADOW chat bridge mode is staging-only");
+        }
+    }
+
+    private static OptionalLong pinnedChannel(StaffBotEnvironment environment) {
+        if (environment != StaffBotEnvironment.STAGING) {
+            return OptionalLong.empty();
         }
         OptionalLong stagingChannel = environment.testChannelId();
         if (stagingChannel.isEmpty()) {
             throw new IllegalArgumentException("staging Discord chat bridge requires a pinned test channel");
         }
-        return stagingChannel.getAsLong();
+        return stagingChannel;
     }
 
     private static SecretConfiguration secretConfiguration(Map<String, String> values) {
@@ -158,7 +247,7 @@ final class StaffBotChatBridgeConfiguration {
         throw new IllegalArgumentException(ENABLED_ENV + " must be true or false");
     }
 
-    private static Map<Route, Long> routes(String raw, long stagingChannelId) {
+    private static Map<Route, Long> routes(String raw, OptionalLong pinnedChannel) {
         Map<Route, Long> parsed = new LinkedHashMap<>();
         for (String entry : raw.split(";", -1)) {
             int separator = entry.indexOf('=');
@@ -167,7 +256,7 @@ final class StaffBotChatBridgeConfiguration {
             }
             Route route = route(entry.substring(0, separator).trim());
             long channelId = positiveLong(entry.substring(separator + 1).trim(), ROUTES_ENV);
-            if (channelId != stagingChannelId) {
+            if (pinnedChannel.isPresent() && channelId != pinnedChannel.getAsLong()) {
                 throw new IllegalArgumentException(
                         "staging Discord chat bridge routes must target the pinned staging channel");
             }
@@ -180,7 +269,7 @@ final class StaffBotChatBridgeConfiguration {
 
     private static Map<Long, Route> ingressRoutes(
             String raw,
-            long stagingChannelId,
+            OptionalLong pinnedChannel,
             Map<Route, Long> outboundRoutes
     ) {
         if (raw == null || raw.isBlank()) {
@@ -194,7 +283,7 @@ final class StaffBotChatBridgeConfiguration {
                         INGRESS_ROUTES_ENV + " must use discordChannel=server/channel entries");
             }
             long channelId = positiveLong(entry.substring(0, separator).trim(), INGRESS_ROUTES_ENV);
-            if (channelId != stagingChannelId) {
+            if (pinnedChannel.isPresent() && channelId != pinnedChannel.getAsLong()) {
                 throw new IllegalArgumentException(
                         "staging Discord chat ingress must use the pinned staging channel");
             }
@@ -284,6 +373,10 @@ final class StaffBotChatBridgeConfiguration {
         return value.trim();
     }
 
+    Mode mode() {
+        return mode;
+    }
+
     String host() {
         return host;
     }
@@ -326,13 +419,34 @@ final class StaffBotChatBridgeConfiguration {
 
     @Override
     public String toString() {
-        return "StaffBotChatBridgeConfiguration[host=" + host
+        return "StaffBotChatBridgeConfiguration[mode=" + mode
+                + ", host=" + host
                 + ", port=" + port
                 + ", routes=" + routes.keySet()
                 + ", ingressRoutes=" + ingressRoutes
                 + ", queueCapacity=" + queueCapacity
                 + ", dedupeCapacity=" + dedupeCapacity
                 + ", clientKey=<redacted>, proxyKey=<redacted>, trustStorePassword=<redacted>]";
+    }
+
+    enum Mode {
+        DISABLED,
+        SHADOW,
+        AUTHORITATIVE;
+
+        static Mode parse(String value) {
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException(MODE_ENV + " is required");
+            }
+            try {
+                return valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException(
+                        MODE_ENV + " must be DISABLED, SHADOW, or AUTHORITATIVE",
+                        exception
+                );
+            }
+        }
     }
 
     private record SecretConfiguration(

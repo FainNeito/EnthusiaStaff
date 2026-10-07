@@ -1,14 +1,19 @@
 package net.enthusia.staff.paper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.rosewood.rosechat.api.RoseChatAPI;
+import dev.rosewood.rosechat.api.chatbridge.LegacyDiscordChatSuppression;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.logging.Level;
+import net.enthusia.staff.api.chat.RichChatArtifactProvider;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.application.PunishmentService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
@@ -44,6 +49,7 @@ import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
 import net.enthusia.staff.paper.visibility.VanishManager;
+import net.enthusia.staff.protocol.ChatBridgeHealthMessage;
 import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.PersistentChannelClient;
 import net.enthusia.staff.protocol.ProtocolEnvelope;
@@ -62,9 +68,12 @@ final class PaperIntegrationManager implements Listener {
     private static final String ROSECHAT_OUTBOUND = "rosechat-discord-bridge";
     private static final String ROSECHAT_RENDER = "rosechat-discord-render";
     private static final String ROSECHAT_INBOUND = "rosechat-discord-ingress";
+    private static final String ROSECHAT_AUTHORITY = "rosechat-discord-authority";
     private static final String INTERACTIVE_CHAT_RENDERER = "interactivechat-rich-renderer";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
+    private static final String PMD_NULL_ASSIGNMENT = "PMD.NullAssignment";
+    private static final long CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS = 20L;
     private static final List<CurrencyAssetSource> DEFAULT_REMOVAL_ORDER = List.of(
             CurrencyAssetSource.BANK,
             CurrencyAssetSource.INVENTORY,
@@ -80,7 +89,12 @@ final class PaperIntegrationManager implements Listener {
     private RoseChatOutboundRenderBridgeIntegration roseChatOutboundRender;
     private RoseChatInboundBridgeIntegration roseChatInbound;
     private InteractiveChatStagingArtifactProvider interactiveChatRenderer;
+    private final AtomicReference<LegacyDiscordChatSuppression.Registration> legacyDiscordSuppression =
+            new AtomicReference<>();
+    private volatile DiscordChatBridgeMode activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
     private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
+    private final AtomicLong chatPublishingReadyUntil = new AtomicLong();
+    private final AtomicReference<ScheduledTask> chatAuthorityWatchdog = new AtomicReference<>();
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
     private MuteCommandFallbackListener muteFallback;
     private boolean roseChatLifecycleRegistered;
@@ -193,6 +207,7 @@ final class PaperIntegrationManager implements Listener {
 
     void initializeRoseChat() {
         registerRoseChatLifecycle();
+        startChatAuthorityWatchdog();
         refreshRoseChatIntegration();
     }
 
@@ -205,15 +220,27 @@ final class PaperIntegrationManager implements Listener {
         }
         if (isInteractiveChatRendererDependency(pluginName)) {
             refreshInteractiveChatRenderer();
+            reconcileRoseChatAuthority();
         }
     }
 
     @EventHandler
     public void onPluginDisable(PluginDisableEvent event) {
         String pluginName = event.getPlugin().getName();
-        if (isInteractiveChatRendererDependency(pluginName)) {
+        if (InteractiveChatStagingArtifactProvider.INTERACTIVE_CHAT.equals(pluginName)) {
+            releaseLegacyDiscordSuppression();
             closeInteractiveChatRenderer();
             clearIssue(INTERACTIVE_CHAT_RENDERER);
+            if (activeChatBridgeMode.authoritative()) {
+                issue(
+                        ROSECHAT_AUTHORITY,
+                        "InteractiveChat compatibility changed; legacy Discord chat restored until rich renderer readiness is revalidated"
+                );
+            }
+        } else if (InteractiveChatStagingArtifactProvider.DISCORD_ADDON.equals(pluginName)) {
+            closeInteractiveChatRenderer();
+            clearIssue(INTERACTIVE_CHAT_RENDERER);
+            reconcileRoseChatAuthority();
         }
         if (!isRoseChat(pluginName)) {
             return;
@@ -251,11 +278,39 @@ final class PaperIntegrationManager implements Listener {
         if (envelope == null || !ChatBridgeMessages.INBOUND.equals(envelope.messageType())) {
             return false;
         }
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+        if (!activeChatBridgeMode.enabled()) {
             return false;
         }
         RoseChatInboundBridgeIntegration current = roseChatInbound;
         return current != null && current.accept(expectedProxyId, envelope);
+    }
+
+    boolean handleChatBridgeHealth(String expectedProxyId, ProtocolEnvelope envelope) {
+        if (envelope == null
+                || !ChatBridgeMessages.HEALTH.equals(envelope.messageType())
+                || !java.util.Objects.equals(expectedProxyId, envelope.serverId())) {
+            return false;
+        }
+        ChatBridgeHealthMessage health;
+        try {
+            health = ChatBridgeMessages.decodeHealth(envelope.payloadJson());
+        } catch (IllegalArgumentException failure) {
+            return false;
+        }
+        long now = clock().millis();
+        if (health.isExpired(now)) {
+            return false;
+        }
+        long boundedExpiry = Math.min(
+                health.expiresAtEpochMillis(),
+                now + ChatBridgeHealthMessage.MAX_LIFETIME_MILLIS
+        );
+        chatPublishingReadyUntil.set(health.ready() ? boundedExpiry : 0L);
+        plugin().getServer().getGlobalRegionScheduler().execute(
+                plugin(),
+                this::reconcileRoseChatAuthority
+        );
+        return true;
     }
 
     void bindChatChannel(PersistentChannelClient client) {
@@ -269,9 +324,12 @@ final class PaperIntegrationManager implements Listener {
         if (currentRender != null) {
             currentRender.bindChannel(client);
         }
+        reconcileRoseChatAuthority();
     }
 
     void unbindChatChannel(PersistentChannelClient client) {
+        releaseLegacyDiscordSuppression();
+        chatPublishingReadyUntil.set(0L);
         chatChannel.compareAndSet(client, null);
         RoseChatOutboundBridgeIntegration current = roseChatOutbound;
         if (current != null) {
@@ -286,6 +344,10 @@ final class PaperIntegrationManager implements Listener {
     void closeChatBridge() {
         HandlerList.unregisterAll(this);
         roseChatLifecycleRegistered = false;
+        ScheduledTask watchdog = chatAuthorityWatchdog.getAndSet(null);
+        if (watchdog != null) {
+            watchdog.cancel();
+        }
         closeRoseChatIntegration();
         deactivateMuteFallback();
         closeModerationProviders();
@@ -312,6 +374,7 @@ final class PaperIntegrationManager implements Listener {
 
     private void refreshRoseChatIntegration() {
         if (!plugin().getServer().getPluginManager().isPluginEnabled("RoseChat")) {
+            rollbackDiscordChatTransport();
             activateMuteFallback();
             clearIssue(ROSECHAT_COMMANDS);
             issue(ROSECHAT_RENDER, "RoseChat is absent; styled Discord chat rendering is unavailable");
@@ -320,6 +383,9 @@ final class PaperIntegrationManager implements Listener {
         }
         reconcileRoseChatCommands();
         try {
+            DiscordChatBridgeMode requestedChatMode = DiscordChatBridgeMode.from(
+                    plugin().getConfig().getConfigurationSection("discord-chat-bridge")
+            );
             RoseChatIntegration.Discovery discovery = RoseChatIntegration.discoverAndInstall(
                     plugin().getServer().getServicesManager(),
                     new RoseChatIntegration.ChannelSettings(
@@ -338,29 +404,34 @@ final class PaperIntegrationManager implements Listener {
                     dependencies.policy().reasons()
             );
             if (discovery.integration().isEmpty()) {
+                rollbackDiscordChatTransport();
                 activateMuteFallback();
                 issue(ROSECHAT, discovery.issue());
                 return;
             }
             closeRoseChatIntegration();
             roseChat = discovery.integration().orElseThrow();
+            activeChatBridgeMode = requestedChatMode;
             dependencies.players().vanish().setPresenceTransitionSink(
                     roseChat::renderPresenceTransition
             );
-            installRoseChatOutboundBridge();
-            installRoseChatOutboundRenderBridge();
-            installRoseChatInboundBridge();
+            installRoseChatOutboundBridge(requestedChatMode);
+            installRoseChatOutboundRenderBridge(requestedChatMode);
+            installRoseChatInboundBridge(requestedChatMode);
+            reconcileRoseChatAuthority();
             deactivateMuteFallback();
             clearIssue(ROSECHAT);
         } catch (IllegalArgumentException exception) {
+            rollbackDiscordChatTransport();
             activateMuteFallback();
-            issue(ROSECHAT, "RoseChat channel configuration is invalid");
+            issue(ROSECHAT, "RoseChat or Discord chat bridge configuration is invalid");
+            issue(ROSECHAT_AUTHORITY, "Discord chat authority configuration is invalid");
             plugin().getLogger().log(Level.SEVERE, "RoseChat integration configuration failed", exception);
         }
     }
 
-    private void installRoseChatOutboundBridge() {
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+    private void installRoseChatOutboundBridge(DiscordChatBridgeMode mode) {
+        if (!mode.enabled()) {
             clearIssue(ROSECHAT_OUTBOUND);
             return;
         }
@@ -381,8 +452,8 @@ final class PaperIntegrationManager implements Listener {
         clearIssue(ROSECHAT_OUTBOUND);
     }
 
-    private void installRoseChatOutboundRenderBridge() {
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+    private void installRoseChatOutboundRenderBridge(DiscordChatBridgeMode mode) {
+        if (!mode.enabled()) {
             clearIssue(ROSECHAT_RENDER);
             return;
         }
@@ -413,8 +484,8 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    private void installRoseChatInboundBridge() {
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+    private void installRoseChatInboundBridge(DiscordChatBridgeMode mode) {
+        if (!mode.enabled()) {
             clearIssue(ROSECHAT_INBOUND);
             return;
         }
@@ -439,6 +510,102 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
+    private void reconcileRoseChatAuthority() {
+        if (!activeChatBridgeMode.authoritative()) {
+            releaseLegacyDiscordSuppression();
+            clearIssue(ROSECHAT_AUTHORITY);
+            return;
+        }
+
+        PersistentChannelClient currentChannel = chatChannel.get();
+        boolean interactiveChatEnabled = plugin().getServer().getPluginManager()
+                .isPluginEnabled(InteractiveChatStagingArtifactProvider.INTERACTIVE_CHAT);
+        boolean richArtifactProviderReady = plugin().getServer().getServicesManager()
+                .getRegistration(RichChatArtifactProvider.class) != null;
+        if (!authoritativeCutoverReady(
+                roseChatOutbound != null,
+                roseChatOutboundRender != null,
+                roseChatInbound != null,
+                currentChannel != null && currentChannel.connected(),
+                chatPublishingReady(),
+                interactiveChatEnabled,
+                richArtifactProviderReady)) {
+            releaseLegacyDiscordSuppression();
+            issue(
+                    ROSECHAT_AUTHORITY,
+                    "Authoritative Discord chat is not fully ready; legacy Discord chat path remains active"
+            );
+            return;
+        }
+
+        if (legacyDiscordSuppression.get() != null) {
+            clearIssue(ROSECHAT_AUTHORITY);
+            return;
+        }
+
+        try {
+            LegacyDiscordChatSuppression.Registration acquired =
+                    RoseChatAPI.getInstance().suppressLegacyDiscordChat();
+            if (!legacyDiscordSuppression.compareAndSet(null, acquired)) {
+                resources.close("RoseChat redundant legacy Discord suppression", acquired);
+            }
+            clearIssue(ROSECHAT_AUTHORITY);
+        } catch (RuntimeException | LinkageError failure) {
+            issue(
+                    ROSECHAT_AUTHORITY,
+                    "RoseChat legacy Discord suppression is unavailable: "
+                            + failure.getClass().getSimpleName()
+            );
+        }
+    }
+
+    private void releaseLegacyDiscordSuppression() {
+        LegacyDiscordChatSuppression.Registration suppression = legacyDiscordSuppression.getAndSet(null);
+        resources.close("RoseChat legacy Discord suppression", suppression);
+    }
+
+    static boolean authoritativeCutoverReady(
+            boolean outboundReady,
+            boolean renderReady,
+            boolean inboundReady,
+            boolean channelConnected,
+            boolean discordPublishingReady,
+            boolean richArtifactsRequired,
+            boolean richArtifactProviderReady
+    ) {
+        return outboundReady
+                && renderReady
+                && inboundReady
+                && channelConnected
+                && discordPublishingReady
+                && (!richArtifactsRequired || richArtifactProviderReady);
+    }
+
+    private boolean chatPublishingReady() {
+        return chatPublishingReadyUntil.get() >= clock().millis();
+    }
+
+    private void startChatAuthorityWatchdog() {
+        if (chatAuthorityWatchdog.get() != null) {
+            return;
+        }
+        ScheduledTask scheduled = plugin().getServer().getGlobalRegionScheduler().runAtFixedRate(
+                plugin(),
+                ignored -> {
+                    if (activeChatBridgeMode.authoritative()
+                            && legacyDiscordSuppression.get() != null
+                            && !chatPublishingReady()) {
+                        reconcileRoseChatAuthority();
+                    }
+                },
+                CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS,
+                CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS
+        );
+        if (!chatAuthorityWatchdog.compareAndSet(null, scheduled)) {
+            scheduled.cancel();
+        }
+    }
+
     private void reconcileRoseChatCommands() {
         if (roseChatCommands == null) {
             roseChatCommands = RoseChatCommandOwnershipCoordinator.forPlugin(plugin());
@@ -451,18 +618,27 @@ final class PaperIntegrationManager implements Listener {
         issue(ROSECHAT_COMMANDS, "EnthusiaStaff command ownership conflict: " + String.join(", ", conflicts));
     }
 
-    // Null is the explicit inactive state for this optional hot-reloadable provider slot.
-    @SuppressWarnings("PMD.NullAssignment")
-    private void closeRoseChatIntegration() {
-        dependencies.players().vanish().clearPresenceTransitionSink();
+    // Null is the explicit inactive state for these optional hot-reloadable provider slots.
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
+    private void rollbackDiscordChatTransport() {
+        releaseLegacyDiscordSuppression();
+        chatPublishingReadyUntil.set(0L);
+        activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
         closeInteractiveChatRenderer();
         resources.close("RoseChat outbound styled Discord bridge", roseChatOutboundRender);
         resources.close("RoseChat outbound Discord bridge", roseChatOutbound);
         resources.close("RoseChat inbound Discord bridge", roseChatInbound);
-        resources.close("RoseChat bridge", roseChat);
         roseChatOutboundRender = null;
         roseChatOutbound = null;
         roseChatInbound = null;
+    }
+
+    // Null is the explicit inactive state for this optional hot-reloadable provider slot.
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
+    private void closeRoseChatIntegration() {
+        rollbackDiscordChatTransport();
+        dependencies.players().vanish().clearPresenceTransitionSink();
+        resources.close("RoseChat bridge", roseChat);
         roseChat = null;
     }
 
@@ -475,7 +651,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     // Null is the explicit inactive state after the listener has been unregistered.
-    @SuppressWarnings("PMD.NullAssignment")
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void deactivateMuteFallback() {
         if (muteFallback == null) {
             return;
@@ -495,8 +671,7 @@ final class PaperIntegrationManager implements Listener {
 
     private void refreshInteractiveChatRenderer() {
         closeInteractiveChatRenderer();
-        if (roseChatOutboundRender == null
-                || !plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+        if (roseChatOutboundRender == null || !activeChatBridgeMode.enabled()) {
             clearIssue(INTERACTIVE_CHAT_RENDERER);
             return;
         }
@@ -518,7 +693,7 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    @SuppressWarnings("PMD.NullAssignment")
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void closeInteractiveChatRenderer() {
         resources.close("InteractiveChat staging rich renderer", interactiveChatRenderer);
         interactiveChatRenderer = null;
