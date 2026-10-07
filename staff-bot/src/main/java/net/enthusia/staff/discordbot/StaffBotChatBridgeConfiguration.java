@@ -113,10 +113,14 @@ final class StaffBotChatBridgeConfiguration {
                 requireText(values.get(ROUTES_ENV), ROUTES_ENV), pinnedChannel);
         Map<Long, Route> inboundRoutes = ingressRoutes(
                 values.get(INGRESS_ROUTES_ENV), pinnedChannel, outboundRoutes);
-        if (mode == Mode.AUTHORITATIVE && inboundRoutes.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "AUTHORITATIVE Discord chat bridge requires at least one explicit ingress route"
-            );
+        if (mode == Mode.AUTHORITATIVE) {
+            java.util.Set<Long> outboundChannels = java.util.Set.copyOf(outboundRoutes.values());
+            if (!inboundRoutes.keySet().equals(outboundChannels)) {
+                throw new IllegalArgumentException(
+                        "AUTHORITATIVE Discord chat bridge requires one replacement ingress mapping "
+                                + "for every routed Discord channel"
+                );
+            }
         }
         SecretConfiguration secrets = secretConfiguration(values);
         try {
