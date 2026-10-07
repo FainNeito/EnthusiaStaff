@@ -1,5 +1,7 @@
 # EnthusiaStaff Platform — Authoritative Goals and Task Specification
 
+> **Current-state note (2026-10-07):** EnthusiaStaff is live on the Enthusia Network and continues to evolve. This file remains the broad long-term product specification, but older deployment/migration assumptions inside it are historical unless reaffirmed by current production evidence. Use [docs/current-roadmap.md](docs/current-roadmap.md) for the active post-launch roadmap, including configurability program #425 and repository cleanup #426.
+
 ## 0. Purpose
 
 This file is the authoritative goals and requirements document for the complete Enthusia Network staff, moderation, punishment, reporting, vanish, inventory-inspection, alt-detection, LiteBans migration, integration, Discord, and punishment/appeal website platform.
