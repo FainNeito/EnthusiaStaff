@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.logging.Level;
+import net.enthusia.staff.api.chat.RichChatArtifactProvider;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.application.PunishmentService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
@@ -470,15 +471,15 @@ final class PaperIntegrationManager implements Listener {
         PersistentChannelClient currentChannel = chatChannel.get();
         boolean interactiveChatEnabled = plugin().getServer().getPluginManager()
                 .isPluginEnabled(InteractiveChatStagingArtifactProvider.INTERACTIVE_CHAT);
-        boolean discordAddonEnabled = plugin().getServer().getPluginManager()
-                .isPluginEnabled(InteractiveChatStagingArtifactProvider.DISCORD_ADDON);
+        boolean richArtifactProviderReady = plugin().getServer().getServicesManager()
+                .getRegistration(RichChatArtifactProvider.class) != null;
         if (!authoritativeCutoverReady(
                 roseChatOutbound != null,
                 roseChatOutboundRender != null,
                 roseChatInbound != null,
                 currentChannel != null && currentChannel.connected(),
-                interactiveChatEnabled && discordAddonEnabled,
-                interactiveChatRenderer != null)) {
+                interactiveChatEnabled,
+                richArtifactProviderReady)) {
             issue(
                     ROSECHAT_AUTHORITY,
                     "Authoritative Discord chat is not fully ready; legacy Discord chat remains active"
