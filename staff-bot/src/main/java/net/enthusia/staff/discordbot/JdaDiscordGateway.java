@@ -31,9 +31,10 @@ import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import net.enthusia.staff.protocol.ChatBridgeInboundMessage;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
+import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
 
 /** JDA 6.5 adapter. JDA owns Discord REST bucket/global rate limits and Gateway reconnect scheduling. */
-final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
+final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, DiscordRenderedChatEgress {
     private static final System.Logger LOGGER = System.getLogger(JdaDiscordGateway.class.getName());
 
     private final StaffBotConfiguration configuration;
@@ -355,6 +356,67 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
             text = text.substring(0, end);
         }
         return prefix + text;
+    }
+
+
+    @Override
+    public boolean sendRendered(long channelId, ChatBridgeRenderedMessage message) {
+        if (message == null) {
+            return false;
+        }
+        JDA api;
+        synchronized (lifecycleLock) {
+            api = jda;
+        }
+        if (api == null) {
+            return false;
+        }
+        TextChannel channel = api.getTextChannelById(channelId);
+        if (channel == null || channel.getGuild().getIdLong() != configuration.environment().guildId()) {
+            return false;
+        }
+        if (!channel.getGuild().getSelfMember().hasPermission(
+                channel, Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND)) {
+            return false;
+        }
+
+        try {
+            channel.sendMessage(renderedChatContent(message))
+                    .setAllowedMentions(List.of())
+                    .complete();
+            return true;
+        } catch (RuntimeException failure) {
+            return false;
+        }
+    }
+
+    static String renderedChatContent(ChatBridgeRenderedMessage message) {
+        Objects.requireNonNull(message, "message");
+        String prefix = "[" + message.sourceServerId() + "] ";
+        int available = Math.max(0, 2_000 - prefix.length());
+        String markdown = message.lineMarkdown();
+        if (markdown.length() <= available) {
+            return prefix + markdown;
+        }
+        String plain = message.linePlainText();
+        if (plain.length() <= available) {
+            return prefix + plain;
+        }
+        return prefix + truncateDiscordText(plain, available);
+    }
+
+    private static String truncateDiscordText(String text, int maximumLength) {
+        if (text.length() <= maximumLength) {
+            return text;
+        }
+        int end = Math.max(0, maximumLength);
+        if (end > 0
+                && end < text.length()
+                && Character.isHighSurrogate(text.charAt(end - 1))
+                && Character.isLowSurrogate(text.charAt(end))) {
+            end--;
+        }
+        return text.substring(0, end);
     }
 
     @Override

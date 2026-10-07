@@ -167,7 +167,8 @@ public final class StaffBotRuntime implements AutoCloseable {
             StaffBotHealthServer healthServer = new StaffBotHealthServer(configuration.healthAddress(), health);
             JdaDiscordGateway gateway = new JdaDiscordGateway(
                     configuration, workers, replayGuard, moderation, chatConfiguration);
-            chatTransport = chatConfiguration.map(current -> StaffBotChatTransport.create(current, gateway));
+            chatTransport = chatConfiguration.map(
+                    current -> StaffBotChatTransport.create(current, gateway, gateway));
             if (chatConfiguration.map(current -> !current.ingressRoutes().isEmpty()).orElse(false)) {
                 gateway.installChatIngress(chatTransport.orElseThrow());
             }

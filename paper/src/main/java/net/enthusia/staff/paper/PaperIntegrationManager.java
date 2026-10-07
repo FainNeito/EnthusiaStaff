@@ -36,6 +36,7 @@ import net.enthusia.staff.paper.integration.ReputationRestrictionSynchronizer;
 import net.enthusia.staff.paper.integration.RoseChatInboundBridgeIntegration;
 import net.enthusia.staff.paper.integration.RoseChatIntegration;
 import net.enthusia.staff.paper.integration.RoseChatOutboundBridgeIntegration;
+import net.enthusia.staff.paper.integration.RoseChatOutboundRenderBridgeIntegration;
 import net.enthusia.staff.paper.inventory.ConfiscationCoordinator;
 import net.enthusia.staff.paper.inventory.InventoryCoordinator;
 import net.enthusia.staff.paper.inventory.InventoryOperationContext;
@@ -58,6 +59,7 @@ final class PaperIntegrationManager implements Listener {
     private static final String ROSECHAT = "rosechat";
     private static final String ROSECHAT_COMMANDS = "rosechat-commands";
     private static final String ROSECHAT_OUTBOUND = "rosechat-discord-bridge";
+    private static final String ROSECHAT_RENDER = "rosechat-discord-render";
     private static final String ROSECHAT_INBOUND = "rosechat-discord-ingress";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
@@ -73,6 +75,7 @@ final class PaperIntegrationManager implements Listener {
     private ConfiscationCoordinator confiscation;
     private RoseChatIntegration roseChat;
     private RoseChatOutboundBridgeIntegration roseChatOutbound;
+    private RoseChatOutboundRenderBridgeIntegration roseChatOutboundRender;
     private RoseChatInboundBridgeIntegration roseChatInbound;
     private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
@@ -206,6 +209,7 @@ final class PaperIntegrationManager implements Listener {
         activateMuteFallback();
         clearIssue(ROSECHAT_COMMANDS);
         issue(ROSECHAT_OUTBOUND, "RoseChat is absent; Discord chat relay is unavailable");
+        issue(ROSECHAT_RENDER, "RoseChat is absent; styled Discord chat rendering is unavailable");
         issue(ROSECHAT_INBOUND, "RoseChat is absent; Discord-to-Minecraft chat ingress is unavailable");
         issue(ROSECHAT, "RoseChat is absent; staff channel/chat bridge are unavailable; private-message mute fallback is active");
     }
@@ -248,6 +252,10 @@ final class PaperIntegrationManager implements Listener {
         if (current != null) {
             current.bindChannel(client);
         }
+        RoseChatOutboundRenderBridgeIntegration currentRender = roseChatOutboundRender;
+        if (currentRender != null) {
+            currentRender.bindChannel(client);
+        }
     }
 
     void unbindChatChannel(PersistentChannelClient client) {
@@ -255,6 +263,10 @@ final class PaperIntegrationManager implements Listener {
         RoseChatOutboundBridgeIntegration current = roseChatOutbound;
         if (current != null) {
             current.unbindChannel(client);
+        }
+        RoseChatOutboundRenderBridgeIntegration currentRender = roseChatOutboundRender;
+        if (currentRender != null) {
+            currentRender.unbindChannel(client);
         }
     }
 
@@ -289,6 +301,7 @@ final class PaperIntegrationManager implements Listener {
         if (!plugin().getServer().getPluginManager().isPluginEnabled("RoseChat")) {
             activateMuteFallback();
             clearIssue(ROSECHAT_COMMANDS);
+            issue(ROSECHAT_RENDER, "RoseChat is absent; styled Discord chat rendering is unavailable");
             issue(ROSECHAT, "RoseChat is absent; staff channel/chat bridge are unavailable; private-message mute fallback is active");
             return;
         }
@@ -322,6 +335,7 @@ final class PaperIntegrationManager implements Listener {
                     roseChat::renderPresenceTransition
             );
             installRoseChatOutboundBridge();
+            installRoseChatOutboundRenderBridge();
             installRoseChatInboundBridge();
             deactivateMuteFallback();
             clearIssue(ROSECHAT);
@@ -352,6 +366,36 @@ final class PaperIntegrationManager implements Listener {
             roseChatOutbound.bindChannel(currentChannel);
         }
         clearIssue(ROSECHAT_OUTBOUND);
+    }
+
+    private void installRoseChatOutboundRenderBridge() {
+        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+            clearIssue(ROSECHAT_RENDER);
+            return;
+        }
+        try {
+            RoseChatOutboundRenderBridgeIntegration.Discovery discovery =
+                    RoseChatOutboundRenderBridgeIntegration.discoverAndInstall(
+                            dependencies.environment().serverId(),
+                            clock()
+                    );
+            if (discovery.integration().isEmpty()) {
+                issue(ROSECHAT_RENDER, discovery.issue());
+                return;
+            }
+            roseChatOutboundRender = discovery.integration().orElseThrow();
+            PersistentChannelClient currentChannel = chatChannel.get();
+            if (currentChannel != null) {
+                roseChatOutboundRender.bindChannel(currentChannel);
+            }
+            clearIssue(ROSECHAT_RENDER);
+        } catch (RuntimeException | LinkageError failure) {
+            issue(
+                    ROSECHAT_RENDER,
+                    "RoseChat styled render bridge API is unavailable: "
+                            + failure.getClass().getSimpleName()
+            );
+        }
     }
 
     private void installRoseChatInboundBridge() {
@@ -396,9 +440,11 @@ final class PaperIntegrationManager implements Listener {
     @SuppressWarnings("PMD.NullAssignment")
     private void closeRoseChatIntegration() {
         dependencies.players().vanish().clearPresenceTransitionSink();
+        resources.close("RoseChat outbound styled Discord bridge", roseChatOutboundRender);
         resources.close("RoseChat outbound Discord bridge", roseChatOutbound);
         resources.close("RoseChat inbound Discord bridge", roseChatInbound);
         resources.close("RoseChat bridge", roseChat);
+        roseChatOutboundRender = null;
         roseChatOutbound = null;
         roseChatInbound = null;
         roseChat = null;

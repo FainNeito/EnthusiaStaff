@@ -3,6 +3,8 @@ package dev.rosewood.rosechat.api;
 import dev.rosewood.rosechat.api.chatbridge.InboundChatMessage;
 import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridge;
 import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridgeCoordinator;
+import dev.rosewood.rosechat.api.chatbridge.OutboundChatRenderBridge;
+import dev.rosewood.rosechat.api.chatbridge.OutboundChatRenderBridgeCoordinator;
 
 public final class RoseChatAPI {
     private RoseChatAPI() {
@@ -14,6 +16,12 @@ public final class RoseChatAPI {
 
     public OutboundChatBridgeCoordinator.Registration installOutboundChatBridge(
             OutboundChatBridge bridge
+    ) {
+        throw new UnsupportedOperationException("compile-time RoseChat contract only");
+    }
+
+    public OutboundChatRenderBridgeCoordinator.Registration installOutboundChatRenderBridge(
+            OutboundChatRenderBridge bridge
     ) {
         throw new UnsupportedOperationException("compile-time RoseChat contract only");
     }

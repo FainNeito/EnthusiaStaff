@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
+import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
 import org.junit.jupiter.api.Test;
 
 class JdaDiscordGatewayTest {
@@ -80,6 +81,60 @@ class JdaDiscordGatewayTest {
         String unicodeRendered = JdaDiscordGateway.chatContent(unicodeBoundary);
         assertFalse(Character.isHighSurrogate(unicodeRendered.charAt(unicodeRendered.length() - 1)));
         assertTrue(unicodeRendered.length() <= 2_000);
+    }
+
+    @Test
+    void renderedChatUsesResolvedMarkdownWithoutDuplicatingSender() {
+        ChatBridgeRenderedMessage message = renderedMessage(
+                "hello",
+                "**[VIP] Player:** *hello*",
+                "[VIP] Player: hello"
+        );
+
+        assertEquals(
+                "[SMP] **[VIP] Player:** *hello*",
+                JdaDiscordGateway.renderedChatContent(message)
+        );
+    }
+
+    @Test
+    void renderedChatFallsBackToPlainBeforeTruncatingBrokenMarkdown() {
+        ChatBridgeRenderedMessage message = renderedMessage(
+                "hello",
+                "*".repeat(2_100),
+                "[VIP] Player: " + "x".repeat(2_100)
+        );
+
+        String rendered = JdaDiscordGateway.renderedChatContent(message);
+        assertEquals(2_000, rendered.length());
+        assertTrue(rendered.startsWith("[SMP] [VIP] Player: "));
+        assertFalse(Character.isHighSurrogate(rendered.charAt(rendered.length() - 1)));
+    }
+
+    private static ChatBridgeRenderedMessage renderedMessage(
+            String canonical,
+            String lineMarkdown,
+            String linePlain
+    ) {
+        UUID eventId = UUID.randomUUID();
+        return new ChatBridgeRenderedMessage(
+                eventId,
+                "rosechat-mc-" + eventId,
+                "rosechat-canonical-" + eventId,
+                1_800_000_000_000L,
+                1_800_000_030_000L,
+                "SMP",
+                "global",
+                UUID.randomUUID(),
+                "Player",
+                canonical,
+                canonical,
+                canonical,
+                "{\"text\":\"" + canonical + "\",\"color\":\"#12ABEF\"}",
+                linePlain,
+                lineMarkdown,
+                "{\"text\":\"" + linePlain.substring(0, Math.min(linePlain.length(), 100)) + "\"}"
+        );
     }
 
     private static ChatBridgeOutboundMessage chatMessage(String text) {
