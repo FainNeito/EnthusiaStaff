@@ -252,6 +252,29 @@ RGB/hex/style semantics therefore remain in the Adventure JSON representation fo
 rendering rather than being faked with malformed embeds or leaked formatting codes. The current
 staging presentation intentionally favors clean/readable output over DiscordSRV visual quirks.
 
+## Sender/account-link presentation
+
+StaffBot may enrich the server prefix using the authoritative current Minecraft -> Discord link
+projection when the moderation read runtime is available. This is presentation metadata only.
+
+Rules:
+
+- the RoseChat-resolved Minecraft sender/rank/message line remains unchanged;
+- current link reads are cached for 30 seconds in a bounded 4,096-entry cache;
+- link lookup failure degrades to the normal unlinked prefix and never blocks Discord delivery;
+- Discord roles are never consulted for chat authority or routing;
+- StaffBot never performs a Discord REST lookup merely to decorate chat;
+- if the linked Discord member/user is already present in JDA's local cache, its escaped display
+  name is shown as `[SMP · @DisplayName]`;
+- if the authoritative link exists but JDA has no cached display name, the prefix is
+  `[SMP · linked]`;
+- if no current link is available, the existing `[SMP]` prefix is preserved;
+- raw Discord user IDs are never emitted into public chat;
+- cached presentation state is cleared with the Discord runtime lifecycle.
+
+The linked display name is ordinary escaped text, not a Discord mention token, and allowed mentions
+remain disabled on the final send.
+
 ## Still out of scope
 
 This checkpoint does not:
