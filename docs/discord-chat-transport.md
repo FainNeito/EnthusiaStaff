@@ -125,9 +125,13 @@ PR #381 adds the next bounded leg while remaining default-off and staging-only:
 - Final Discord content is bounded to 2,000 characters after the `[server] sender: ` prefix.
 - Allowed mentions are set to an empty list for every chat send.
 
-StaffBot chat configuration is disabled unless
-`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ENABLED=true`, and enabling it is rejected outside the staging
-StaffBot environment.
+StaffBot chat is default-off. The legacy
+`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ENABLED=true` form remains a staging-only alias for SHADOW when
+no explicit mode is present. The preferred control is
+`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_MODE=DISABLED|SHADOW|AUTHORITATIVE`.
+
+SHADOW remains staging-only. Production requires explicit AUTHORITATIVE mode plus the cutover
+acknowledgement documented in `docs/discord-chat-cutover.md`.
 
 ## Discord -> Minecraft staging checkpoint
 
@@ -252,6 +256,37 @@ RGB/hex/style semantics therefore remain in the Adventure JSON representation fo
 rendering rather than being faked with malformed embeds or leaked formatting codes. The current
 staging presentation intentionally favors clean/readable output over DiscordSRV visual quirks.
 
+## Rich artifact checkpoint
+
+Merged PR #404 adds a separate bounded rich-artifact contract rather than embedding binary data in
+the chat JSON frame.
+
+The artifact path uses `CHAT_BRIDGE_ARTIFACTS_V1` and is correlated to the same public chat
+event/source/channel identity as the rendered text frame. Bounds are enforced before final Discord
+send:
+
+- maximum 4 PNG artifacts;
+- maximum 256 KiB per file;
+- maximum 448 KiB raw aggregate artifact bytes;
+- bounded StaffBot artifact cache;
+- expiry/reconnect cleanup;
+- text-only fallback when optional artifacts are absent or cannot be prepared safely.
+
+StaffBot sends the styled text and available files as one final Discord message when attachment
+permissions and preparation succeed. It does not retry a file-bearing REST request as text-only
+after submission because delivery is ambiguous and a retry could duplicate chat.
+
+Merged PR #406 adds a temporary staging compatibility provider for the currently installed
+InteractiveChat + InteractiveChatDiscordSrvAddon image renderer. It supports held-item, inventory,
+and Ender-chest placeholders while keeping live Bukkit player access on the player scheduler.
+Async renderer snapshots use a deterministic synthetic UUID so upstream renderer branches cannot
+resolve the snapshot back to the online `ICPlayer`. The temporary provider registers at
+`ServicePriority.Lowest` so a permanent provider supersedes it automatically.
+
+The specialized upstream player-body inventory renderer is intentionally not used because it
+re-enters live player state during async rendering. Exact permanent renderer parity remains a
+separate GPL-compatible companion/fork task.
+
 ## Sender/account-link presentation
 
 StaffBot may enrich the server prefix using the authoritative current Minecraft -> Discord link
@@ -275,15 +310,21 @@ Rules:
 The linked display name is ordinary escaped text, not a Discord mention token, and allowed mentions
 remain disabled on the final send.
 
-## Still out of scope
+## Authority and remaining scope
 
-This checkpoint does not:
+The chat transport now has an explicit `DISABLED / SHADOW / AUTHORITATIVE` migration model.
+AUTHORITATIVE does not delete or disable DiscordSRV globally. After replacement readiness passes,
+EnthusiaStaff acquires RoseChat's reversible legacy-Discord suppression registration; rollback or
+bridge teardown releases that registration before replacement teardown.
 
-- carry InteractiveChat rich-render **binary artifacts** such as item/inventory images;
-- authorize production Discord routing;
-- change or disable DiscordSRV;
-- authorize DiscordSRV cutover/removal;
-- migrate account linking, role synchronization, console forwarding, or other remaining
-  DiscordSRV responsibilities.
+The exact cutover/rollback procedure and staging acceptance matrix are in
+`docs/discord-chat-cutover.md`.
 
-Those remain separate reviewable checkpoints.
+Still separate from the chat transport itself:
+
+- permanent GPL-compatible InteractiveChat renderer companion/fork;
+- account-link import/ownership completion;
+- managed-role synchronization cutover;
+- console forwarding replacement;
+- any other remaining DiscordSRV responsibility under #264;
+- final DiscordSRV jar/config removal after all owners are migrated and validated.
