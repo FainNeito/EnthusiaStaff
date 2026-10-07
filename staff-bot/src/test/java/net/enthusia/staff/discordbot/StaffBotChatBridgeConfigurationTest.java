@@ -90,7 +90,7 @@ class StaffBotChatBridgeConfigurationTest {
     @Test
     void enabledBridgeRequiresValidSecretsAndBounds() {
         Map<String, String> invalidSecret = enabledValues();
-        invalidSecret.put(StaffBotChatBridgeConfiguration.CLIENT_SECRET_ENV, "not-base64");
+        invalidSecret.put(StaffBotChatBridgeConfiguration.CLIENT_HMAC_ENV, "not-base64");
         assertThrows(
                 IllegalArgumentException.class,
                 () -> StaffBotChatBridgeConfiguration.fromEnvironment(
@@ -115,10 +115,10 @@ class StaffBotChatBridgeConfigurationTest {
         Map<String, String> values = new HashMap<>();
         values.put(StaffBotChatBridgeConfiguration.ENABLED_ENV, "true");
         values.put(StaffBotChatBridgeConfiguration.HOST_ENV, "velocity.internal");
-        values.put(StaffBotChatBridgeConfiguration.CLIENT_SECRET_ENV, KEY);
-        values.put(StaffBotChatBridgeConfiguration.PROXY_SECRET_ENV, KEY);
+        values.put(StaffBotChatBridgeConfiguration.CLIENT_HMAC_ENV, KEY);
+        values.put(StaffBotChatBridgeConfiguration.PROXY_HMAC_ENV, KEY);
         values.put(StaffBotChatBridgeConfiguration.TRUST_STORE_ENV, "channel-trust.p12");
-        values.put(StaffBotChatBridgeConfiguration.TRUST_STORE_PASSWORD_ENV, "trust-password");
+        values.put(StaffBotChatBridgeConfiguration.TRUST_STORE_ACCESS_ENV, "trust-password");
         values.put(
                 StaffBotChatBridgeConfiguration.ROUTES_ENV,
                 "SMP/global=" + STAGING_CHANNEL_ID + ";HUB/global=" + STAGING_CHANNEL_ID);
