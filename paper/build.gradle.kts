@@ -22,6 +22,7 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
     compileOnly("net.luckperms:api:5.4")
+    compileOnly("top.polar:api:2.0.0")
     testImplementation(integrationContractsProject)
     testRuntimeOnly(files(integrationContractMainOutput))
     testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
