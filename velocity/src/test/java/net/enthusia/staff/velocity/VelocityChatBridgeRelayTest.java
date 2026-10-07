@@ -20,8 +20,9 @@ import org.junit.jupiter.api.Timeout;
 
 class VelocityChatBridgeRelayTest {
     private static final long NOW = 1_800_000_000_000L;
-    private static final String SERVER_ID = SERVER_ID;
+    private static final String SERVER_ID = "SMP";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
+    private static final int FIRST_DELIVERY = 1;
 
     @Test
     void acceptsAuthenticatedIdentityBoundChatWithoutDurableState() throws Exception {
