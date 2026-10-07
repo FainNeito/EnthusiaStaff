@@ -274,7 +274,14 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
         int available = Math.max(0, 2_000 - prefix.length());
         String text = message.plainText();
         if (text.length() > available) {
-            text = text.substring(0, available);
+            int end = available;
+            if (end > 0
+                    && end < text.length()
+                    && Character.isHighSurrogate(text.charAt(end - 1))
+                    && Character.isLowSurrogate(text.charAt(end))) {
+                end--;
+            }
+            text = text.substring(0, end);
         }
         return prefix + text;
     }
