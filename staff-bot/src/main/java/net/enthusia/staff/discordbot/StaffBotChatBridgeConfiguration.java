@@ -1,6 +1,7 @@
 package net.enthusia.staff.discordbot;
 
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -26,6 +27,8 @@ final class StaffBotChatBridgeConfiguration {
     static final String PEER_ID = "STAFFBOT";
     static final String PROXY_ID = "VELOCITY";
 
+    private static final String ENABLED_VALUE = "true";
+    private static final String DISABLED_VALUE = "false";
     private static final int DEFAULT_PORT = 28_765;
     private static final int DEFAULT_QUEUE_CAPACITY = 256;
     private static final int DEFAULT_DEDUPE_CAPACITY = 4_096;
@@ -46,20 +49,16 @@ final class StaffBotChatBridgeConfiguration {
     private StaffBotChatBridgeConfiguration(
             String host,
             int port,
-            SecretKey clientKey,
-            SecretKey proxyKey,
-            Path trustStore,
-            char[] trustStorePassword,
+            SecretConfiguration secrets,
             Map<Route, Long> routes,
-            int queueCapacity,
-            int dedupeCapacity
+            QueueBounds bounds
     ) {
         this.host = requireText(host, HOST_ENV);
         this.port = bounded(PORT_ENV, port, 1, 65_535);
-        this.clientKey = Objects.requireNonNull(clientKey, "clientKey");
-        this.proxyKey = Objects.requireNonNull(proxyKey, "proxyKey");
-        this.trustStore = Objects.requireNonNull(trustStore, "trustStore").toAbsolutePath().normalize();
-        this.trustStorePassword = Objects.requireNonNull(trustStorePassword, "trustStorePassword").clone();
+        this.clientKey = secrets.clientKey();
+        this.proxyKey = secrets.proxyKey();
+        this.trustStore = secrets.trustStore().toAbsolutePath().normalize();
+        this.trustStorePassword = secrets.trustStorePassword().clone();
         if (this.trustStorePassword.length == 0) {
             throw new IllegalArgumentException(TRUST_STORE_PASSWORD_ENV + " is required");
         }
@@ -68,9 +67,9 @@ final class StaffBotChatBridgeConfiguration {
             throw new IllegalArgumentException(ROUTES_ENV + " must contain at least one route");
         }
         this.queueCapacity = bounded(
-                QUEUE_CAPACITY_ENV, queueCapacity, 1, MAX_QUEUE_CAPACITY);
+                QUEUE_CAPACITY_ENV, bounds.queueCapacity(), 1, MAX_QUEUE_CAPACITY);
         this.dedupeCapacity = bounded(
-                DEDUPE_CAPACITY_ENV, dedupeCapacity, 1, MAX_DEDUPE_CAPACITY);
+                DEDUPE_CAPACITY_ENV, bounds.dedupeCapacity(), 1, MAX_DEDUPE_CAPACITY);
     }
 
     static Optional<StaffBotChatBridgeConfiguration> fromEnvironment(
@@ -82,60 +81,68 @@ final class StaffBotChatBridgeConfiguration {
         if (!enabled(values.get(ENABLED_ENV))) {
             return Optional.empty();
         }
+
+        long stagingChannelId = stagingChannelId(environment);
+        String host = requireText(values.get(HOST_ENV), HOST_ENV);
+        int port = integer(values.get(PORT_ENV), DEFAULT_PORT, PORT_ENV, 1, 65_535);
+        SecretConfiguration secrets = secretConfiguration(values);
+        try {
+            return Optional.of(new StaffBotChatBridgeConfiguration(
+                    host,
+                    port,
+                    secrets,
+                    routes(requireText(values.get(ROUTES_ENV), ROUTES_ENV), stagingChannelId),
+                    queueBounds(values)
+            ));
+        } finally {
+            secrets.clearPassword();
+        }
+    }
+
+    private static long stagingChannelId(StaffBotEnvironment environment) {
         if (environment != StaffBotEnvironment.STAGING) {
             throw new IllegalArgumentException("Discord chat bridge is staging-only during migration");
         }
-
         OptionalLong stagingChannel = environment.testChannelId();
         if (stagingChannel.isEmpty()) {
             throw new IllegalArgumentException("staging Discord chat bridge requires a pinned test channel");
         }
+        return stagingChannel.getAsLong();
+    }
 
-        String host = requireText(values.get(HOST_ENV), HOST_ENV);
-        int port = integer(values.get(PORT_ENV), DEFAULT_PORT, PORT_ENV, 1, 65_535);
-        SecretKey clientKey = SecretKeyMaterial.hmacSha256FromBase64(
-                requireText(values.get(CLIENT_SECRET_ENV), CLIENT_SECRET_ENV));
-        SecretKey proxyKey = SecretKeyMaterial.hmacSha256FromBase64(
-                requireText(values.get(PROXY_SECRET_ENV), PROXY_SECRET_ENV));
-        Path trustStore = Path.of(requireText(values.get(TRUST_STORE_ENV), TRUST_STORE_ENV));
-        char[] trustStorePassword = requireText(
-                values.get(TRUST_STORE_PASSWORD_ENV), TRUST_STORE_PASSWORD_ENV).toCharArray();
-        try {
-            Map<Route, Long> routes = routes(
-                    requireText(values.get(ROUTES_ENV), ROUTES_ENV),
-                    stagingChannel.getAsLong());
-            int queueCapacity = integer(
-                    values.get(QUEUE_CAPACITY_ENV),
-                    DEFAULT_QUEUE_CAPACITY,
-                    QUEUE_CAPACITY_ENV,
-                    1,
-                    MAX_QUEUE_CAPACITY);
-            int dedupeCapacity = integer(
-                    values.get(DEDUPE_CAPACITY_ENV),
-                    DEFAULT_DEDUPE_CAPACITY,
-                    DEDUPE_CAPACITY_ENV,
-                    1,
-                    MAX_DEDUPE_CAPACITY);
-            return Optional.of(new StaffBotChatBridgeConfiguration(
-                    host,
-                    port,
-                    clientKey,
-                    proxyKey,
-                    trustStore,
-                    trustStorePassword,
-                    routes,
-                    queueCapacity,
-                    dedupeCapacity));
-        } finally {
-            java.util.Arrays.fill(trustStorePassword, '\0');
-        }
+    private static SecretConfiguration secretConfiguration(Map<String, String> values) {
+        return new SecretConfiguration(
+                SecretKeyMaterial.hmacSha256FromBase64(
+                        requireText(values.get(CLIENT_SECRET_ENV), CLIENT_SECRET_ENV)),
+                SecretKeyMaterial.hmacSha256FromBase64(
+                        requireText(values.get(PROXY_SECRET_ENV), PROXY_SECRET_ENV)),
+                Path.of(requireText(values.get(TRUST_STORE_ENV), TRUST_STORE_ENV)),
+                requireText(values.get(TRUST_STORE_PASSWORD_ENV), TRUST_STORE_PASSWORD_ENV).toCharArray()
+        );
+    }
+
+    private static QueueBounds queueBounds(Map<String, String> values) {
+        return new QueueBounds(
+                integer(
+                        values.get(QUEUE_CAPACITY_ENV),
+                        DEFAULT_QUEUE_CAPACITY,
+                        QUEUE_CAPACITY_ENV,
+                        1,
+                        MAX_QUEUE_CAPACITY),
+                integer(
+                        values.get(DEDUPE_CAPACITY_ENV),
+                        DEFAULT_DEDUPE_CAPACITY,
+                        DEDUPE_CAPACITY_ENV,
+                        1,
+                        MAX_DEDUPE_CAPACITY)
+        );
     }
 
     private static boolean enabled(String value) {
-        if (value == null || value.isBlank() || "false".equalsIgnoreCase(value.trim())) {
+        if (value == null || value.isBlank() || DISABLED_VALUE.equalsIgnoreCase(value.trim())) {
             return false;
         }
-        if ("true".equalsIgnoreCase(value.trim())) {
+        if (ENABLED_VALUE.equalsIgnoreCase(value.trim())) {
             return true;
         }
         throw new IllegalArgumentException(ENABLED_ENV + " must be true or false");
@@ -266,6 +273,27 @@ final class StaffBotChatBridgeConfiguration {
                 + ", queueCapacity=" + queueCapacity
                 + ", dedupeCapacity=" + dedupeCapacity
                 + ", clientKey=<redacted>, proxyKey=<redacted>, trustStorePassword=<redacted>]";
+    }
+
+    private record SecretConfiguration(
+            SecretKey clientKey,
+            SecretKey proxyKey,
+            Path trustStore,
+            char[] trustStorePassword
+    ) {
+        private SecretConfiguration {
+            Objects.requireNonNull(clientKey, "clientKey");
+            Objects.requireNonNull(proxyKey, "proxyKey");
+            Objects.requireNonNull(trustStore, "trustStore");
+            Objects.requireNonNull(trustStorePassword, "trustStorePassword");
+        }
+
+        private void clearPassword() {
+            Arrays.fill(trustStorePassword, '\0');
+        }
+    }
+
+    private record QueueBounds(int queueCapacity, int dedupeCapacity) {
     }
 
     record Route(String sourceServerId, String logicalChannelId) {
