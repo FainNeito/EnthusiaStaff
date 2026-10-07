@@ -218,7 +218,7 @@ final class PaperIntegrationManager implements Listener {
     @EventHandler
     public void onPluginDisable(PluginDisableEvent event) {
         String pluginName = event.getPlugin().getName();
-        if (isInteractiveChatRendererDependency(pluginName)) {
+        if (InteractiveChatStagingArtifactProvider.INTERACTIVE_CHAT.equals(pluginName)) {
             releaseLegacyDiscordSuppression();
             closeInteractiveChatRenderer();
             clearIssue(INTERACTIVE_CHAT_RENDERER);
@@ -228,6 +228,10 @@ final class PaperIntegrationManager implements Listener {
                         "InteractiveChat compatibility changed; legacy Discord chat restored until rich renderer readiness is revalidated"
                 );
             }
+        } else if (InteractiveChatStagingArtifactProvider.DISCORD_ADDON.equals(pluginName)) {
+            closeInteractiveChatRenderer();
+            clearIssue(INTERACTIVE_CHAT_RENDERER);
+            reconcileRoseChatAuthority();
         }
         if (!isRoseChat(pluginName)) {
             return;
@@ -328,6 +332,7 @@ final class PaperIntegrationManager implements Listener {
 
     private void refreshRoseChatIntegration() {
         if (!plugin().getServer().getPluginManager().isPluginEnabled("RoseChat")) {
+            rollbackDiscordChatTransport();
             activateMuteFallback();
             clearIssue(ROSECHAT_COMMANDS);
             issue(ROSECHAT_RENDER, "RoseChat is absent; styled Discord chat rendering is unavailable");
@@ -357,6 +362,7 @@ final class PaperIntegrationManager implements Listener {
                     dependencies.policy().reasons()
             );
             if (discovery.integration().isEmpty()) {
+                rollbackDiscordChatTransport();
                 activateMuteFallback();
                 issue(ROSECHAT, discovery.issue());
                 return;
@@ -374,6 +380,7 @@ final class PaperIntegrationManager implements Listener {
             deactivateMuteFallback();
             clearIssue(ROSECHAT);
         } catch (IllegalArgumentException exception) {
+            rollbackDiscordChatTransport();
             activateMuteFallback();
             issue(ROSECHAT, "RoseChat or Discord chat bridge configuration is invalid");
             issue(ROSECHAT_AUTHORITY, "Discord chat authority configuration is invalid");
@@ -538,20 +545,26 @@ final class PaperIntegrationManager implements Listener {
         issue(ROSECHAT_COMMANDS, "EnthusiaStaff command ownership conflict: " + String.join(", ", conflicts));
     }
 
-    // Null is the explicit inactive state for this optional hot-reloadable provider slot.
+    // Null is the explicit inactive state for these optional hot-reloadable provider slots.
     @SuppressWarnings("PMD.NullAssignment")
-    private void closeRoseChatIntegration() {
+    private void rollbackDiscordChatTransport() {
         releaseLegacyDiscordSuppression();
         activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
-        dependencies.players().vanish().clearPresenceTransitionSink();
         closeInteractiveChatRenderer();
         resources.close("RoseChat outbound styled Discord bridge", roseChatOutboundRender);
         resources.close("RoseChat outbound Discord bridge", roseChatOutbound);
         resources.close("RoseChat inbound Discord bridge", roseChatInbound);
-        resources.close("RoseChat bridge", roseChat);
         roseChatOutboundRender = null;
         roseChatOutbound = null;
         roseChatInbound = null;
+    }
+
+    // Null is the explicit inactive state for this optional hot-reloadable provider slot.
+    @SuppressWarnings("PMD.NullAssignment")
+    private void closeRoseChatIntegration() {
+        rollbackDiscordChatTransport();
+        dependencies.players().vanish().clearPresenceTransitionSink();
+        resources.close("RoseChat bridge", roseChat);
         roseChat = null;
     }
 
