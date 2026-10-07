@@ -1,5 +1,16 @@
 # Confirm-player fork handoff
 
+## Owner detached recovery local verification, 2026-10-07
+
+Frozen executable f28186e71bf187931fd0c7791ca0b5a4d83a9c9d adapts canonical 65f3dd92 on prior owner db7e70ca. Classification prevents terminal detached states from entering ACTIVE-only rebind. Atomic beginDetachedExit checks exact session/revision/state/DETACHED/checksum before transition; completion uses the existing session/checksum fence. Old store implementations default fail-closed. Retry tickets prevent duplicate/cancelled/replaced callbacks from consuming current retries, release rejected schedules, and recover on the owning entity scheduler. Prior names, automatic vanish, mode/permission policy and native backend snapshots are preserved. Unrestricted profiles/preferences and web changes remain excluded. Root aggregate owns builds; no schema/dependency/external pin change.
+
+Frozen-head Java 25.0.3 release-21 clean test/check/runtimeJars plus integration-tests:compileTestJava passed: 1,724 tests, zero failures/errors, two existing Windows symlink skips; 45 tasks executed, 13 cached. Ten new classification/ticket/wiring tests pass; the two imported wiring tests previously failed before manager adaptation (wiring-only red evidence). Three new database scenarios compile but execution is excluded locally for unavailable Docker; hosted exact-head integration is pending. Wiki 41 pages, whitespace, runtime ZIP CRC and checked RoseChat API exclusion pass. Reviewed exact-row locking, stale/replacement fences, rollback, optional API fallback, destination non-restoration and callback lifecycle. EARS/state tooling absent; bounded records maintained; unchanged unavailable orchestration/private gates not repeated.
+
+Unmerged/local test.15 SHA256: Paper 6bcb0acd5f4aef1adbeb97fa2cdb730c50d3e393924e27cdf82f733541faaed3; Velocity 83001e593080dd9f89f33a2af5a251d6968a7c44feb88a76eb7f8456e24d0527; AuthorityBridge 54123cb7ca6c9d68c949c1b19689f0d0971346edf1858eae4aae3d07750c2d8a; StaffBot e1f27d0327b85e146efe888ae31b512670c705de4d9422fb16588113fed70173.
+
+Status PARTIAL. Push same PR #1, inspect exact-head CI/review, and publish updated five status records via existing docs-only PR #14 without merging. Older db7e70ca hosted passes do not validate this new executable. Production inventory/TEST cause remains unproven, missing correlation/provider/staging/Bedrock/Folia acceptance remains open. No merge/deployment, production data mutation, permissions/authority change, inventory restoration or backup access.
+
+
 ## Owner detached recovery continuation, 2026-10-07
 
 Start owner db7e70ca; frozen product 2d81d7f6; fork main 711f0fce. Canonical main advances to 2948ec99; relevant 65f3dd92 classifies interrupted detached Staff sessions before rebind. Separate player-picker/web/profile/preferences/authority changes remain excluded. Existing exact owner-head four hosted workflows passed and review threads remain resolved.
