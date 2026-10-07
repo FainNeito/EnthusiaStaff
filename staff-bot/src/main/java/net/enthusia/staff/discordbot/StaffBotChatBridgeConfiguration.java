@@ -16,10 +16,10 @@ final class StaffBotChatBridgeConfiguration {
     static final String ENABLED_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ENABLED";
     static final String HOST_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_HOST";
     static final String PORT_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_PORT";
-    static final String CLIENT_SECRET_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_CLIENT_SECRET";
-    static final String PROXY_SECRET_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_PROXY_SECRET";
+    static final String CLIENT_HMAC_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_CLIENT_SECRET";
+    static final String PROXY_HMAC_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_PROXY_SECRET";
     static final String TRUST_STORE_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_TRUST_STORE";
-    static final String TRUST_STORE_PASSWORD_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_TRUST_STORE_PASSWORD";
+    static final String TRUST_STORE_ACCESS_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_TRUST_STORE_PASSWORD";
     static final String ROUTES_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ROUTES";
     static final String QUEUE_CAPACITY_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_QUEUE_CAPACITY";
     static final String DEDUPE_CAPACITY_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_DEDUPE_CAPACITY";
@@ -60,7 +60,7 @@ final class StaffBotChatBridgeConfiguration {
         this.trustStore = secrets.trustStore().toAbsolutePath().normalize();
         this.trustStorePassword = secrets.trustStorePassword().clone();
         if (this.trustStorePassword.length == 0) {
-            throw new IllegalArgumentException(TRUST_STORE_PASSWORD_ENV + " is required");
+            throw new IllegalArgumentException(TRUST_STORE_ACCESS_ENV + " is required");
         }
         this.routes = Map.copyOf(routes);
         if (this.routes.isEmpty()) {
@@ -113,11 +113,11 @@ final class StaffBotChatBridgeConfiguration {
     private static SecretConfiguration secretConfiguration(Map<String, String> values) {
         return new SecretConfiguration(
                 SecretKeyMaterial.hmacSha256FromBase64(
-                        requireText(values.get(CLIENT_SECRET_ENV), CLIENT_SECRET_ENV)),
+                        requireText(values.get(CLIENT_HMAC_ENV), CLIENT_HMAC_ENV)),
                 SecretKeyMaterial.hmacSha256FromBase64(
-                        requireText(values.get(PROXY_SECRET_ENV), PROXY_SECRET_ENV)),
+                        requireText(values.get(PROXY_HMAC_ENV), PROXY_HMAC_ENV)),
                 Path.of(requireText(values.get(TRUST_STORE_ENV), TRUST_STORE_ENV)),
-                requireText(values.get(TRUST_STORE_PASSWORD_ENV), TRUST_STORE_PASSWORD_ENV).toCharArray()
+                requireText(values.get(TRUST_STORE_ACCESS_ENV), TRUST_STORE_ACCESS_ENV).toCharArray()
         );
     }
 
