@@ -749,14 +749,12 @@ public final class EnthusiaStaffVelocityPlugin {
         Map<String, SecretKey> peerKeys = new LinkedHashMap<>();
         loaded.backendSecretEnvironments().forEach((serverId, environment) ->
                 peerKeys.put(serverId, secretFromEnvironment(environment)));
-        Set<String> requiredBackends = new java.util.LinkedHashSet<>(peerKeys.keySet());
-        requiredBackends.remove(VelocityStaffBotChatSink.PEER_ID);
-        if (requiredBackends.isEmpty()) {
-            throw new IllegalStateException("No required Paper backend channel secrets are configured");
-        }
-        if (peerKeys.containsKey(VelocityStaffBotChatSink.PEER_ID)
-                && !"VELOCITY".equals(loaded.channelProxyId())) {
-            throw new IllegalStateException("StaffBot chat peer requires channel.proxy-id=VELOCITY");
+        final Set<String> requiredBackends;
+        try {
+            requiredBackends = VelocityChannelPeerPolicy.requiredPaperBackends(peerKeys.keySet());
+            VelocityChannelPeerPolicy.validateProxyIdentity(loaded.channelProxyId(), peerKeys.keySet());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException("Persistent channel peer policy is invalid", exception);
         }
         SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
         SSLContext tlsContext = serverTlsContext(loaded);
