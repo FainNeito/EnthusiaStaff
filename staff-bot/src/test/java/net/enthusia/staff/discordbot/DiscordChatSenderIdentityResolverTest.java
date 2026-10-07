@@ -10,6 +10,9 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
@@ -54,6 +57,42 @@ class DiscordChatSenderIdentityResolverTest {
 
         assertTrue(invalid.resolve(UUID.randomUUID()).isEmpty());
         assertTrue(failed.resolve(UUID.randomUUID()).isEmpty());
+    }
+
+    @Test
+    void lifecycleClearInvalidatesInFlightLookupWithoutWaitingForIt() throws Exception {
+        MutableClock clock = new MutableClock(NOW);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        DiscordChatSenderIdentityResolver resolver = new DiscordChatSenderIdentityResolver(
+                clock,
+                8,
+                Duration.ofSeconds(30),
+                ignored -> {
+                    started.countDown();
+                    try {
+                        if (!release.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("test lookup release timed out");
+                        }
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("test lookup interrupted", exception);
+                    }
+                    return Optional.of(DISCORD_ID);
+                }
+        );
+
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            var future = executor.submit(() -> resolver.resolve(UUID.randomUUID()));
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+
+            resolver.clear();
+            assertEquals(0, resolver.size());
+
+            release.countDown();
+            assertTrue(future.get(5, TimeUnit.SECONDS).isEmpty());
+            assertEquals(0, resolver.size());
+        }
     }
 
     @Test
