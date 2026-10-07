@@ -11,6 +11,7 @@ EnthusiaStaff is live on the Enthusia Network and remains under active developme
 
 - [Current roadmap and production-status priorities](docs/current-roadmap.md)
 - [Repository cleanup audit](docs/repository-cleanup-audit.md)
+- [Configuration and reload model](docs/configuration.md)
 - [Feature reference for server/wiki documentation](docs/feature-reference.md)
 - [Development and validation](docs/development.md)
 - [Architecture](docs/architecture.md)

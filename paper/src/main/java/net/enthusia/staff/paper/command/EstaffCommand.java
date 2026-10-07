@@ -10,6 +10,8 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import net.enthusia.staff.paper.RuntimeHealth;
+import net.enthusia.staff.paper.config.ConfigurationValidationAction;
+import net.enthusia.staff.paper.config.ConfigurationValidationReport;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadAction;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
@@ -36,6 +38,8 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
     private static final String VERIFY_OPERATION = "verify";
     private static final String FULL_VERIFICATION_ARGUMENT = "full";
     private static final String RELOAD_OPERATION = "reload";
+    private static final String CONFIG_OPERATION = "config";
+    private static final String CONFIG_VALIDATE_ARGUMENT = "validate";
     private static final String SANCTION_OPERATION = "sanction";
     private static final String POLICY_V2_OPERATION = "policyv2";
     private static final String PUNISH_PERMISSION = "enthusiastaff.punish";
@@ -53,6 +57,11 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
     private volatile BooleanSupplier storagePublished = () -> false;
     private volatile SanctionLifecycleCommand sanctionLifecycle;
     private volatile PolicyV2ShadowAccess policyV2Shadow = PolicyV2ShadowAccess.disabled();
+    private volatile ConfigurationValidationAction configurationValidation = () ->
+            new ConfigurationValidationReport(
+                    List.of(),
+                    List.of("Versioned configuration validation is unavailable without the Paper runtime")
+            );
 
     public EstaffCommand(RuntimeHealth health) {
         this(
@@ -159,6 +168,10 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         policyV2Shadow = Objects.requireNonNull(access, "access");
     }
 
+    public void configureConfigurationValidation(ConfigurationValidationAction action) {
+        configurationValidation = Objects.requireNonNull(action, "action");
+    }
+
     @Override
     public boolean onCommand(
             @NotNull CommandSender sender,
@@ -166,6 +179,9 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             @NotNull String label,
             @NotNull String[] args
     ) {
+        if (args.length > 0 && args[0].equalsIgnoreCase(CONFIG_OPERATION)) {
+            return executeConfiguration(sender, label, args);
+        }
         SanctionLifecycleCommand lifecycle = sanctionLifecycle;
         if (args.length > 0 && args[0].equalsIgnoreCase(SANCTION_OPERATION) && lifecycle != null) {
             return lifecycle.execute(sender, label, args);
@@ -245,6 +261,20 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             }
             return List.of();
         }
+        if (args.length == FULL_VERIFICATION_ARGUMENTS && args[0].equalsIgnoreCase(CONFIG_OPERATION)) {
+            if (!allowedWithoutMessage(sender, RELOAD_PERMISSION)) {
+                return List.of();
+            }
+            String prefix = args[1].toLowerCase(Locale.ROOT);
+            List<String> matches = new ArrayList<>();
+            if (CONFIG_VALIDATE_ARGUMENT.startsWith(prefix)) {
+                matches.add(CONFIG_VALIDATE_ARGUMENT);
+            }
+            if (RELOAD_OPERATION.startsWith(prefix)) {
+                matches.add(RELOAD_OPERATION);
+            }
+            return List.copyOf(matches);
+        }
         if (args.length > SINGLE_ARGUMENT) {
             return List.of();
         }
@@ -253,6 +283,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         addCompletion(sender, matches, prefix, STATUS_OPERATION, STATUS_PERMISSION);
         addCompletion(sender, matches, prefix, VERIFY_OPERATION, VERIFY_PERMISSION);
         addCompletion(sender, matches, prefix, RELOAD_OPERATION, RELOAD_PERMISSION);
+        addCompletion(sender, matches, prefix, CONFIG_OPERATION, RELOAD_PERMISSION);
         if (lifecycle != null && SANCTION_OPERATION.startsWith(prefix)
                 && hasAnySanctionPermission(sender)) {
             matches.add(SANCTION_OPERATION);
@@ -262,6 +293,77 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             matches.add(POLICY_V2_OPERATION);
         }
         return List.copyOf(matches);
+    }
+
+    private boolean executeConfiguration(CommandSender sender, String label, String[] args) {
+        if (!requirePermission(
+                sender,
+                RELOAD_PERMISSION,
+                "You do not have permission to validate or reload EnthusiaStaff configuration."
+        )) {
+            return true;
+        }
+        if (args.length != FULL_VERIFICATION_ARGUMENTS) {
+            reportUsage(sender, label);
+            return true;
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if (action.equals(CONFIG_VALIDATE_ARGUMENT)) {
+            reportConfigurationValidation(sender);
+            return true;
+        }
+        if (action.equals(RELOAD_OPERATION)) {
+            dispatchReload(sender);
+            return true;
+        }
+        reportUsage(sender, label);
+        return true;
+    }
+
+    private void reportConfigurationValidation(CommandSender sender) {
+        ConfigurationValidationReport report;
+        try {
+            report = Objects.requireNonNull(
+                    configurationValidation.validate(),
+                    "configuration validation report"
+            );
+        } catch (RuntimeException exception) {
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(
+                        Level.WARNING,
+                        "Versioned configuration validation failed unexpectedly: "
+                                + exception.getClass().getSimpleName()
+                );
+            }
+            sender.sendMessage(StaffMessageStyle.error(
+                    "Configuration validation failed unexpectedly; no runtime state was changed."
+            ));
+            return;
+        }
+        if (report.valid()) {
+            sender.sendMessage(StaffMessageStyle.success(
+                    "Configuration validation passed; no runtime state was changed."
+            ));
+            for (ConfigurationValidationReport.Entry entry : report.entries()) {
+                sender.sendMessage(StaffMessageStyle.info(
+                        entry.source() + " • " + entry.version()
+                ));
+            }
+            return;
+        }
+        sender.sendMessage(StaffMessageStyle.error(
+                "Configuration validation failed; no runtime state was changed."
+        ));
+        int shown = Math.min(report.errors().size(), MAX_RELOAD_DETAILS);
+        for (int index = 0; index < shown; index++) {
+            sender.sendMessage(Component.text("  • ", NamedTextColor.DARK_GRAY)
+                    .append(Component.text(report.errors().get(index), NamedTextColor.GRAY)));
+        }
+        if (report.errors().size() > shown) {
+            sender.sendMessage(StaffMessageStyle.info(
+                    "Additional configuration errors were omitted from command output."
+            ));
+        }
     }
 
     private boolean executePolicyV2(CommandSender sender, String label, String[] args) {
@@ -347,8 +449,8 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
 
     private void reportUsage(CommandSender sender, String label) {
         String operations = policyV2Shadow.enabled()
-                ? "status|verify [full]|reload|sanction|policyv2 <player>"
-                : "status|verify [full]|reload|sanction";
+                ? "status|verify [full]|reload|config <validate|reload>|sanction|policyv2 <player>"
+                : "status|verify [full]|reload|config <validate|reload>|sanction";
         sender.sendMessage(StaffMessageStyle.usage("Usage: /" + label + " <" + operations + ">"));
     }
 
