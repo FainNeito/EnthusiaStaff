@@ -26,6 +26,16 @@ class JdaDiscordGatewayTest {
     }
 
     @Test
+    void DiscordIngressRequestsMessageIntentsOnlyWhenEnabled() {
+        assertEquals(
+                Set.of(GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT),
+                JdaDiscordGateway.gatewayIntents(false, true));
+        assertEquals(
+                Set.of(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT),
+                JdaDiscordGateway.gatewayIntents(true, true));
+    }
+
+    @Test
     void productionRoleSyncEnforcementIsRejectedWhileSafeModesRemainAllowed() {
         assertFalse(JdaDiscordGateway.roleSyncModeAllowed(
                 StaffBotEnvironment.PRODUCTION, DiscordRoleSyncConfiguration.Mode.ENFORCE));
