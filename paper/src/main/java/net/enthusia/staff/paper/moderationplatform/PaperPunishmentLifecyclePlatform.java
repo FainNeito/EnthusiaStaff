@@ -28,6 +28,7 @@ import net.enthusia.staff.moderation.api.PunishmentLifecycleSource;
 import net.enthusia.staff.persistence.UuidBytes;
 
 public final class PaperPunishmentLifecyclePlatform implements PunishmentLifecyclePlatform {
+    private static final int SNAPSHOT_QUERY_TIMEOUT_SECONDS = 45;
     private static final List<String> TERMINAL_STATUSES = List.of(
             "EXPIRED", "ENDED_EARLY", "REVOKED", "OVERTURNED"
     );
@@ -100,6 +101,7 @@ public final class PaperPunishmentLifecyclePlatform implements PunishmentLifecyc
         List<PunishmentLifecycleEvent> events = new ArrayList<>();
         try (Connection connection = current.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setQueryTimeout(snapshotQueryTimeoutSeconds());
             statement.setBytes(1, UuidBytes.toBytes(cursor.sanctionId()));
             statement.setInt(2, limit);
             try (ResultSet rows = statement.executeQuery()) {
@@ -170,6 +172,10 @@ public final class PaperPunishmentLifecyclePlatform implements PunishmentLifecyc
             return false;
         }
         return true;
+    }
+
+    static int snapshotQueryTimeoutSeconds() {
+        return SNAPSHOT_QUERY_TIMEOUT_SECONDS;
     }
 
     private static Optional<Instant> optionalInstant(Timestamp value) {

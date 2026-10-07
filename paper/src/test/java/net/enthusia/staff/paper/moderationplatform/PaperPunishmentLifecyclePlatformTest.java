@@ -45,6 +45,11 @@ class PaperPunishmentLifecyclePlatformTest {
     }
 
     @Test
+    void snapshotQueryTimeoutStaysBelowConsumerDeadline() {
+        assertEquals(45, PaperPunishmentLifecyclePlatform.snapshotQueryTimeoutSeconds());
+    }
+
+    @Test
     void unavailableStorageFailsAsynchronouslyAndLimitIsBounded() {
         ExecutorService workers = Executors.newSingleThreadExecutor();
         try {
