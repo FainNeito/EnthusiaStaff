@@ -21,8 +21,8 @@ import org.junit.jupiter.api.Timeout;
 class StaffBotChatIngressTest {
     private static final long NOW = 1_800_000_000_000L;
     private static final long CHANNEL_ID = 1541286004298752091L;
-    private static final String SOURCE_SERVER = SOURCE_SERVER;
-    private static final String LOGICAL_CHANNEL = LOGICAL_CHANNEL;
+    private static final String SOURCE_SERVER = "SMP";
+    private static final String LOGICAL_CHANNEL = "global";
     private static final int FIRST_DELIVERY = 1;
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
     private static final StaffBotChatBridgeConfiguration.Route ROUTE =
