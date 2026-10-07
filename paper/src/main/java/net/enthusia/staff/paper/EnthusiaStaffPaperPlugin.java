@@ -20,6 +20,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.discord.platform.api.ManagedRolePlatform;
+import net.enthusia.staff.moderation.api.PunishmentLifecyclePlatform;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.StaffRank;
@@ -46,6 +47,7 @@ import net.enthusia.staff.paper.config.reload.ConfigurationReloadAction;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadCoordinator;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
 import net.enthusia.staff.paper.discordplatform.PaperManagedRolePlatform;
+import net.enthusia.staff.paper.moderationplatform.PaperPunishmentLifecyclePlatform;
 import net.enthusia.staff.paper.enforcement.MuteEnforcementListener;
 import net.enthusia.staff.paper.integration.PolarSpectatorPhaseCompatibility;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
@@ -87,6 +89,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     private PaperOperationalTaskCoordinator operationalTasks;
     private PaperCommandBridgeRuntime commandBridge;
     private Optional<PaperManagedRolePlatform> managedRolePlatform = Optional.empty();
+    private Optional<PaperPunishmentLifecyclePlatform> punishmentLifecyclePlatform = Optional.empty();
 
     @Override
     public void onLoad() {
@@ -163,6 +166,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         }
         runtimeComponents.registerServices(this);
         registerManagedRolePlatform();
+        registerPunishmentLifecyclePlatform();
         if (policiesReady) {
             muteEnforcement = new MuteEnforcementListener(
                     this,
@@ -193,6 +197,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
 
     private void closeNonDatabaseResources() {
         PolarSpectatorPhaseCompatibility.close(this);
+        unregisterPunishmentLifecyclePlatform();
         unregisterManagedRolePlatform();
         resources.close("player activity tracker", getServer().getServicesManager().load(
                 net.enthusia.staff.paper.staff.PlayerActivityListener.class));
@@ -263,6 +268,27 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         managedRolePlatform.ifPresent(current ->
                 getServer().getServicesManager().unregister(ManagedRolePlatform.class, current));
         managedRolePlatform = Optional.empty();
+    }
+
+    private void registerPunishmentLifecyclePlatform() {
+        PaperPunishmentLifecyclePlatform current = new PaperPunishmentLifecyclePlatform(
+                () -> storageValue(bindings -> bindings.runtime().dataSource()),
+                workers,
+                Clock.systemUTC()
+        );
+        punishmentLifecyclePlatform = Optional.of(current);
+        getServer().getServicesManager().register(
+                PunishmentLifecyclePlatform.class,
+                current,
+                this,
+                ServicePriority.Normal
+        );
+    }
+
+    private void unregisterPunishmentLifecyclePlatform() {
+        punishmentLifecyclePlatform.ifPresent(current ->
+                getServer().getServicesManager().unregister(PunishmentLifecyclePlatform.class, current));
+        punishmentLifecyclePlatform = Optional.empty();
     }
 
     private Path dataDirectory() {
