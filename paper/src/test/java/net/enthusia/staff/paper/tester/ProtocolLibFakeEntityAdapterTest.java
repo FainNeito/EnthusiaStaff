@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.comphenix.protocol.PacketType;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
@@ -13,8 +12,11 @@ final class ProtocolLibFakeEntityAdapterTest {
     void presentButUnsupportedDedicatedPacketFallsBackToLegacyUseEntity() {
         AtomicBoolean supportChecked = new AtomicBoolean();
 
-        assertTrue(ProtocolLibFakeEntityAdapter.supportedPacketType(
-                PacketType.Play.Client.USE_ENTITY,
+        Object packetLikeValue = new Object();
+
+        assertTrue(ProtocolLibFakeEntityAdapter.supportedValue(
+                packetLikeValue,
+                Object.class,
                 ignored -> {
                     supportChecked.set(true);
                     return false;
@@ -25,11 +27,15 @@ final class ProtocolLibFakeEntityAdapterTest {
 
     @Test
     void supportedDedicatedPacketIsRetained() {
-        PacketType packet = PacketType.Play.Client.USE_ENTITY;
+        Object packetLikeValue = new Object();
 
         assertEquals(
-                packet,
-                ProtocolLibFakeEntityAdapter.supportedPacketType(packet, ignored -> true).orElseThrow()
+                packetLikeValue,
+                ProtocolLibFakeEntityAdapter.supportedValue(
+                        packetLikeValue,
+                        Object.class,
+                        ignored -> true
+                ).orElseThrow()
         );
     }
 

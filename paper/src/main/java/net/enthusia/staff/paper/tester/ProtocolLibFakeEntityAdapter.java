@@ -111,21 +111,24 @@ final class ProtocolLibFakeEntityAdapter implements FakeEntityAdapter {
     private static Optional<PacketType> dedicatedAttackPacket() {
         try {
             Object value = PacketType.Play.Client.class.getField("ATTACK").get(null);
-            return supportedPacketType(value, PacketType::isSupported);
+            return supportedValue(value, PacketType.class, PacketType::isSupported);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             return Optional.empty();
         }
     }
 
-    static Optional<PacketType> supportedPacketType(
+    static <T> Optional<T> supportedValue(
             Object value,
-            Predicate<PacketType> supported
+            Class<T> type,
+            Predicate<T> supported
     ) {
+        Objects.requireNonNull(type, "type");
         Objects.requireNonNull(supported, "supported");
-        if (!(value instanceof PacketType packet) || !supported.test(packet)) {
+        if (!type.isInstance(value)) {
             return Optional.empty();
         }
-        return Optional.of(packet);
+        T typedValue = type.cast(value);
+        return supported.test(typedValue) ? Optional.of(typedValue) : Optional.empty();
     }
 
     private static String actionName(
