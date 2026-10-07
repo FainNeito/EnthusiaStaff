@@ -127,6 +127,23 @@
 .browse-picker{min-width:0}
 .browse-picker>span{font-size:9px}
 .browse-picker select{min-height:32px;padding:6px 8px}
+.player-entry-actions{align-items:end}
+.player-entry-actions .browse-picker{min-width:180px}
+.player-picker-dialog{width:min(620px,calc(100vw - 28px));max-height:min(720px,calc(100vh - 28px));padding:0;border:1px solid #3a424f;border-radius:14px;background:var(--s);color:var(--t);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.player-picker-dialog::backdrop{background:rgba(3,5,8,.72);backdrop-filter:blur(4px)}
+.player-picker-frame{display:flex;flex-direction:column;max-height:min(720px,calc(100vh - 28px))}
+.player-picker-body{display:grid;gap:10px;padding:16px 20px;overflow:auto}
+.player-search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.player-search-row input{width:100%}
+.player-picker-results{display:grid;gap:7px;min-height:80px;max-height:430px;overflow:auto}
+.player-result{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:10px;width:100%;padding:9px 10px;border:1px solid var(--b);border-radius:10px;background:#14171c;color:var(--t);text-align:left}
+.player-result:hover,.player-result.current{border-color:rgba(112,133,255,.5);background:var(--as)}
+.player-result-avatar{width:36px;height:36px;display:grid;place-items:center;border-radius:50%;object-fit:cover;background:#34434f;font-size:10px;font-weight:800}
+.player-result-copy{display:grid;gap:2px;min-width:0}
+.player-result-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.player-result-copy small{color:var(--sub);font-size:9px}
+.player-result-action{color:#9eacff;font-size:9px;font-weight:700}
+.player-picker-footer{min-height:58px}
 .context-panel{gap:10px;padding:18px 14px 80px}
 .context-section{padding:12px}
 .compact-context .section-heading{margin-bottom:6px}
@@ -141,7 +158,7 @@
 .coverage-details{display:grid;gap:5px;padding:0 12px 10px;border-top:1px solid var(--b)}
 .coverage-details>div{padding-top:9px}
 .coverage-details p{margin:0;color:var(--m);font-size:11px;line-height:1.45}
-@media(max-width:820px){.browse-pickers{grid-template-columns:1fr;max-width:none}.target-header{padding:12px 14px}.context-panel{padding:14px}}
+@media(max-width:820px){.browse-pickers{grid-template-columns:1fr;max-width:none}.player-entry-actions{width:100%;align-items:stretch;flex-wrap:wrap}.player-entry-actions .browse-picker{flex:1 1 100%;min-width:0}.player-search-row{grid-template-columns:1fr}.target-header{padding:12px 14px}.context-panel{padding:14px}}
 
 /* Configured punishment catalog */
 .catalog-rules-link{margin:0 0 14px}
