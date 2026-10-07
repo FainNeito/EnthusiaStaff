@@ -322,13 +322,27 @@ public final class StaffBotRuntime implements AutoCloseable {
     }
 
     private void failClosed(String reason) {
-        chatLifecycle.ifPresent(StaffBotChatLifecycle::pause);
+        pauseChatQuietly();
         health.transition(StaffBotHealth.Phase.FAILED, reason);
         readiness.complete(false);
         gateway.shutdownNow();
         terminated.countDown();
         logIfEnabled(System.Logger.Level.ERROR,
                 "staff_bot_failed environment={0} reason={1}", configuration.environment().label(), reason);
+    }
+
+    private void pauseChatQuietly() {
+        if (chatLifecycle.isEmpty()) {
+            return;
+        }
+        try {
+            chatLifecycle.orElseThrow().pause();
+        } catch (RuntimeException exception) {
+            logIfEnabled(
+                    System.Logger.Level.WARNING,
+                    "staff_bot_chat_pause_failed type={0}",
+                    exception.getClass().getSimpleName());
+        }
     }
 
     private static StagingTunnel createTunnel(
@@ -388,7 +402,7 @@ public final class StaffBotRuntime implements AutoCloseable {
             if (closed.get() || health.failedEver()) {
                 return;
             }
-            chatLifecycle.ifPresent(StaffBotChatLifecycle::pause);
+            pauseChatQuietly();
             health.transition(StaffBotHealth.Phase.DISCONNECTED, "gateway_disconnected_reconnecting");
             logIfEnabled(System.Logger.Level.WARNING,
                     "staff_bot_gateway_disconnected environment={0}", configuration.environment().label());
@@ -403,7 +417,7 @@ public final class StaffBotRuntime implements AutoCloseable {
 
         @Override
         public void onShutdown() {
-            chatLifecycle.ifPresent(StaffBotChatLifecycle::pause);
+            pauseChatQuietly();
             if (!closed.get() && !health.failedEver()) {
                 health.transition(StaffBotHealth.Phase.FAILED, "gateway_shutdown_unexpected");
             }
