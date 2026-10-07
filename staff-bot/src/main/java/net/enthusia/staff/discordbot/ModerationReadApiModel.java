@@ -244,6 +244,7 @@ final class ModerationReadApiModel {
             Optional<String> replyToMessageId,
             Optional<ReplyPreviewDto> replyPreview,
             List<AttachmentDto> attachments,
+            List<MediaDto> media,
             boolean targetAuthor,
             boolean deletedKnown
     ) {
@@ -254,6 +255,7 @@ final class ModerationReadApiModel {
             replyToMessageId = replyToMessageId == null ? Optional.empty() : replyToMessageId;
             replyPreview = replyPreview == null ? Optional.empty() : replyPreview;
             attachments = List.copyOf(attachments);
+            media = List.copyOf(media);
         }
     }
 
@@ -279,6 +281,18 @@ final class ModerationReadApiModel {
 
     record AttachmentDto(String id, String fileName, Optional<String> contentType, long size, String url) {
         AttachmentDto {
+            contentType = contentType == null ? Optional.empty() : contentType;
+        }
+    }
+
+    record MediaDto(
+            String kind,
+            String url,
+            Optional<String> contentType,
+            int width,
+            int height
+    ) {
+        MediaDto {
             contentType = contentType == null ? Optional.empty() : contentType;
         }
     }

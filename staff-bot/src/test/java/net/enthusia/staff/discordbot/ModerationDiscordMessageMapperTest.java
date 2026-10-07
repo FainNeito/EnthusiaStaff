@@ -53,6 +53,19 @@ class ModerationDiscordMessageMapperTest {
     }
 
     @Test
+    void embedImageMediaIsProjectedForGifAndImageRendering() {
+        var embed = new EmbedBuilder()
+                .setImage("https://cdn.discordapp.com/attachments/1/2/animated.gif")
+                .build();
+
+        var media = ModerationDiscordMessageMapper.embedMedia(java.util.List.of(embed));
+
+        assertEquals(1, media.size());
+        assertEquals("image", media.getFirst().kind());
+        assertEquals("https://cdn.discordapp.com/attachments/1/2/animated.gif", media.getFirst().url());
+    }
+
+    @Test
     void rawMessageContentIsUsedBeforeEmbedFallback() {
         assertEquals(
                 "raw webhook content",

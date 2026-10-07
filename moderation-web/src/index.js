@@ -340,7 +340,7 @@ function secure(response, env) {
   headers.set('Pragma', 'no-cache');
   const readOrigin = runtimeEnvironment(env) === 'production'
     ? 'https://moderation-read.enthusia.info' : 'https://moderation-read-staging.enthusia.info';
-  headers.set('Content-Security-Policy', `default-src 'self'; img-src 'self' data: https://cdn.discordapp.com https://media.discordapp.net https://textures.minecraft.net https://enthusia.info; style-src 'self'; script-src 'self'; connect-src 'self' ${readOrigin}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
+  headers.set('Content-Security-Policy', `default-src 'self'; img-src 'self' data: https://cdn.discordapp.com https://media.discordapp.net https://textures.minecraft.net https://enthusia.info; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self'; script-src 'self'; connect-src 'self' ${readOrigin}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
   headers.set('Referrer-Policy', 'no-referrer');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY'); // nosemgrep: javascript.express.security.x-frame-options-misconfiguration.x-frame-options-misconfiguration
