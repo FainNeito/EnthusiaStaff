@@ -14,8 +14,8 @@ Paper and StaffBot intentionally require separate explicit configuration.
 `discord-chat-bridge.mode` accepts:
 
 - `DISABLED` — provider-neutral Discord chat transport is not installed.
-- `SHADOW` — replacement transport is installed but RoseChat's legacy DiscordSRV send stays live.
-- `AUTHORITATIVE` — replacement transport is installed and RoseChat's legacy Discord send is
+- `SHADOW` — replacement transport is installed but RoseChat's legacy DiscordSRV chat path stays live.
+- `AUTHORITATIVE` — replacement transport is installed and RoseChat's legacy Discord chat path is
   suppressed only after replacement readiness succeeds.
 
 For backward compatibility, if `mode` is omitted,
@@ -68,7 +68,7 @@ temporary rich-render compatibility provider must also be registered successfull
 Only after those readiness checks pass does EnthusiaStaff call RoseChat's
 `suppressLegacyDiscordChat()` registration.
 
-The registration affects only RoseChat's legacy Discord send. It does not disable:
+The registration affects only RoseChat's legacy Discord chat path. It does not disable:
 
 - RoseChat public chat;
 - Staff moderation/preflight;
@@ -78,7 +78,7 @@ The registration affects only RoseChat's legacy Discord send. It does not disabl
 - DiscordSRV itself or its unrelated features.
 
 The suppression registration is released **before** replacement bridge teardown or Paper channel
-unbind. Releasing it makes RoseChat's legacy Discord send eligible again.
+unbind. Releasing it makes RoseChat's legacy Discord chat path eligible again.
 
 ## Staging acceptance matrix
 
@@ -150,7 +150,7 @@ Rollback should favor restoring chat availability over preserving the new transp
 
 1. Set Paper chat mode to `SHADOW` or `DISABLED` and restart/apply through the normal deployment
    path. Closing/unbinding EnthusiaStaff releases the RoseChat legacy suppression registration.
-2. Confirm RoseChat's legacy Discord send is active again.
+2. Confirm RoseChat's legacy Discord chat path is active again.
 3. Set StaffBot chat mode to `DISABLED` after legacy delivery is confirmed.
 4. Keep the exact replacement route/config values available for diagnosis; do not delete logs or
    change multiple unrelated Discord systems simultaneously.
