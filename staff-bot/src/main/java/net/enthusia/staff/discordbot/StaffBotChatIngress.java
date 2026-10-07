@@ -97,8 +97,14 @@ final class StaffBotChatIngress implements AutoCloseable {
             return false;
         }
 
-        Long channelId = routes.get(new StaffBotChatBridgeConfiguration.Route(
-                message.sourceServerId(), message.logicalChannelId()));
+        final StaffBotChatBridgeConfiguration.Route route;
+        try {
+            route = new StaffBotChatBridgeConfiguration.Route(
+                    message.sourceServerId(), message.logicalChannelId());
+        } catch (IllegalArgumentException failure) {
+            return false;
+        }
+        Long channelId = routes.get(route);
         if (channelId == null) {
             return false;
         }
