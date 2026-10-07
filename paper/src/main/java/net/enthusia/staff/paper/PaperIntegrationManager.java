@@ -72,7 +72,6 @@ final class PaperIntegrationManager implements Listener {
     private static final String INTERACTIVE_CHAT_RENDERER = "interactivechat-rich-renderer";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
-    private static final String PMD_NULL_ASSIGNMENT = "PMD.NullAssignment";
     private static final long CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS = 20L;
     private static final List<CurrencyAssetSource> DEFAULT_REMOVAL_ORDER = List.of(
             CurrencyAssetSource.BANK,
@@ -89,11 +88,12 @@ final class PaperIntegrationManager implements Listener {
     private RoseChatOutboundRenderBridgeIntegration roseChatOutboundRender;
     private RoseChatInboundBridgeIntegration roseChatInbound;
     private InteractiveChatStagingArtifactProvider interactiveChatRenderer;
-    private LegacyDiscordChatSuppression.Registration legacyDiscordSuppression;
+    private final AtomicReference<LegacyDiscordChatSuppression.Registration> legacyDiscordSuppression =
+            new AtomicReference<>();
     private volatile DiscordChatBridgeMode activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
     private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
     private final AtomicLong chatPublishingReadyUntil = new AtomicLong();
-    private ScheduledTask chatAuthorityWatchdog;
+    private final AtomicReference<ScheduledTask> chatAuthorityWatchdog = new AtomicReference<>();
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
     private MuteCommandFallbackListener muteFallback;
     private boolean roseChatLifecycleRegistered;
@@ -340,13 +340,12 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     void closeChatBridge() {
         HandlerList.unregisterAll(this);
         roseChatLifecycleRegistered = false;
-        if (chatAuthorityWatchdog != null) {
-            chatAuthorityWatchdog.cancel();
-            chatAuthorityWatchdog = null;
+        ScheduledTask watchdog = chatAuthorityWatchdog.getAndSet(null);
+        if (watchdog != null) {
+            watchdog.cancel();
         }
         closeRoseChatIntegration();
         deactivateMuteFallback();
@@ -538,13 +537,17 @@ final class PaperIntegrationManager implements Listener {
             return;
         }
 
-        if (legacyDiscordSuppression != null) {
+        if (legacyDiscordSuppression.get() != null) {
             clearIssue(ROSECHAT_AUTHORITY);
             return;
         }
 
         try {
-            legacyDiscordSuppression = RoseChatAPI.getInstance().suppressLegacyDiscordChat();
+            LegacyDiscordChatSuppression.Registration acquired =
+                    RoseChatAPI.getInstance().suppressLegacyDiscordChat();
+            if (!legacyDiscordSuppression.compareAndSet(null, acquired)) {
+                resources.close("RoseChat redundant legacy Discord suppression", acquired);
+            }
             clearIssue(ROSECHAT_AUTHORITY);
         } catch (RuntimeException | LinkageError failure) {
             issue(
@@ -555,10 +558,9 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void releaseLegacyDiscordSuppression() {
-        resources.close("RoseChat legacy Discord suppression", legacyDiscordSuppression);
-        legacyDiscordSuppression = null;
+        LegacyDiscordChatSuppression.Registration suppression = legacyDiscordSuppression.getAndSet(null);
+        resources.close("RoseChat legacy Discord suppression", suppression);
     }
 
     static boolean authoritativeCutoverReady(
@@ -583,14 +585,14 @@ final class PaperIntegrationManager implements Listener {
     }
 
     private void startChatAuthorityWatchdog() {
-        if (chatAuthorityWatchdog != null) {
+        if (chatAuthorityWatchdog.get() != null) {
             return;
         }
-        chatAuthorityWatchdog = plugin().getServer().getGlobalRegionScheduler().runAtFixedRate(
+        ScheduledTask scheduled = plugin().getServer().getGlobalRegionScheduler().runAtFixedRate(
                 plugin(),
                 ignored -> {
                     if (activeChatBridgeMode.authoritative()
-                            && legacyDiscordSuppression != null
+                            && legacyDiscordSuppression.get() != null
                             && !chatPublishingReady()) {
                         reconcileRoseChatAuthority();
                     }
@@ -598,6 +600,9 @@ final class PaperIntegrationManager implements Listener {
                 CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS,
                 CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS
         );
+        if (!chatAuthorityWatchdog.compareAndSet(null, scheduled)) {
+            scheduled.cancel();
+        }
     }
 
     private void reconcileRoseChatCommands() {
@@ -613,7 +618,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     // Null is the explicit inactive state for these optional hot-reloadable provider slots.
-    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
+    @SuppressWarnings("PMD.NullAssignment")
     private void rollbackDiscordChatTransport() {
         releaseLegacyDiscordSuppression();
         chatPublishingReadyUntil.set(0L);
@@ -628,7 +633,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     // Null is the explicit inactive state for this optional hot-reloadable provider slot.
-    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
+    @SuppressWarnings("PMD.NullAssignment")
     private void closeRoseChatIntegration() {
         rollbackDiscordChatTransport();
         dependencies.players().vanish().clearPresenceTransitionSink();
@@ -645,7 +650,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     // Null is the explicit inactive state after the listener has been unregistered.
-    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
+    @SuppressWarnings("PMD.NullAssignment")
     private void deactivateMuteFallback() {
         if (muteFallback == null) {
             return;
@@ -687,7 +692,7 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
+    @SuppressWarnings("PMD.NullAssignment")
     private void closeInteractiveChatRenderer() {
         resources.close("InteractiveChat staging rich renderer", interactiveChatRenderer);
         interactiveChatRenderer = null;
