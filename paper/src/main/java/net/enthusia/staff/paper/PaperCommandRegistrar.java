@@ -52,6 +52,7 @@ import net.enthusia.staff.paper.config.ModerationFeatureSettings;
 import net.enthusia.staff.paper.config.ReloadableModerationFeatureSettings;
 import net.enthusia.staff.paper.config.ReportConfigurationRuntime;
 import net.enthusia.staff.paper.config.ReportConfigurationSnapshot;
+import net.enthusia.staff.paper.config.VersionedConfigurationValidator;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadAction;
 import net.enthusia.staff.paper.economy.EconomyCoordinator;
 import net.enthusia.staff.paper.freeze.FreezeManager;
@@ -111,6 +112,9 @@ final class PaperCommandRegistrar {
 
     private static void registerStatus(JavaPlugin plugin, RuntimeHealth health, EstaffCommand executor) {
         Objects.requireNonNull(health, "health");
+        executor.configureConfigurationValidation(
+                new VersionedConfigurationValidator(plugin.getDataFolder().toPath())
+        );
         PluginCommand command = Objects.requireNonNull(
                 plugin.getCommand("estaff"),
                 "estaff command is missing from plugin.yml"
