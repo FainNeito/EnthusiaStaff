@@ -522,7 +522,7 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
                 .orElseGet(() -> "[" + sourceServerId + "] ");
     }
 
-    private static String escapeDiscordMarkdown(String value) {
+    static String escapeDiscordMarkdown(String value) {
         if (value == null || value.isBlank()) {
             return "linked";
         }
