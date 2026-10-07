@@ -80,11 +80,12 @@ public final class RoseChatInboundBridgeIntegration implements AutoCloseable {
 
     public static Discovery discover(JavaPlugin plugin, String serverId, Clock clock) {
         try {
+            RoseChatAPI.class.getMethod("dispatchInboundChat", InboundChatMessage.class);
             return new Discovery(
                     Optional.of(new RoseChatInboundBridgeIntegration(plugin, serverId, clock)),
                     ""
             );
-        } catch (RuntimeException | LinkageError failure) {
+        } catch (NoSuchMethodException | RuntimeException | LinkageError failure) {
             return Discovery.unavailable(
                     "RoseChat inbound bridge API could not be installed: "
                             + failure.getClass().getSimpleName()
