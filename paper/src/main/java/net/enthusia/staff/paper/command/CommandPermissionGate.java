@@ -11,7 +11,12 @@ final class CommandPermissionGate {
     }
 
     static boolean require(CommandSender sender, String permission, String denialMessage) {
-        return require(sender, permission, Component.text(denialMessage));
+        Objects.requireNonNull(sender, "sender");
+        if (allows(sender::hasPermission, permission)) {
+            return true;
+        }
+        sender.sendMessage(StaffMessageStyle.error(denialMessage));
+        return false;
     }
 
     static boolean require(CommandSender sender, String permission, Component denialMessage) {
