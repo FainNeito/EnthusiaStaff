@@ -2,8 +2,8 @@ package net.enthusia.staff.paper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rosewood.rosechat.api.RoseChatAPI;
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import dev.rosewood.rosechat.api.chatbridge.LegacyDiscordChatSuppression;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
