@@ -8,8 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import net.enthusia.staff.domain.policyv2.PolicyV2RemedyBindingSpec;
 import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.domain.policyv2.PolicyAction;
+import net.enthusia.staff.domain.policyv2.enforcement.PolicyV2RemedyEnforcement.ConditionType;
+import net.enthusia.staff.domain.policyv2.enforcement.PolicyV2RemedyEnforcement.Scope;
 import net.enthusia.staff.domain.sanction.SanctionType;
 import org.junit.jupiter.api.Test;
 
@@ -109,6 +112,60 @@ class PolicyV2ConfigurationLoaderTest {
     }
 
     @Test
+    void remedyEnforcementBindingParsesAndValidatesAgainstW3BContract() {
+        String yaml = withRemedyEnforcement(
+                validConfiguration("shadow", POLICY_ONE, EXAMPLE_DISPLAY_NAME),
+                "scope: content",
+                "condition-type: manual"
+        );
+
+        PolicyV2RemedyBindingSpec binding = load(yaml)
+                .activeSnapshot().offenses().getFirst().rules().getFirst()
+                .remedies().getFirst().enforcementBinding().orElseThrow();
+
+        assertEquals(Scope.CONTENT, binding.scope());
+        assertEquals(ConditionType.MANUAL, binding.conditionType());
+    }
+
+    @Test
+    void incompatibleRemedyEnforcementBindingIsRejectedAtLoadTime() {
+        String invalid = withRemedyEnforcement(
+                validConfiguration("shadow", POLICY_ONE, EXAMPLE_DISPLAY_NAME),
+                "scope: market-access",
+                "condition-type: manual"
+        );
+
+        assertThrows(PolicyV2ConfigurationException.class, () -> load(invalid));
+    }
+
+    @Test
+    void remedyBindingDynamicAttributesMustBeDeclaredAndStringLike() {
+        String undeclared = withRemedyEnforcement(
+                validConfiguration("shadow", POLICY_ONE, EXAMPLE_DISPLAY_NAME),
+                "scope: network-access",
+                "condition-type: username",
+                "value-attribute-id: prohibited-username"
+        );
+        assertThrows(PolicyV2ConfigurationException.class, () -> load(undeclared));
+
+        String nonStringBase = validConfiguration("shadow", POLICY_ONE, EXAMPLE_DISPLAY_NAME)
+                .replace(
+                        "attribute-id: severity\n                            kind: enum",
+                        "attribute-id: prohibited-username\n                            kind: integer"
+                )
+                .replace("allowed-values: [low, high]", "minimum: 0\n                            maximum: 100")
+                .replace("severity: [high]", "prohibited-username: [10]");
+        String nonString = withRemedyEnforcement(
+                nonStringBase,
+                "scope: network-access",
+                "condition-type: username",
+                "value-attribute-id: prohibited-username"
+        );
+
+        assertThrows(PolicyV2ConfigurationException.class, () -> load(nonString));
+    }
+
+    @Test
     void invalidWholeSnapshotIsRejectedBeforePublication() {
         String invalid = validConfiguration("shadow", POLICY_ONE, EXAMPLE_DISPLAY_NAME)
                 .replace("chat.example: 1.0", "missing.offense: 1.0");
@@ -140,6 +197,16 @@ class PolicyV2ConfigurationLoaderTest {
                 .replace("mode: disabled", "mode: disabled\nowner-threshold: 7");
 
         assertThrows(PolicyV2ConfigurationException.class, () -> load(yaml));
+    }
+
+    private static String withRemedyEnforcement(String yaml, String... fields) {
+        String replacement = "$1description: \"Example only\"\n"
+                + "$1enforcement:\n"
+                + "$1  " + String.join("\n$1  ", fields);
+        return yaml.replaceFirst(
+                "(?m)^([ \\t]*)description: \"Example only\"$",
+                replacement
+        );
     }
 
     private PolicyV2Configuration load(String value) {
