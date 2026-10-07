@@ -468,26 +468,20 @@ final class PaperIntegrationManager implements Listener {
         }
 
         PersistentChannelClient currentChannel = chatChannel.get();
-        if (roseChatOutbound == null
-                || roseChatOutboundRender == null
-                || roseChatInbound == null
-                || currentChannel == null
-                || !currentChannel.connected()) {
-            issue(
-                    ROSECHAT_AUTHORITY,
-                    "Authoritative Discord chat is not ready; legacy Discord chat remains active"
-            );
-            return;
-        }
-
         boolean interactiveChatEnabled = plugin().getServer().getPluginManager()
                 .isPluginEnabled(InteractiveChatStagingArtifactProvider.INTERACTIVE_CHAT);
         boolean discordAddonEnabled = plugin().getServer().getPluginManager()
                 .isPluginEnabled(InteractiveChatStagingArtifactProvider.DISCORD_ADDON);
-        if (interactiveChatEnabled && discordAddonEnabled && interactiveChatRenderer == null) {
+        if (!authoritativeCutoverReady(
+                roseChatOutbound != null,
+                roseChatOutboundRender != null,
+                roseChatInbound != null,
+                currentChannel != null && currentChannel.connected(),
+                interactiveChatEnabled && discordAddonEnabled,
+                interactiveChatRenderer != null)) {
             issue(
                     ROSECHAT_AUTHORITY,
-                    "InteractiveChat rich renderer is not ready; legacy Discord chat remains active"
+                    "Authoritative Discord chat is not fully ready; legacy Discord chat remains active"
             );
             return;
         }
@@ -508,6 +502,21 @@ final class PaperIntegrationManager implements Listener {
     private void releaseLegacyDiscordSuppression() {
         resources.close("RoseChat legacy Discord suppression", legacyDiscordSuppression);
         legacyDiscordSuppression = null;
+    }
+
+    static boolean authoritativeCutoverReady(
+            boolean outboundReady,
+            boolean renderReady,
+            boolean inboundReady,
+            boolean channelConnected,
+            boolean interactiveCompatibilityRequired,
+            boolean interactiveRendererReady
+    ) {
+        return outboundReady
+                && renderReady
+                && inboundReady
+                && channelConnected
+                && (!interactiveCompatibilityRequired || interactiveRendererReady);
     }
 
     private void reconcileRoseChatCommands() {
