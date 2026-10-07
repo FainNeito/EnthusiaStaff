@@ -306,7 +306,7 @@ final class PaperIntegrationManager implements Listener {
         chatPublishingReadyUntil.set(health.ready() ? boundedExpiry : 0L);
         plugin().getServer().getGlobalRegionScheduler().execute(
                 plugin(),
-                ignored -> reconcileRoseChatAuthority()
+                this::reconcileRoseChatAuthority
         );
         return true;
     }
