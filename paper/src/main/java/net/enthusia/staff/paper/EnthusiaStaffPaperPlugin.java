@@ -1049,6 +1049,9 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         PaperPersistentChannelFactory.start(
                 channel,
                 (backendId, envelope) -> {
+                    if (net.enthusia.staff.protocol.ChatBridgeMessages.HEALTH.equals(envelope.messageType())) {
+                        return integrations.handleChatBridgeHealth(channel.proxyId(), envelope);
+                    }
                     if (net.enthusia.staff.protocol.ChatBridgeMessages.INBOUND.equals(envelope.messageType())) {
                         return integrations.handleInboundChat(channel.proxyId(), envelope);
                     }
