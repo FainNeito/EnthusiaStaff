@@ -4,13 +4,13 @@ This document is the concise feature index for future Enthusia documentation/wik
 
 ## Deployment / authority status
 
-EnthusiaStaff is currently **pre-release** on `main`. The latest production server-state snapshot does not contain an active `plugins/EnthusiaStaff/` deployment. LiteBans remains the production punishment authority until the Staff migration/shadow/cutover gates are completed.
+EnthusiaStaff is **live on the Enthusia Network** and remains under active development. Current `main` contains both deployed behavior and work that is still staged, shadow-only, provider-blocked, or awaiting hands-on acceptance. LiteBans has been removed from the current network; its migration/cutover documentation is retained as historical and compatibility material.
 
 Therefore:
 
-- the features below describe the implemented/target EnthusiaStaff runtime,
-- they must not be represented publicly as the current live moderation authority until cutover is recorded,
-- public punishment pages and appeals should be described as upcoming until the website/API deployment is confirmed.
+- the features below must be described according to their individual live/staged/planned status rather than calling the entire plugin pre-release,
+- merged code is not automatically proof that a feature has been deployed or accepted on every backend,
+- public punishment pages and appeals should still be described according to their actual website/API deployment state.
 
 ## Runtime shape
 
@@ -193,20 +193,15 @@ Until that website/API deployment is confirmed, future wiki generation should la
 
 Private reports, staff notes, sensitive evidence, protected identity data and internal case material must never be treated as public merely because a website API exists.
 
-## LiteBans migration and cutover
+## Historical LiteBans migration and cutover
 
-LiteBans remains authoritative until the migration program completes. The repository contains dedicated documentation for:
+LiteBans has been removed from the current Enthusia network. The repository retains the original migration, shadow-mode, cutover, and rollback documentation because it records important compatibility, recovery, and historical design constraints.
 
-- LiteBans import/migration,
-- shadow mode,
-- cutover,
-- rollback.
+Current documentation should not present LiteBans as the live production authority. Old ADRs, dated handoffs, validation reports, and legacy wiki snapshots may still contain that wording because they describe the state at the time.
 
-No build or documentation change itself performs production cutover. A future wiki should switch its wording from “planned” to “live” only when production authority has actually moved to EnthusiaStaff.
+## Player-facing impact
 
-## Player-facing impact after cutover
-
-Once active, the pieces ordinary players are expected to notice are primarily:
+For the corresponding live/enabled surfaces, the pieces ordinary players are expected to notice are primarily:
 
 - consistent punishment enforcement across the network,
 - warnings/mutes/bans/kicks from one system,
