@@ -184,8 +184,9 @@ final class AllFeatureSurfaceContractTest {
         assertGranted(permissions, RANK_HELPER, "enthusiastaff.staffmode");
         assertGranted(permissions, RANK_HELPER, "enthusiastaff.stafftools.teleport");
         assertGranted(permissions, RANK_HELPER, "enthusiastaff.stafftools.spectate");
-        assertGranted(permissions, RANK_HELPER, "enthusiastaff.vanish");
+        assertNotGranted(permissions, RANK_HELPER, "enthusiastaff.vanish");
         assertGranted(permissions, RANK_HELPER, "enthusiastaff.staffwho");
+        assertGranted(permissions, RANK_MOD, "enthusiastaff.vanish");
         assertGranted(permissions, RANK_MOD, "enthusiastaff.remove");
         assertGranted(permissions, RANK_MOD, "enthusiastaff.inventory.edit");
         assertGranted(permissions, RANK_MOD, "enthusiastaff.ai-review.queue");
@@ -252,6 +253,13 @@ final class AllFeatureSurfaceContractTest {
         markers.put("persistence/migrations", List.of("jdbc", "migration", "mariadb"));
         markers.put("Velocity runtime", List.of("velocity"));
         return Map.copyOf(markers);
+    }
+
+    private static void assertNotGranted(JsonNode permissions, String parent, String child) {
+        assertTrue(permissions.has(parent), parent);
+        assertTrue(permissions.has(child), child);
+        assertFalse(permissions.path(parent).path("children").path(child).asBoolean(),
+                parent + " must not grant " + child);
     }
 
     private static void assertGranted(JsonNode permissions, String parent, String child) {

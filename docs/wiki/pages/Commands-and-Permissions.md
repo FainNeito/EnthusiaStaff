@@ -257,6 +257,8 @@ enthusiastaff.inventory.edit
 enthusiastaff.inspect
 ```
 
+`enthusiastaff.vanish` is not granted by the Helper aggregate. Mod receives it explicitly (and Admin/Founder inherit it); Developer retains its separate grant. Runtime rank policy also rejects Helper vanish even if the node is granted directly.
+
 Target-side `stafftools.*-exempt` nodes are deliberate exemptions; do not assume operators are implicitly exempt.
 
 ### History / sanction authority

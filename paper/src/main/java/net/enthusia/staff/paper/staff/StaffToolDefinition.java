@@ -182,6 +182,9 @@ enum StaffToolDefinition {
         if (rank == null || rank == StaffRank.SYSTEM) {
             return false;
         }
+        if (this == VANISH && rank == StaffRank.HELPER) {
+            return false;
+        }
         return !advancedOnly || StaffModeAccessPolicy.hasAdvancedStaffTools(rank);
     }
 
