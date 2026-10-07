@@ -7,11 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.enthusia.staff.protocol.ChatBridgeArtifact;
+import net.enthusia.staff.protocol.ChatBridgeArtifactBundle;
 import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
 import net.enthusia.staff.protocol.ChatRenderMessages;
 import net.enthusia.staff.protocol.ProtocolEnvelope;
@@ -29,7 +32,7 @@ class StaffBotRenderedChatIngressTest {
     void requiresResumeAndRoutesStyledPayloadExactly() throws Exception {
         CountDownLatch delivered = new CountDownLatch(1);
         AtomicInteger sends = new AtomicInteger();
-        StaffBotRenderedChatIngress ingress = ingress((channelId, message) -> {
+        StaffBotRenderedChatIngress ingress = ingress((channelId, message, artifacts) -> {
             assertEquals(CHANNEL_ID, channelId);
             assertTrue(message.lineAdventureJson().contains("#12ABEF"));
             sends.incrementAndGet();
@@ -50,8 +53,52 @@ class StaffBotRenderedChatIngressTest {
     }
 
     @Test
+    void matchingCachedArtifactsAreConsumedIntoSingleRenderedDelivery() throws Exception {
+        StaffBotChatArtifactStore store = new StaffBotChatArtifactStore();
+        ChatBridgeRenderedMessage message = message(SOURCE_SERVER, "global", NOW + 30_000);
+        ChatBridgeArtifactBundle bundle = new ChatBridgeArtifactBundle(
+                message.eventId(),
+                NOW,
+                NOW + 30_000,
+                SOURCE_SERVER,
+                "global",
+                List.of(new ChatBridgeArtifact(
+                        ChatBridgeArtifact.Kind.ITEM,
+                        3,
+                        "Item.png",
+                        "image/png",
+                        "Shared item",
+                        new byte[] {1, 2, 3}
+                ))
+        );
+        assertTrue(store.put(bundle, NOW));
+
+        CountDownLatch delivered = new CountDownLatch(1);
+        AtomicInteger artifactCount = new AtomicInteger();
+        StaffBotRenderedChatIngress ingress = new StaffBotRenderedChatIngress(
+                Map.of(ROUTE, CHANNEL_ID),
+                8,
+                32,
+                CLOCK,
+                (channelId, rendered, artifacts) -> {
+                    artifactCount.set(artifacts.size());
+                    delivered.countDown();
+                    return true;
+                },
+                store
+        );
+        ingress.resume();
+
+        assertTrue(ingress.accept(envelope(message)));
+        assertTrue(delivered.await(2, TimeUnit.SECONDS));
+        assertEquals(1, artifactCount.get());
+        assertEquals(0, store.size());
+        ingress.close();
+    }
+
+    @Test
     void rejectsWrongProxyIdentityEventIdentityMalformedAndExpired() {
-        StaffBotRenderedChatIngress ingress = ingress((channelId, message) -> true);
+        StaffBotRenderedChatIngress ingress = ingress((channelId, message, artifacts) -> true);
         ingress.resume();
         ChatBridgeRenderedMessage valid = message(SOURCE_SERVER, "global", NOW + 30_000);
 
@@ -91,7 +138,7 @@ class StaffBotRenderedChatIngressTest {
                 8,
                 32,
                 Clock.fixed(Instant.ofEpochMilli(NOW + 30_001), ZoneOffset.UTC),
-                (channelId, message) -> true
+                (channelId, message, artifacts) -> true
         );
         expired.resume();
         assertFalse(expired.accept(envelope(message(SOURCE_SERVER, "global", NOW + 30_000))));
@@ -104,7 +151,7 @@ class StaffBotRenderedChatIngressTest {
     void duplicateIsAckedWithoutSecondDiscordDelivery() throws Exception {
         AtomicInteger sends = new AtomicInteger();
         CountDownLatch delivered = new CountDownLatch(1);
-        StaffBotRenderedChatIngress ingress = ingress((channelId, message) -> {
+        StaffBotRenderedChatIngress ingress = ingress((channelId, message, artifacts) -> {
             sends.incrementAndGet();
             delivered.countDown();
             return true;

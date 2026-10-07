@@ -17,9 +17,12 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import net.enthusia.staff.protocol.ChatArtifactMessages;
+import net.enthusia.staff.protocol.ChatBridgeArtifactBundle;
 import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
 import net.enthusia.staff.protocol.ChatRenderMessages;
 import net.enthusia.staff.protocol.PersistentChannelClient;
+import org.bukkit.plugin.java.JavaPlugin;
 
 /**
  * Styled RoseChat -> authenticated network relay.
@@ -49,14 +52,20 @@ public final class RoseChatOutboundRenderBridgeIntegration implements AutoClosea
     private final Clock clock;
     private final AtomicReference<ChannelBinding> channel = new AtomicReference<>();
     private final ThreadPoolExecutor sender;
+    private final RichChatArtifactService artifacts;
     private final OutboundChatRenderBridgeCoordinator.Registration registration;
 
-    private RoseChatOutboundRenderBridgeIntegration(String sourceServerId, Clock clock) {
+    private RoseChatOutboundRenderBridgeIntegration(
+            JavaPlugin plugin,
+            String sourceServerId,
+            Clock clock
+    ) {
         this(
                 sourceServerId,
                 clock,
                 bridge -> RoseChatAPI.getInstance().installOutboundChatRenderBridge(bridge),
-                MAXIMUM_QUEUED_MESSAGES
+                MAXIMUM_QUEUED_MESSAGES,
+                RichChatArtifactService.forPlugin(plugin, clock)
         );
     }
 
@@ -66,8 +75,25 @@ public final class RoseChatOutboundRenderBridgeIntegration implements AutoClosea
             Function<OutboundChatRenderBridge, OutboundChatRenderBridgeCoordinator.Registration> installer,
             int queueCapacity
     ) {
+        this(
+                sourceServerId,
+                clock,
+                installer,
+                queueCapacity,
+                RichChatArtifactService.forTest(() -> null, clock)
+        );
+    }
+
+    RoseChatOutboundRenderBridgeIntegration(
+            String sourceServerId,
+            Clock clock,
+            Function<OutboundChatRenderBridge, OutboundChatRenderBridgeCoordinator.Registration> installer,
+            int queueCapacity,
+            RichChatArtifactService artifacts
+    ) {
         this.sourceServerId = requireText(sourceServerId, "sourceServerId");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         Objects.requireNonNull(installer, "installer");
         if (queueCapacity < 1) {
             throw new IllegalArgumentException("styled chat relay queue capacity must be positive");
@@ -93,14 +119,22 @@ public final class RoseChatOutboundRenderBridgeIntegration implements AutoClosea
         }
     }
 
-    public static Discovery discoverAndInstall(String sourceServerId, Clock clock) {
+    public static Discovery discoverAndInstall(
+            JavaPlugin plugin,
+            String sourceServerId,
+            Clock clock
+    ) {
         try {
             RoseChatAPI.class.getMethod(
                     "installOutboundChatRenderBridge",
                     OutboundChatRenderBridge.class
             );
             return new Discovery(
-                    Optional.of(new RoseChatOutboundRenderBridgeIntegration(sourceServerId, clock)),
+                    Optional.of(new RoseChatOutboundRenderBridgeIntegration(
+                            plugin,
+                            sourceServerId,
+                            clock
+                    )),
                     ""
             );
         } catch (NoSuchMethodException | RuntimeException | LinkageError failure) {
@@ -198,9 +232,14 @@ public final class RoseChatOutboundRenderBridgeIntegration implements AutoClosea
             ChatBridgeRenderedMessage message,
             String payload
     ) {
-        if (channel.get() != expected
-                || !expected.connected().getAsBoolean()
-                || message.isExpired(clock.millis())) {
+        if (!canSend(expected, message)) {
+            return;
+        }
+
+        artifacts.render(sourceServerId, message).ifPresent(bundle ->
+                sendArtifacts(expected, message, bundle));
+
+        if (!canSend(expected, message)) {
             return;
         }
         expected.sender().send(
@@ -209,6 +248,35 @@ public final class RoseChatOutboundRenderBridgeIntegration implements AutoClosea
                 payload,
                 ACK_TIMEOUT
         );
+    }
+
+    private void sendArtifacts(
+            ChannelBinding expected,
+            ChatBridgeRenderedMessage message,
+            ChatBridgeArtifactBundle bundle
+    ) {
+        if (!canSend(expected, message)) {
+            return;
+        }
+        try {
+            expected.sender().send(
+                    ChatArtifactMessages.transportMessageId(message.eventId()),
+                    ChatArtifactMessages.ARTIFACTS,
+                    ChatArtifactMessages.encode(bundle),
+                    ACK_TIMEOUT
+            );
+        } catch (IllegalArgumentException ignored) {
+            // Oversize/invalid optional artifacts degrade to the normal styled text frame.
+        }
+    }
+
+    private boolean canSend(
+            ChannelBinding expected,
+            ChatBridgeRenderedMessage message
+    ) {
+        return channel.get() == expected
+                && expected.connected().getAsBoolean()
+                && !message.isExpired(clock.millis());
     }
 
     @Override

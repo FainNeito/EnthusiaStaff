@@ -11,11 +11,16 @@ import dev.rosewood.rosechat.api.staff.ChannelClassification;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import net.enthusia.staff.api.chat.RichChatArtifact;
+import net.enthusia.staff.protocol.ChatArtifactMessages;
 import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
 import net.enthusia.staff.protocol.ChatRenderMessages;
 import org.junit.jupiter.api.Test;
@@ -66,6 +71,63 @@ class RoseChatOutboundRenderBridgeIntegrationTest {
 
         integration.close();
         assertTrue(registrationClosed.get());
+    }
+
+    @Test
+    void artifactBundleIsAckedBeforeMatchingRenderedFrame() throws Exception {
+        AtomicReference<OutboundChatRenderBridge> installed = new AtomicReference<>();
+        RichChatArtifactService artifacts = RichChatArtifactService.forTest(
+                () -> request -> CompletableFuture.completedFuture(List.of(
+                        new RichChatArtifact(
+                                RichChatArtifact.Kind.ITEM,
+                                4,
+                                "Item.png",
+                                "image/png",
+                                "Shared item",
+                                new byte[] {1, 2, 3}
+                        )
+                )),
+                CLOCK
+        );
+        RoseChatOutboundRenderBridgeIntegration integration = new RoseChatOutboundRenderBridgeIntegration(
+                "SMP",
+                CLOCK,
+                bridge -> {
+                    installed.set(bridge);
+                    return () -> { };
+                },
+                8,
+                artifacts
+        );
+
+        List<String> deliveredTypes = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<UUID> deliveredIds = java.util.Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch delivered = new CountDownLatch(2);
+        integration.bindChannelForTest(
+                new Object(),
+                () -> true,
+                (id, type, payload, timeout) -> {
+                    deliveredIds.add(id);
+                    deliveredTypes.add(type);
+                    delivered.countDown();
+                    return true;
+                }
+        );
+
+        RenderedOutboundChatMessage rendered = rendered();
+        installed.get().publish(rendered);
+
+        assertTrue(delivered.await(2, TimeUnit.SECONDS));
+        assertEquals(
+                List.of(ChatArtifactMessages.ARTIFACTS, ChatRenderMessages.RENDERED),
+                deliveredTypes
+        );
+        assertEquals(
+                ChatArtifactMessages.transportMessageId(rendered.message().eventId()),
+                deliveredIds.getFirst()
+        );
+        assertEquals(rendered.message().eventId(), deliveredIds.get(1));
+        integration.close();
     }
 
     @Test

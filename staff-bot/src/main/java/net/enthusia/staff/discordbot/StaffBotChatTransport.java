@@ -24,6 +24,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
     private static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
 
     private final StaffBotChatIngress ingress;
+    private final StaffBotChatArtifactIngress artifactIngress;
     private final StaffBotRenderedChatIngress renderedIngress;
     private final Map<Long, StaffBotChatBridgeConfiguration.Route> ingressRoutes;
     private final PersistentChannelClient client;
@@ -35,12 +36,14 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
 
     private StaffBotChatTransport(
             StaffBotChatIngress ingress,
+            StaffBotChatArtifactIngress artifactIngress,
             StaffBotRenderedChatIngress renderedIngress,
             Map<Long, StaffBotChatBridgeConfiguration.Route> ingressRoutes,
             PersistentChannelClient client,
             int queueCapacity
     ) {
         this.ingress = Objects.requireNonNull(ingress, "ingress");
+        this.artifactIngress = Objects.requireNonNull(artifactIngress, "artifactIngress");
         this.renderedIngress = Objects.requireNonNull(renderedIngress, "renderedIngress");
         this.ingressRoutes = Map.copyOf(Objects.requireNonNull(ingressRoutes, "ingressRoutes"));
         this.client = Objects.requireNonNull(client, "client");
@@ -73,10 +76,17 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
                 Clock.systemUTC(),
                 egress
         );
+        StaffBotChatArtifactStore artifactStore = new StaffBotChatArtifactStore();
+        StaffBotChatArtifactIngress artifactIngress = new StaffBotChatArtifactIngress(
+                configuration,
+                Clock.systemUTC(),
+                artifactStore
+        );
         StaffBotRenderedChatIngress renderedIngress = new StaffBotRenderedChatIngress(
                 configuration,
                 Clock.systemUTC(),
-                renderedEgress
+                renderedEgress,
+                artifactStore
         );
         try {
             SSLContext tls = tlsContext(configuration);
@@ -91,11 +101,14 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
                             tls
                     ),
                     Clock.systemUTC(),
-                    envelope -> ingress.accept(envelope) || renderedIngress.accept(envelope),
+                    envelope -> artifactIngress.accept(envelope)
+                            || ingress.accept(envelope)
+                            || renderedIngress.accept(envelope),
                     StaffBotChatTransport::connectionState
             );
             return new StaffBotChatTransport(
                     ingress,
+                    artifactIngress,
                     renderedIngress,
                     configuration.ingressRoutes(),
                     client,
@@ -103,6 +116,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
             );
         } catch (RuntimeException failure) {
             renderedIngress.close();
+            artifactIngress.close();
             ingress.close();
             throw failure;
         }
@@ -130,6 +144,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
             generation.incrementAndGet();
             acceptingDiscord.set(true);
             ingress.resume();
+            artifactIngress.resume();
             renderedIngress.resume();
         }
     }
@@ -140,6 +155,7 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
         generation.incrementAndGet();
         discordSender.getQueue().clear();
         ingress.pause();
+        artifactIngress.pause();
         renderedIngress.pause();
     }
 
@@ -195,12 +211,14 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
             return;
         }
         ingress.pause();
+        artifactIngress.pause();
         renderedIngress.pause();
         acceptingDiscord.set(false);
         generation.incrementAndGet();
         discordSender.shutdownNow();
         client.close();
         renderedIngress.close();
+        artifactIngress.close();
         ingress.close();
     }
 
