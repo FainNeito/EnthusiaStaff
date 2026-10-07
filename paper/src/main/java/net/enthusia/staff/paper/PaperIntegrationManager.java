@@ -462,8 +462,8 @@ final class PaperIntegrationManager implements Listener {
     }
 
     private void reconcileRoseChatAuthority() {
-        releaseLegacyDiscordSuppression();
         if (!activeChatBridgeMode.authoritative()) {
+            releaseLegacyDiscordSuppression();
             clearIssue(ROSECHAT_AUTHORITY);
             return;
         }
@@ -480,10 +480,16 @@ final class PaperIntegrationManager implements Listener {
                 currentChannel != null && currentChannel.connected(),
                 interactiveChatEnabled,
                 richArtifactProviderReady)) {
+            releaseLegacyDiscordSuppression();
             issue(
                     ROSECHAT_AUTHORITY,
-                    "Authoritative Discord chat is not fully ready; legacy Discord chat remains active"
+                    "Authoritative Discord chat is not fully ready; legacy Discord chat path remains active"
             );
+            return;
+        }
+
+        if (legacyDiscordSuppression != null) {
+            clearIssue(ROSECHAT_AUTHORITY);
             return;
         }
 
@@ -510,14 +516,14 @@ final class PaperIntegrationManager implements Listener {
             boolean renderReady,
             boolean inboundReady,
             boolean channelConnected,
-            boolean interactiveCompatibilityRequired,
-            boolean interactiveRendererReady
+            boolean richArtifactsRequired,
+            boolean richArtifactProviderReady
     ) {
         return outboundReady
                 && renderReady
                 && inboundReady
                 && channelConnected
-                && (!interactiveCompatibilityRequired || interactiveRendererReady);
+                && (!richArtifactsRequired || richArtifactProviderReady);
     }
 
     private void reconcileRoseChatCommands() {
