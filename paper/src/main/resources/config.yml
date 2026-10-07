@@ -145,9 +145,20 @@ rosechat:
   private-channels: []
 
 discord-chat-bridge:
-  # Migration-only dual-publish path. Keep false until the Velocity/StaffBot relay is staged.
-  # DiscordSRV remains the live Minecraft <-> Discord chat transport while this is enabled.
+  # Explicit migration authority mode. Add/uncomment only after the corresponding StaffBot
+  # environment has been configured and validated.
+  # mode: DISABLED
+  #
+  # SHADOW installs the provider-neutral bridge while RoseChat's legacy DiscordSRV send remains
+  # active. AUTHORITATIVE installs the same replacement bridge and, only after all required
+  # replacement surfaces are ready, suppresses RoseChat's legacy DiscordSRV send.
+  #
+  # Backward-compatible staging fallback: when mode is omitted, shadow-enabled=true selects SHADOW.
   shadow-enabled: false
+  #
+  # Required only for mode: AUTHORITATIVE. This acknowledgement is intentionally local to Paper;
+  # StaffBot production has a separate explicit environment acknowledgement.
+  # authoritative-cutover-ack: false
 
 channel:
   enabled: false
