@@ -204,7 +204,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             if (requirePermission(
                     sender,
                     STATUS_PERMISSION,
-                    message(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED)
+                    messageComponent(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED)
             )) {
                 reportUsage(sender, label);
             }
@@ -230,7 +230,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
                 if (requirePermission(
                         sender,
                         DIAGNOSTICS_PERMISSION,
-                        message(MessageKey.ESTAFF_DIAGNOSTICS_PERMISSION_DENIED)
+                        messageComponent(MessageKey.ESTAFF_DIAGNOSTICS_PERMISSION_DENIED)
                 )) {
                     reportFullVerification(sender);
                 }
@@ -307,7 +307,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         if (!requirePermission(
                 sender,
                 RELOAD_PERMISSION,
-                message(MessageKey.ESTAFF_CONFIG_PERMISSION_DENIED)
+                messageComponent(MessageKey.ESTAFF_CONFIG_PERMISSION_DENIED)
         )) {
             return true;
         }
@@ -344,13 +344,13 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
                 );
             }
             sender.sendMessage(StaffMessageStyle.error(
-                    message(MessageKey.ESTAFF_CONFIG_VALIDATION_UNEXPECTED)
+                    messageComponent(MessageKey.ESTAFF_CONFIG_VALIDATION_UNEXPECTED)
             ));
             return;
         }
         if (report.valid()) {
             sender.sendMessage(StaffMessageStyle.success(
-                    message(MessageKey.ESTAFF_CONFIG_VALIDATION_PASSED)
+                    messageComponent(MessageKey.ESTAFF_CONFIG_VALIDATION_PASSED)
             ));
             for (ConfigurationValidationReport.Entry entry : report.entries()) {
                 sender.sendMessage(StaffMessageStyle.info(
@@ -360,7 +360,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             return;
         }
         sender.sendMessage(StaffMessageStyle.error(
-                message(MessageKey.ESTAFF_CONFIG_VALIDATION_FAILED)
+                messageComponent(MessageKey.ESTAFF_CONFIG_VALIDATION_FAILED)
         ));
         int shown = Math.min(report.errors().size(), MAX_RELOAD_DETAILS);
         for (int index = 0; index < shown; index++) {
@@ -369,7 +369,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         }
         if (report.errors().size() > shown) {
             sender.sendMessage(StaffMessageStyle.info(
-                    message(MessageKey.ESTAFF_CONFIG_ERRORS_OMITTED)
+                    messageComponent(MessageKey.ESTAFF_CONFIG_ERRORS_OMITTED)
             ));
         }
     }
@@ -378,7 +378,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         if (!requirePermission(
                 sender,
                 PUNISH_PERMISSION,
-                message(MessageKey.ESTAFF_POLICY_V2_PERMISSION_DENIED)
+                messageComponent(MessageKey.ESTAFF_POLICY_V2_PERMISSION_DENIED)
         )) {
             return true;
         }
@@ -391,6 +391,10 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
     }
 
     static boolean requirePermission(CommandSender sender, String permission, String denialMessage) {
+        return requirePermission(sender, permission, Component.text(denialMessage));
+    }
+
+    static boolean requirePermission(CommandSender sender, String permission, Component denialMessage) {
         if (permission != null && !permission.isBlank() && sender instanceof ConsoleCommandSender) {
             return true;
         }
@@ -405,11 +409,11 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         );
         if (dispatch == ReloadDispatch.SCHEDULED) {
             sender.sendMessage(StaffMessageStyle.warning(
-                    message(MessageKey.ESTAFF_RELOAD_SCHEDULED)
+                    messageComponent(MessageKey.ESTAFF_RELOAD_SCHEDULED)
             ));
         } else if (dispatch == ReloadDispatch.REJECTED) {
             sender.sendMessage(StaffMessageStyle.error(
-                    message(MessageKey.ESTAFF_RELOAD_REJECTED)
+                    messageComponent(MessageKey.ESTAFF_RELOAD_REJECTED)
             ));
         }
     }
@@ -417,14 +421,14 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
     private void reportStatus(CommandSender sender) {
         RuntimeHealth.Snapshot snapshot = health.snapshot();
         sender.sendMessage(StaffMessageStyle.modeHeader(
-                message(MessageKey.ESTAFF_STATUS_TITLE),
+                messageComponent(MessageKey.ESTAFF_STATUS_TITLE),
                 snapshot.mode()
         ));
         if (snapshot.issues().isEmpty()) {
             sender.sendMessage(StaffMessageStyle.statusRow(
-                    message(MessageKey.ESTAFF_STATUS_RUNTIME_LABEL),
-                    message(MessageKey.ESTAFF_STATUS_HEALTHY),
-                    message(MessageKey.ESTAFF_STATUS_NO_ISSUES),
+                    messageComponent(MessageKey.ESTAFF_STATUS_RUNTIME_LABEL),
+                    messageComponent(MessageKey.ESTAFF_STATUS_HEALTHY),
+                    messageComponent(MessageKey.ESTAFF_STATUS_NO_ISSUES),
                     StaffMessageStyle.Tone.SUCCESS
             ));
             return;
@@ -438,9 +442,9 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(StaffMessageStyle.statusRow(
                     humanLabel(issue.getKey()),
                     tone == StaffMessageStyle.Tone.ERROR
-                            ? message(MessageKey.ESTAFF_STATUS_BLOCKED)
-                            : message(MessageKey.ESTAFF_STATUS_DISABLED),
-                    issue.getValue(),
+                            ? messageComponent(MessageKey.ESTAFF_STATUS_BLOCKED)
+                            : messageComponent(MessageKey.ESTAFF_STATUS_DISABLED),
+                    Component.text(issue.getValue()),
                     tone
             ));
         }
@@ -455,7 +459,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         } catch (RuntimeException exception) {
             LOGGER.log(Level.WARNING, "Full EnthusiaStaff verification failed", exception);
             sender.sendMessage(StaffMessageStyle.error(
-                    message(MessageKey.ESTAFF_FULL_VERIFICATION_FAILED)
+                    messageComponent(MessageKey.ESTAFF_FULL_VERIFICATION_FAILED)
             ));
         }
     }
@@ -464,10 +468,10 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         String operations = policyV2Shadow.enabled()
                 ? "status|verify [full]|reload|config <validate|reload>|sanction|policyv2 <player>"
                 : "status|verify [full]|reload|config <validate|reload>|sanction";
-        sender.sendMessage(StaffMessageStyle.usage(message(
+        sender.sendMessage(messageComponent(
                 MessageKey.ESTAFF_USAGE,
-                Map.of("label", label, "operations", operations)
-        )));
+                Map.of("label", label, "operations", "<" + operations + ">")
+        ));
     }
 
     private void reportReload(CommandSender sender, ConfigurationReloadResult result) {
@@ -484,11 +488,11 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         }
         if (result.details().size() > shown) {
             sender.sendMessage(StaffMessageStyle.info(
-                    message(MessageKey.ESTAFF_RELOAD_DETAILS_OMITTED)
+                    messageComponent(MessageKey.ESTAFF_RELOAD_DETAILS_OMITTED)
             ));
         }
         if (result.reasonPoliciesReloaded()) {
-            sender.sendMessage(StaffMessageStyle.success(message(MessageKey.ESTAFF_REASON_POLICIES_RELOADED)));
+            sender.sendMessage(StaffMessageStyle.success(messageComponent(MessageKey.ESTAFF_REASON_POLICIES_RELOADED)));
         }
     }
 
@@ -499,7 +503,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             } catch (RuntimeException exception) {
                 LOGGER.log(Level.WARNING, "Successful reload hook failed", exception);
                 sender.sendMessage(StaffMessageStyle.warning(
-                        message(MessageKey.ESTAFF_PRESENTATION_HOOK_FAILED)
+                        messageComponent(MessageKey.ESTAFF_PRESENTATION_HOOK_FAILED)
                 ));
             }
         }
@@ -538,28 +542,28 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         };
     }
 
-    private String denialMessage(String operation) {
+    private Component denialMessage(String operation) {
         return switch (operation) {
-            case VERIFY_OPERATION -> message(MessageKey.ESTAFF_VERIFY_PERMISSION_DENIED);
-            case RELOAD_OPERATION -> message(MessageKey.ESTAFF_RELOAD_PERMISSION_DENIED);
-            default -> message(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED);
+            case VERIFY_OPERATION -> messageComponent(MessageKey.ESTAFF_VERIFY_PERMISSION_DENIED);
+            case RELOAD_OPERATION -> messageComponent(MessageKey.ESTAFF_RELOAD_PERMISSION_DENIED);
+            default -> messageComponent(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED);
         };
     }
 
-    private String humanLabel(String value) {
+    private Component humanLabel(String value) {
         String normalized = value == null ? "" : value.trim().replace('-', ' ').replace('_', ' ');
         if (normalized.isBlank()) {
-            return message(MessageKey.ESTAFF_STATUS_RUNTIME_LABEL);
+            return messageComponent(MessageKey.ESTAFF_STATUS_RUNTIME_LABEL);
         }
-        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
+        return Component.text(Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1));
     }
 
-    private String message(MessageKey key) {
-        return Objects.requireNonNull(messages.get(), "message catalog").text(key);
+    private Component messageComponent(MessageKey key) {
+        return Objects.requireNonNull(messages.get(), "message catalog").component(key);
     }
 
-    private String message(MessageKey key, Map<String, ?> values) {
-        return Objects.requireNonNull(messages.get(), "message catalog").render(key, values);
+    private Component messageComponent(MessageKey key, Map<String, ?> values) {
+        return Objects.requireNonNull(messages.get(), "message catalog").component(key, values);
     }
 
     enum ReloadDispatch {

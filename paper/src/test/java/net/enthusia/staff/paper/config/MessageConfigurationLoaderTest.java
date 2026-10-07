@@ -1,6 +1,7 @@
 package net.enthusia.staff.paper.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -9,9 +10,14 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
 import org.junit.jupiter.api.Test;
 
 class MessageConfigurationLoaderTest {
+    private static final String USAGE_LINE =
+            "    usage: \"<gray>Usage: <aqua>/{label} {operations}</aqua></gray>\"";
+
     private final MessageConfigurationLoader loader = new MessageConfigurationLoader();
 
     @Test
@@ -25,24 +31,56 @@ class MessageConfigurationLoaderTest {
         );
         assertEquals(
                 "Usage: /estaff <status|reload>",
-                snapshot.catalog().render(
+                text(snapshot.catalog().component(
                         MessageKey.ESTAFF_USAGE,
-                        Map.of("label", "estaff", "operations", "status|reload")
-                )
+                        Map.of("label", "estaff", "operations", "<status|reload>")
+                ))
         );
     }
 
     @Test
-    void placeholderValuesAreInsertedLiterally() throws IOException {
-        MessageConfigurationSnapshot snapshot = load(shippedYaml());
+    void safeMiniMessageFormattingIsAccepted() throws IOException {
+        String yaml = shippedYaml().replace(
+                "      validation-passed: \"Configuration validation passed; no runtime state was changed.\"",
+                "      validation-passed: \"<gold><bold>Configuration looks good.</bold></gold>\""
+        );
+
+        MessageConfigurationSnapshot snapshot = load(yaml);
 
         assertEquals(
-                "Usage: /$1\\staff <status\\reload>",
-                snapshot.catalog().render(
-                        MessageKey.ESTAFF_USAGE,
-                        Map.of("label", "$1\\staff", "operations", "status\\reload")
-                )
+                "Configuration looks good.",
+                text(snapshot.catalog().component(MessageKey.ESTAFF_CONFIG_VALIDATION_PASSED))
         );
+    }
+
+    @Test
+    void interactiveMiniMessageTagsAreRejected() throws IOException {
+        String yaml = shippedYaml().replace(
+                "      validation-passed: \"Configuration validation passed; no runtime state was changed.\"",
+                "      validation-passed: \"<click:run_command:'/op @s'>unsafe</click>\""
+        );
+
+        ConfigurationValidationException failure = assertThrows(
+                ConfigurationValidationException.class,
+                () -> load(yaml)
+        );
+
+        assertTrue(failure.getMessage().contains("unsupported MiniMessage tag"));
+    }
+
+    @Test
+    void placeholderValuesAreInsertedLiterallyWithoutInteractiveEvents() throws IOException {
+        MessageConfigurationSnapshot snapshot = load(shippedYaml());
+        String label = "$1\\staff<red>";
+        String operations = "<click:run_command:'/op @s'>status</click>";
+
+        Component rendered = snapshot.catalog().component(
+                MessageKey.ESTAFF_USAGE,
+                Map.of("label", label, "operations", operations)
+        );
+
+        assertEquals("Usage: /" + label + " " + operations, text(rendered));
+        assertFalse(hasClickEvent(rendered));
     }
 
     @Test
@@ -63,8 +101,8 @@ class MessageConfigurationLoaderTest {
     @Test
     void unknownMessageKeyIsRejected() throws IOException {
         String yaml = shippedYaml().replace(
-                "    usage: \"Usage: /{label} <{operations}>\"\n",
-                "    usage: \"Usage: /{label} <{operations}>\"\n"
+                USAGE_LINE + "\n",
+                USAGE_LINE + "\n"
                         + "    unknown: \"unsupported\"\n"
         );
 
@@ -79,8 +117,8 @@ class MessageConfigurationLoaderTest {
     @Test
     void wrongPlaceholderSetIsRejected() throws IOException {
         String yaml = shippedYaml().replace(
-                "    usage: \"Usage: /{label} <{operations}>\"",
-                "    usage: \"Usage: /{label}\""
+                USAGE_LINE,
+                "    usage: \"<gray>Usage: <aqua>/{label}</aqua></gray>\""
         );
 
         ConfigurationValidationException failure = assertThrows(
@@ -116,5 +154,21 @@ class MessageConfigurationLoaderTest {
             return new String(input.readAllBytes(), StandardCharsets.UTF_8)
                     .replace("\r\n", "\n");
         }
+    }
+
+    private static String text(Component component) {
+        StringBuilder rendered = new StringBuilder();
+        if (component instanceof TextComponent text) {
+            rendered.append(text.content());
+        }
+        component.children().forEach(child -> rendered.append(text(child)));
+        return rendered.toString();
+    }
+
+    private static boolean hasClickEvent(Component component) {
+        if (component.style().clickEvent() != null) {
+            return true;
+        }
+        return component.children().stream().anyMatch(MessageConfigurationLoaderTest::hasClickEvent);
     }
 }

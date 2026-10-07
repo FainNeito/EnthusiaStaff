@@ -554,7 +554,7 @@ class EstaffCommandReloadTest {
                 new String[]{"unknown"}
         );
         assertEquals(
-                List.of("Try /staffadmin with status|verify [full]|reload|config <validate|reload>|sanction"),
+                List.of("Try /staffadmin with <status|verify [full]|reload|config <validate|reload>|sanction>"),
                 usage
         );
     }

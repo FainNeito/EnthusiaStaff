@@ -3,6 +3,7 @@ package net.enthusia.staff.paper.command;
 import java.util.Objects;
 import java.util.function.Predicate;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
+import net.kyori.adventure.text.Component;
 import org.bukkit.command.CommandSender;
 
 final class CommandPermissionGate {
@@ -10,7 +11,12 @@ final class CommandPermissionGate {
     }
 
     static boolean require(CommandSender sender, String permission, String denialMessage) {
+        return require(sender, permission, Component.text(denialMessage));
+    }
+
+    static boolean require(CommandSender sender, String permission, Component denialMessage) {
         Objects.requireNonNull(sender, "sender");
+        Objects.requireNonNull(denialMessage, "denialMessage");
         if (allows(sender::hasPermission, permission)) {
             return true;
         }

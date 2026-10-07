@@ -84,7 +84,7 @@ public enum MessageKey {
     ),
     ESTAFF_USAGE(
             "estaff.usage",
-            "Usage: /{label} <{operations}>",
+            "<gray>Usage: <aqua>/{label} {operations}</aqua></gray>",
             Set.of("label", "operations")
     ),
     ESTAFF_RELOAD_DETAILS_OMITTED(

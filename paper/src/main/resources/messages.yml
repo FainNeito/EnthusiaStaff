@@ -34,4 +34,4 @@ messages:
     verify:
       full-failed: "Full verification failed; see the sanitized server log."
 
-    usage: "Usage: /{label} <{operations}>"
+    usage: "<gray>Usage: <aqua>/{label} {operations}</aqua></gray>"
