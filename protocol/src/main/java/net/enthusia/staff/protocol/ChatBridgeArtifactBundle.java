@@ -1,6 +1,8 @@
 package net.enthusia.staff.protocol;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Objects;
 import java.util.UUID;
 import net.enthusia.staff.common.Checks;
@@ -32,6 +34,12 @@ public record ChatBridgeArtifactBundle(
         long bytes = artifacts.stream().mapToLong(value -> value.data().length).sum();
         if (bytes > MAX_TOTAL_ARTIFACT_BYTES) {
             throw new IllegalArgumentException("artifact bundle exceeds aggregate byte limit");
+        }
+        Set<String> filenames = new HashSet<>();
+        for (ChatBridgeArtifact artifact : artifacts) {
+            if (!filenames.add(artifact.filename())) {
+                throw new IllegalArgumentException("artifact filenames must be unique");
+            }
         }
         if (createdAtEpochMillis < 0
                 || expiresAtEpochMillis <= createdAtEpochMillis
