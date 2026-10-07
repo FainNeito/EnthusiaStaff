@@ -19,6 +19,9 @@ import org.junit.jupiter.api.Test;
 
 class VelocityChannelMessageRouterTest {
     private static final long NOW = 1_800_000_000_000L;
+    private static final String PAPER_SERVER = PAPER_SERVER;
+    private static final String STAFF_BOT_PEER = STAFF_BOT_PEER;
+    private static final String LOGICAL_CHANNEL = LOGICAL_CHANNEL;
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
 
     @Test
@@ -26,7 +29,7 @@ class VelocityChannelMessageRouterTest {
         AtomicInteger delegated = new AtomicInteger();
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
-                Set.of("SMP"),
+                Set.of(PAPER_SERVER),
                 relay,
                 envelope -> {
                     delegated.incrementAndGet();
@@ -35,19 +38,19 @@ class VelocityChannelMessageRouterTest {
         );
 
         assertFalse(router.handle(envelope(
-                "STAFFBOT",
+                STAFF_BOT_PEER,
                 UUID.randomUUID(),
                 "PUNISHMENT_CREATED",
                 "{}"
         )));
         assertFalse(router.handle(envelope(
-                "STAFFBOT",
+                STAFF_BOT_PEER,
                 UUID.randomUUID(),
                 "STAFF_MODE_READY",
                 "{}"
         )));
         assertFalse(router.handle(envelope(
-                "STAFFBOT",
+                STAFF_BOT_PEER,
                 UUID.randomUUID(),
                 "TRANSFER_SNAPSHOT",
                 "{}"
@@ -66,14 +69,14 @@ class VelocityChannelMessageRouterTest {
             return true;
         });
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
-                Set.of("SMP"),
+                Set.of(PAPER_SERVER),
                 relay,
                 envelope -> true
         );
-        ChatBridgeOutboundMessage message = message("STAFFBOT");
+        ChatBridgeOutboundMessage message = message(STAFF_BOT_PEER);
 
         assertFalse(router.handle(envelope(
-                "STAFFBOT",
+                STAFF_BOT_PEER,
                 message.eventId(),
                 ChatBridgeMessages.OUTBOUND,
                 ChatBridgeMessages.encodeOutbound(message)
@@ -93,17 +96,17 @@ class VelocityChannelMessageRouterTest {
             return true;
         });
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
-                Set.of("SMP"),
+                Set.of(PAPER_SERVER),
                 relay,
                 envelope -> {
                     delegated.incrementAndGet();
                     return true;
                 }
         );
-        ChatBridgeOutboundMessage chat = message("SMP");
+        ChatBridgeOutboundMessage chat = message(PAPER_SERVER);
 
         assertTrue(router.handle(envelope(
-                "SMP",
+                PAPER_SERVER,
                 chat.eventId(),
                 ChatBridgeMessages.OUTBOUND,
                 ChatBridgeMessages.encodeOutbound(chat)
@@ -112,7 +115,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, delegated.get());
 
         assertTrue(router.handle(envelope(
-                "SMP",
+                PAPER_SERVER,
                 UUID.randomUUID(),
                 "PUNISHMENT_CREATED",
                 "{}"
@@ -131,7 +134,7 @@ class VelocityChannelMessageRouterTest {
                 NOW,
                 NOW + 30_000L,
                 sourceServerId,
-                "global",
+                LOGICAL_CHANNEL,
                 UUID.randomUUID(),
                 "Player",
                 "hello"
