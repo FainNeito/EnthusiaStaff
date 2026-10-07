@@ -210,6 +210,7 @@ final class PaperIntegrationManager implements Listener {
         }
         if (isInteractiveChatRendererDependency(pluginName)) {
             refreshInteractiveChatRenderer();
+            reconcileRoseChatAuthority();
         }
     }
 
@@ -217,8 +218,15 @@ final class PaperIntegrationManager implements Listener {
     public void onPluginDisable(PluginDisableEvent event) {
         String pluginName = event.getPlugin().getName();
         if (isInteractiveChatRendererDependency(pluginName)) {
+            releaseLegacyDiscordSuppression();
             closeInteractiveChatRenderer();
             clearIssue(INTERACTIVE_CHAT_RENDERER);
+            if (activeChatBridgeMode.authoritative()) {
+                issue(
+                        ROSECHAT_AUTHORITY,
+                        "InteractiveChat compatibility changed; legacy Discord chat restored until rich renderer readiness is revalidated"
+                );
+            }
         }
         if (!isRoseChat(pluginName)) {
             return;
@@ -256,7 +264,7 @@ final class PaperIntegrationManager implements Listener {
         if (envelope == null || !ChatBridgeMessages.INBOUND.equals(envelope.messageType())) {
             return false;
         }
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+        if (!activeChatBridgeMode.enabled()) {
             return false;
         }
         RoseChatInboundBridgeIntegration current = roseChatInbound;
@@ -274,9 +282,11 @@ final class PaperIntegrationManager implements Listener {
         if (currentRender != null) {
             currentRender.bindChannel(client);
         }
+        reconcileRoseChatAuthority();
     }
 
     void unbindChatChannel(PersistentChannelClient client) {
+        releaseLegacyDiscordSuppression();
         chatChannel.compareAndSet(client, null);
         RoseChatOutboundBridgeIntegration current = roseChatOutbound;
         if (current != null) {
@@ -325,6 +335,9 @@ final class PaperIntegrationManager implements Listener {
         }
         reconcileRoseChatCommands();
         try {
+            DiscordChatBridgeMode requestedChatMode = DiscordChatBridgeMode.from(
+                    plugin().getConfig().getConfigurationSection("discord-chat-bridge")
+            );
             RoseChatIntegration.Discovery discovery = RoseChatIntegration.discoverAndInstall(
                     plugin().getServer().getServicesManager(),
                     new RoseChatIntegration.ChannelSettings(
@@ -349,23 +362,26 @@ final class PaperIntegrationManager implements Listener {
             }
             closeRoseChatIntegration();
             roseChat = discovery.integration().orElseThrow();
+            activeChatBridgeMode = requestedChatMode;
             dependencies.players().vanish().setPresenceTransitionSink(
                     roseChat::renderPresenceTransition
             );
-            installRoseChatOutboundBridge();
-            installRoseChatOutboundRenderBridge();
-            installRoseChatInboundBridge();
+            installRoseChatOutboundBridge(requestedChatMode);
+            installRoseChatOutboundRenderBridge(requestedChatMode);
+            installRoseChatInboundBridge(requestedChatMode);
+            reconcileRoseChatAuthority();
             deactivateMuteFallback();
             clearIssue(ROSECHAT);
         } catch (IllegalArgumentException exception) {
             activateMuteFallback();
-            issue(ROSECHAT, "RoseChat channel configuration is invalid");
+            issue(ROSECHAT, "RoseChat or Discord chat bridge configuration is invalid");
+            issue(ROSECHAT_AUTHORITY, "Discord chat authority configuration is invalid");
             plugin().getLogger().log(Level.SEVERE, "RoseChat integration configuration failed", exception);
         }
     }
 
-    private void installRoseChatOutboundBridge() {
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+    private void installRoseChatOutboundBridge(DiscordChatBridgeMode mode) {
+        if (!mode.enabled()) {
             clearIssue(ROSECHAT_OUTBOUND);
             return;
         }
@@ -386,8 +402,8 @@ final class PaperIntegrationManager implements Listener {
         clearIssue(ROSECHAT_OUTBOUND);
     }
 
-    private void installRoseChatOutboundRenderBridge() {
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+    private void installRoseChatOutboundRenderBridge(DiscordChatBridgeMode mode) {
+        if (!mode.enabled()) {
             clearIssue(ROSECHAT_RENDER);
             return;
         }
@@ -418,8 +434,8 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    private void installRoseChatInboundBridge() {
-        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+    private void installRoseChatInboundBridge(DiscordChatBridgeMode mode) {
+        if (!mode.enabled()) {
             clearIssue(ROSECHAT_INBOUND);
             return;
         }
@@ -444,6 +460,56 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
+    private void reconcileRoseChatAuthority() {
+        releaseLegacyDiscordSuppression();
+        if (!activeChatBridgeMode.authoritative()) {
+            clearIssue(ROSECHAT_AUTHORITY);
+            return;
+        }
+
+        PersistentChannelClient currentChannel = chatChannel.get();
+        if (roseChatOutbound == null
+                || roseChatOutboundRender == null
+                || roseChatInbound == null
+                || currentChannel == null
+                || !currentChannel.connected()) {
+            issue(
+                    ROSECHAT_AUTHORITY,
+                    "Authoritative Discord chat is not ready; legacy Discord chat remains active"
+            );
+            return;
+        }
+
+        boolean interactiveChatEnabled = plugin().getServer().getPluginManager()
+                .isPluginEnabled(InteractiveChatStagingArtifactProvider.INTERACTIVE_CHAT);
+        boolean discordAddonEnabled = plugin().getServer().getPluginManager()
+                .isPluginEnabled(InteractiveChatStagingArtifactProvider.DISCORD_ADDON);
+        if (interactiveChatEnabled && discordAddonEnabled && interactiveChatRenderer == null) {
+            issue(
+                    ROSECHAT_AUTHORITY,
+                    "InteractiveChat rich renderer is not ready; legacy Discord chat remains active"
+            );
+            return;
+        }
+
+        try {
+            legacyDiscordSuppression = RoseChatAPI.getInstance().suppressLegacyDiscordChat();
+            clearIssue(ROSECHAT_AUTHORITY);
+        } catch (RuntimeException | LinkageError failure) {
+            issue(
+                    ROSECHAT_AUTHORITY,
+                    "RoseChat legacy Discord suppression is unavailable: "
+                            + failure.getClass().getSimpleName()
+            );
+        }
+    }
+
+    @SuppressWarnings("PMD.NullAssignment")
+    private void releaseLegacyDiscordSuppression() {
+        resources.close("RoseChat legacy Discord suppression", legacyDiscordSuppression);
+        legacyDiscordSuppression = null;
+    }
+
     private void reconcileRoseChatCommands() {
         if (roseChatCommands == null) {
             roseChatCommands = RoseChatCommandOwnershipCoordinator.forPlugin(plugin());
@@ -459,6 +525,8 @@ final class PaperIntegrationManager implements Listener {
     // Null is the explicit inactive state for this optional hot-reloadable provider slot.
     @SuppressWarnings("PMD.NullAssignment")
     private void closeRoseChatIntegration() {
+        releaseLegacyDiscordSuppression();
+        activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
         dependencies.players().vanish().clearPresenceTransitionSink();
         closeInteractiveChatRenderer();
         resources.close("RoseChat outbound styled Discord bridge", roseChatOutboundRender);
@@ -500,8 +568,7 @@ final class PaperIntegrationManager implements Listener {
 
     private void refreshInteractiveChatRenderer() {
         closeInteractiveChatRenderer();
-        if (roseChatOutboundRender == null
-                || !plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+        if (roseChatOutboundRender == null || !activeChatBridgeMode.enabled()) {
             clearIssue(INTERACTIVE_CHAT_RENDERER);
             return;
         }
