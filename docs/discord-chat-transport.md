@@ -171,6 +171,7 @@ not requested.
 Ingress admission rules are deliberately repeated at each hop:
 
 - JDA ignores bot and webhook messages and accepts only the pinned guild/channel route.
+- JDA converts Discord-native user/role/channel mentions and custom emoji to readable display text before transport; raw Discord mention syntax is not delegated to RoseChat's legacy Discord provider.
 - StaffBot revalidates source Discord channel, target backend, logical RoseChat channel, expiry,
   connection state, and payload bounds before enqueueing.
 - StaffBot sends on one bounded worker and waits for the normal short ACK before dequeuing the next
