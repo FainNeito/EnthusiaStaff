@@ -20,6 +20,7 @@ final class StaffBotChatReadinessPublisher implements AutoCloseable {
 
     private final Clock clock;
     private final PersistentChannelClient client;
+    private final boolean authorityEnabled;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean ready = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -29,9 +30,10 @@ final class StaffBotChatReadinessPublisher implements AutoCloseable {
         return thread;
     });
 
-    StaffBotChatReadinessPublisher(Clock clock, PersistentChannelClient client) {
+    StaffBotChatReadinessPublisher(Clock clock, PersistentChannelClient client, boolean authorityEnabled) {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.client = Objects.requireNonNull(client, "client");
+        this.authorityEnabled = authorityEnabled;
     }
 
     void start() {
@@ -50,7 +52,7 @@ final class StaffBotChatReadinessPublisher implements AutoCloseable {
         if (closed.get()) {
             return;
         }
-        ready.set(true);
+        ready.set(authorityEnabled);
         publishCurrent();
     }
 
