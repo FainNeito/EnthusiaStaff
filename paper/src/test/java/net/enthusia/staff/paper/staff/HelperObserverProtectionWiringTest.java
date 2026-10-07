@@ -55,6 +55,23 @@ class HelperObserverProtectionWiringTest {
     }
 
     @Test
+    void helperProjectilePassThroughUsesModernProjectileHitEventOnly() throws IOException {
+        String listener = Files.readString(paperModule().resolve(
+                "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
+        ));
+
+        assertTrue(
+                listener.contains("public void onProjectileHit(ProjectileHitEvent event)")
+                        && listener.contains("event.setCancelled(true)"),
+                "Helper projectile pass-through must remain implemented through cancellable ProjectileHitEvent"
+        );
+        assertFalse(
+                listener.contains("ProjectileCollideEvent") || listener.contains("onFireworkCollision"),
+                "The deprecated Paper ProjectileCollideEvent compatibility hook must not be registered"
+        );
+    }
+
+    @Test
     void retainedMobTargetsAreReconciledThroughEntitySchedulers() throws IOException {
         String listener = Files.readString(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
