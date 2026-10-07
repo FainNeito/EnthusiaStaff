@@ -1,7 +1,6 @@
 package net.enthusia.staff.paper.integration;
 
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -25,7 +24,7 @@ public final class PolarSpectatorPhaseHook implements Runnable {
     private static final AtomicReference<PolarSpectatorPhaseHook> ACTIVE = new AtomicReference<>();
 
     private final Logger logger;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private boolean closed;
     private EventListenerRepository events;
     private RegisteredListener<MitigationEvent> registration;
 
@@ -44,7 +43,7 @@ public final class PolarSpectatorPhaseHook implements Runnable {
 
     @Override
     public synchronized void run() {
-        if (closed.get() || registration != null) {
+        if (closed || registration != null) {
             return;
         }
         try {
@@ -80,11 +79,12 @@ public final class PolarSpectatorPhaseHook implements Runnable {
     }
 
     private synchronized void unregister() {
-        closed.set(true);
+        if (closed) {
+            return;
+        }
+        closed = true;
         EventListenerRepository currentEvents = events;
         RegisteredListener<MitigationEvent> currentRegistration = registration;
-        registration = null;
-        events = null;
         if (currentEvents != null && currentRegistration != null) {
             currentEvents.unregisterListener(currentRegistration);
         }

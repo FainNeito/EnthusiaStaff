@@ -24,7 +24,7 @@ class PolarSpectatorPhaseWiringTest {
 
         assertTrue(hook.contains("LoaderApi.registerEnableCallback(hook)"));
         assertTrue(hook.contains("events.registerListener(MitigationEvent.class, this::onMitigation)"));
-        assertTrue(hook.contains("events.unregisterListener(currentRegistration)"));
+        assertTrue(hook.contains("currentEvents.unregisterListener(currentRegistration)"));
         assertFalse(hook.contains("@EventHandler"));
     }
 
