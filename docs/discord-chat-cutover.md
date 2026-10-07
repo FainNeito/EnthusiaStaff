@@ -64,7 +64,8 @@ The replacement transport must already have:
 - RoseChat plain outbound bridge;
 - RoseChat styled outbound bridge;
 - Discord -> Minecraft inbound bridge;
-- authenticated Paper -> Velocity channel connection.
+- authenticated Paper -> Velocity channel connection;
+- a fresh authenticated StaffBot Discord-publishing readiness lease forwarded through Velocity.
 
 When InteractiveChat is enabled, at least one `RichChatArtifactProvider` must be registered.
 Today that can be the temporary InteractiveChatDiscordSrvAddon compatibility adapter; later the
@@ -84,6 +85,12 @@ The registration affects only RoseChat's legacy Discord chat path. It does not d
 
 The suppression registration is released **before** replacement bridge teardown or Paper channel
 unbind. Releasing it makes RoseChat's legacy Discord chat path eligible again.
+
+StaffBot publishes a short-lived readiness lease only while its validated Discord/JDA chat
+lifecycle is resumed. Velocity forwards that lease ephemerally to Paper; it is never written to
+the moderation/network inbox. Paper refuses AUTHORITATIVE suppression without a fresh lease and
+checks lease expiry once per second. A JDA disconnect, StaffBot pause, transport loss, or missed
+heartbeat therefore restores legacy chat eligibility without waiting for a Paper restart.
 
 ## Staging acceptance matrix
 
@@ -109,6 +116,7 @@ controlled server with the actual dependency set.
 | Private/non-public RoseChat channel | no public Discord export | only explicitly configured public route accepted |
 | StaffBot queue saturation | Minecraft chat still succeeds; bridge may drop | Discord message may drop; no durable backlog |
 | Velocity/Paper disconnect | legacy send restored on Paper channel unbind in AUTHORITATIVE mode | no stale replay |
+| StaffBot JDA/Discord disconnect | readiness lease expires and legacy send is restored | ingress pauses until Discord identity is revalidated |
 | RoseChat reload/disable | legacy suppression released | bridge revalidated after return |
 | InteractiveChat/rich-provider loss | legacy suppression released/revalidated; cutover must not proceed without a rich provider while InteractiveChat is enabled | n/a |
 | Duplicate transport frame | no duplicate final chat send | no duplicate Minecraft delivery |
@@ -139,7 +147,8 @@ Production cutover is a deliberate configuration operation, not a merge side eff
 5. Start StaffBot with `MODE=AUTHORITATIVE` and the exact cutover acknowledgement.
 6. Configure Paper with `mode: AUTHORITATIVE` and `authoritative-cutover-ack: true`.
 7. Restart/apply the restart-only chat configuration using the normal deployment process.
-8. Confirm the RoseChat authority issue is clear and the authenticated Paper channel is connected.
+8. Confirm the RoseChat authority issue is clear, the authenticated Paper channel is connected, and
+   a fresh StaffBot Discord-publishing readiness lease is being accepted.
 9. Send one controlled Minecraft message and confirm exactly one Discord message appears.
 10. Send one controlled Discord message and confirm exactly one Minecraft/RoseChat message appears.
 11. Test at least one InteractiveChat artifact if InteractiveChat is installed.
@@ -165,6 +174,8 @@ Rollback should favor restoring chat availability over preserving the new transp
 If the Paper process/channel fails unexpectedly, the suppression registration is process-local and
 does not survive RoseChat/EnthusiaStaff shutdown. RoseChat therefore returns to its normal legacy
 eligibility when the plugin lifecycle restarts without a successful authoritative acquisition.
+If only Discord/JDA or StaffBot becomes unhealthy, the short readiness lease expires and the Paper
+watchdog releases suppression automatically.
 
 ## Current external validation limit
 
