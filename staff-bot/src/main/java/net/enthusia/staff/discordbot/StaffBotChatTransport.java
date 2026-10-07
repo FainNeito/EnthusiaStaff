@@ -168,7 +168,11 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatI
                 || message.isExpired(System.currentTimeMillis())) {
             return;
         }
-        client.send(message.eventId(), ChatBridgeMessages.INBOUND, payload, ACK_TIMEOUT);
+        try {
+            client.send(message.eventId(), ChatBridgeMessages.INBOUND, payload, ACK_TIMEOUT).join();
+        } catch (RuntimeException ignored) {
+            // Best-effort chat drops on transport failure; serial ACK wait preserves queue backpressure.
+        }
     }
 
     @Override
