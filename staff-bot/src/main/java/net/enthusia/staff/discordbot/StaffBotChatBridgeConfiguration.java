@@ -21,6 +21,7 @@ final class StaffBotChatBridgeConfiguration {
     static final String TRUST_STORE_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_TRUST_STORE";
     static final String TRUST_STORE_ACCESS_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_TRUST_STORE_PASSWORD";
     static final String ROUTES_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ROUTES";
+    static final String INGRESS_ROUTES_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_INGRESS_ROUTES";
     static final String QUEUE_CAPACITY_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_QUEUE_CAPACITY";
     static final String DEDUPE_CAPACITY_ENV = "ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_DEDUPE_CAPACITY";
 
@@ -43,6 +44,7 @@ final class StaffBotChatBridgeConfiguration {
     private final Path trustStore;
     private final char[] trustStorePassword;
     private final Map<Route, Long> routes;
+    private final Map<Long, Route> ingressRoutes;
     private final int queueCapacity;
     private final int dedupeCapacity;
 
@@ -51,6 +53,7 @@ final class StaffBotChatBridgeConfiguration {
             int port,
             SecretConfiguration secrets,
             Map<Route, Long> routes,
+            Map<Long, Route> ingressRoutes,
             QueueBounds bounds
     ) {
         this.host = requireText(host, HOST_ENV);
@@ -66,6 +69,8 @@ final class StaffBotChatBridgeConfiguration {
         if (this.routes.isEmpty()) {
             throw new IllegalArgumentException(ROUTES_ENV + " must contain at least one route");
         }
+        this.ingressRoutes = Map.copyOf(ingressRoutes);
+        validateIngressRoutes(this.routes, this.ingressRoutes);
         this.queueCapacity = bounded(
                 QUEUE_CAPACITY_ENV, bounds.queueCapacity(), 1, MAX_QUEUE_CAPACITY);
         this.dedupeCapacity = bounded(
@@ -85,13 +90,18 @@ final class StaffBotChatBridgeConfiguration {
         long stagingChannelId = stagingChannelId(environment);
         String host = requireText(values.get(HOST_ENV), HOST_ENV);
         int port = integer(values.get(PORT_ENV), DEFAULT_PORT, PORT_ENV, 1, 65_535);
+        Map<Route, Long> outboundRoutes = routes(
+                requireText(values.get(ROUTES_ENV), ROUTES_ENV), stagingChannelId);
+        Map<Long, Route> inboundRoutes = ingressRoutes(
+                values.get(INGRESS_ROUTES_ENV), stagingChannelId, outboundRoutes);
         SecretConfiguration secrets = secretConfiguration(values);
         try {
             return Optional.of(new StaffBotChatBridgeConfiguration(
                     host,
                     port,
                     secrets,
-                    routes(requireText(values.get(ROUTES_ENV), ROUTES_ENV), stagingChannelId),
+                    outboundRoutes,
+                    inboundRoutes,
                     queueBounds(values)
             ));
         } finally {
@@ -166,6 +176,51 @@ final class StaffBotChatBridgeConfiguration {
             }
         }
         return Map.copyOf(parsed);
+    }
+
+    private static Map<Long, Route> ingressRoutes(
+            String raw,
+            long stagingChannelId,
+            Map<Route, Long> outboundRoutes
+    ) {
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        Map<Long, Route> parsed = new LinkedHashMap<>();
+        for (String entry : raw.split(";", -1)) {
+            int separator = entry.indexOf('=');
+            if (separator < 1 || separator != entry.lastIndexOf('=')) {
+                throw new IllegalArgumentException(
+                        INGRESS_ROUTES_ENV + " must use discordChannel=server/channel entries");
+            }
+            long channelId = positiveLong(entry.substring(0, separator).trim(), INGRESS_ROUTES_ENV);
+            if (channelId != stagingChannelId) {
+                throw new IllegalArgumentException(
+                        "staging Discord chat ingress must use the pinned staging channel");
+            }
+            Route route = route(entry.substring(separator + 1).trim());
+            Long outboundChannel = outboundRoutes.get(route);
+            if (outboundChannel == null || outboundChannel.longValue() != channelId) {
+                throw new IllegalArgumentException(
+                        INGRESS_ROUTES_ENV + " must select an existing symmetric outbound route");
+            }
+            if (parsed.putIfAbsent(channelId, route) != null) {
+                throw new IllegalArgumentException(INGRESS_ROUTES_ENV + " contains a duplicate Discord channel");
+            }
+        }
+        return Map.copyOf(parsed);
+    }
+
+    private static void validateIngressRoutes(
+            Map<Route, Long> outboundRoutes,
+            Map<Long, Route> inboundRoutes
+    ) {
+        for (Map.Entry<Long, Route> entry : inboundRoutes.entrySet()) {
+            Long outboundChannel = outboundRoutes.get(entry.getValue());
+            if (outboundChannel == null || !outboundChannel.equals(entry.getKey())) {
+                throw new IllegalArgumentException("Discord chat ingress route is not symmetric");
+            }
+        }
     }
 
     private static Route route(String raw) {
@@ -257,6 +312,10 @@ final class StaffBotChatBridgeConfiguration {
         return routes;
     }
 
+    Map<Long, Route> ingressRoutes() {
+        return ingressRoutes;
+    }
+
     int queueCapacity() {
         return queueCapacity;
     }
@@ -270,6 +329,7 @@ final class StaffBotChatBridgeConfiguration {
         return "StaffBotChatBridgeConfiguration[host=" + host
                 + ", port=" + port
                 + ", routes=" + routes.keySet()
+                + ", ingressRoutes=" + ingressRoutes
                 + ", queueCapacity=" + queueCapacity
                 + ", dedupeCapacity=" + dedupeCapacity
                 + ", clientKey=<redacted>, proxyKey=<redacted>, trustStorePassword=<redacted>]";
