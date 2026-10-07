@@ -192,11 +192,71 @@ ACKs remain hop-local admission acknowledgements, not end-to-end delivery receip
 expiry, queue saturation, invalid routes, missing RoseChat channels, or provider errors drop the
 message. There is no durable retry or replay backlog.
 
+## Styled Minecraft -> Discord staging checkpoint
+
+The next outbound checkpoint adds a separate styled frame while preserving
+`CHAT_BRIDGE_OUTBOUND_V1` byte-for-byte as the fallback path.
+
+RoseChat now exposes an optional provider-neutral styled render bridge. When installed, one public
+Minecraft chat event can carry:
+
+- the existing canonical plain player input and stable event identity;
+- resolved message-body plain text;
+- resolved message-body Discord Markdown;
+- resolved message-body Adventure JSON;
+- resolved full in-game chat-line plain text;
+- resolved full-line Discord Markdown;
+- resolved full-line Adventure JSON.
+
+This is transported as `CHAT_BRIDGE_RENDERED_V1` in `ChatBridgeRenderedMessage`.
+The dedicated encoded payload ceiling is 384 KiB. Each Adventure JSON representation is limited to
+64 KiB UTF-8, Markdown to 8,192 characters, and plain render text to 4,096 characters. The existing
+60-second lifetime, exact source-server binding, event-ID binding, explicit route allowlist, bounded
+queues, and bounded dedupe remain in force.
+
+The rendered frame is metadata only. It **does not** carry item/inventory PNGs or arbitrary binary
+attachments. InteractiveChat-generated artifacts will use a separate bounded artifact contract.
+
+The styled route is:
+
+```text
+RoseChat resolved transport render
+  -> EnthusiaStaff Paper styled bridge
+  -> CHAT_BRIDGE_RENDERED_V1
+  -> Velocity styled ephemeral relay
+  -> authenticated STAFFBOT peer
+  -> StaffBot styled ingress
+  -> JDA final send
+```
+
+Important migration behavior:
+
+- RoseChat builds the styled render only when an external styled bridge is installed.
+- The render parser is independent of RoseChat's legacy DiscordSRV provider. Member/channel/custom
+  emoji lookup is not delegated to DiscordSRV.
+- If the styled bridge is absent, disconnected, oversized, queue-saturated, or rejects admission,
+  RoseChat falls back to the existing plain `CHAT_BRIDGE_OUTBOUND_V1` provider.
+- Both styled and V1 frames bypass the durable moderation/network inbox.
+- Velocity authorizes styled outbound frames only from configured Paper backend peers and forwards
+  them only to authenticated `STAFFBOT`.
+- StaffBot applies the same exact `server/channel -> Discord channel` route map used by V1.
+- JDA performs one final send. It uses the resolved full-line Discord Markdown when it fits the
+  Discord 2,000-character content limit. If it does not fit, it falls back to the resolved full-line
+  plain text before truncation so an oversized message cannot leave broken Markdown delimiters.
+- Allowed mentions remain empty, so player content cannot create `@everyone`, role, or user pings.
+- Raw Minecraft color codes are never emitted to Discord by this path. RoseChat has already resolved
+  color/format tokens before transport.
+
+Discord does not support arbitrary RGB color on individual normal message spans. Exact resolved
+RGB/hex/style semantics therefore remain in the Adventure JSON representation for downstream rich
+rendering rather than being faked with malformed embeds or leaked formatting codes. The current
+staging presentation intentionally favors clean/readable output over DiscordSRV visual quirks.
+
 ## Still out of scope
 
 This checkpoint does not:
 
-- carry InteractiveChat rich-render artifacts;
+- carry InteractiveChat rich-render **binary artifacts** such as item/inventory images;
 - authorize production Discord routing;
 - change or disable DiscordSRV;
 - authorize DiscordSRV cutover/removal;
