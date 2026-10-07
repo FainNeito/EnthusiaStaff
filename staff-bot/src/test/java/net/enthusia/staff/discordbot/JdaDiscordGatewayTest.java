@@ -65,6 +65,11 @@ class JdaDiscordGatewayTest {
         String rendered = JdaDiscordGateway.chatContent(longMessage);
         assertEquals(2_000, rendered.length());
         assertTrue(rendered.startsWith("[SMP] Player: "));
+
+        ChatBridgeOutboundMessage unicodeBoundary = chatMessage("x".repeat(1_985) + "\uD83D\uDE00");
+        String unicodeRendered = JdaDiscordGateway.chatContent(unicodeBoundary);
+        assertFalse(Character.isHighSurrogate(unicodeRendered.charAt(unicodeRendered.length() - 1)));
+        assertTrue(unicodeRendered.length() <= 2_000);
     }
 
     private static ChatBridgeOutboundMessage chatMessage(String text) {
