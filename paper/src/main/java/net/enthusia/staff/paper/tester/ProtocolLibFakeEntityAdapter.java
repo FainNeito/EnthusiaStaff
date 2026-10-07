@@ -15,7 +15,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
+import java.util.function.Predicate;\nimport java.util.function.Supplier;
 import java.util.logging.Level;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
@@ -110,10 +110,21 @@ final class ProtocolLibFakeEntityAdapter implements FakeEntityAdapter {
     private static Optional<PacketType> dedicatedAttackPacket() {
         try {
             Object value = PacketType.Play.Client.class.getField("ATTACK").get(null);
-            return value instanceof PacketType packet ? Optional.of(packet) : Optional.empty();
-        } catch (ReflectiveOperationException | LinkageError failure) {
+            return supportedPacketType(value, PacketType::isSupported);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             return Optional.empty();
         }
+    }
+
+    static Optional<PacketType> supportedPacketType(
+            Object value,
+            Predicate<PacketType> supported
+    ) {
+        Objects.requireNonNull(supported, "supported");
+        if (!(value instanceof PacketType packet) || !supported.test(packet)) {
+            return Optional.empty();
+        }
+        return Optional.of(packet);
     }
 
     private static String actionName(
