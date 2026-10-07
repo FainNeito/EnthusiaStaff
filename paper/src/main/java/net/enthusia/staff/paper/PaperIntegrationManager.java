@@ -30,6 +30,7 @@ import net.enthusia.staff.paper.enforcement.MuteEnforcementListener;
 import net.enthusia.staff.paper.enforcement.PaperBanEnforcementListener;
 import net.enthusia.staff.paper.enforcement.PaperPunishmentCommitEffects;
 import net.enthusia.staff.paper.freeze.FreezeManager;
+import net.enthusia.staff.paper.integration.InteractiveChatStagingArtifactProvider;
 import net.enthusia.staff.paper.integration.MarketIntegration;
 import net.enthusia.staff.paper.integration.ReputationIntegration;
 import net.enthusia.staff.paper.integration.ReputationRestrictionSynchronizer;
@@ -61,6 +62,7 @@ final class PaperIntegrationManager implements Listener {
     private static final String ROSECHAT_OUTBOUND = "rosechat-discord-bridge";
     private static final String ROSECHAT_RENDER = "rosechat-discord-render";
     private static final String ROSECHAT_INBOUND = "rosechat-discord-ingress";
+    private static final String INTERACTIVE_CHAT_RENDERER = "interactivechat-rich-renderer";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
     private static final List<CurrencyAssetSource> DEFAULT_REMOVAL_ORDER = List.of(
@@ -77,6 +79,7 @@ final class PaperIntegrationManager implements Listener {
     private RoseChatOutboundBridgeIntegration roseChatOutbound;
     private RoseChatOutboundRenderBridgeIntegration roseChatOutboundRender;
     private RoseChatInboundBridgeIntegration roseChatInbound;
+    private InteractiveChatStagingArtifactProvider interactiveChatRenderer;
     private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
     private MuteCommandFallbackListener muteFallback;
@@ -195,14 +198,24 @@ final class PaperIntegrationManager implements Listener {
 
     @EventHandler
     public void onPluginEnable(PluginEnableEvent event) {
-        if (isRoseChat(event.getPlugin().getName())) {
+        String pluginName = event.getPlugin().getName();
+        if (isRoseChat(pluginName)) {
             refreshRoseChatIntegration();
+            return;
+        }
+        if (isInteractiveChatRendererDependency(pluginName)) {
+            refreshInteractiveChatRenderer();
         }
     }
 
     @EventHandler
     public void onPluginDisable(PluginDisableEvent event) {
-        if (!isRoseChat(event.getPlugin().getName())) {
+        String pluginName = event.getPlugin().getName();
+        if (isInteractiveChatRendererDependency(pluginName)) {
+            closeInteractiveChatRenderer();
+            clearIssue(INTERACTIVE_CHAT_RENDERER);
+        }
+        if (!isRoseChat(pluginName)) {
             return;
         }
         closeRoseChatIntegration();
@@ -385,6 +398,7 @@ final class PaperIntegrationManager implements Listener {
                 return;
             }
             roseChatOutboundRender = discovery.integration().orElseThrow();
+            refreshInteractiveChatRenderer();
             PersistentChannelClient currentChannel = chatChannel.get();
             if (currentChannel != null) {
                 roseChatOutboundRender.bindChannel(currentChannel);
@@ -441,6 +455,7 @@ final class PaperIntegrationManager implements Listener {
     @SuppressWarnings("PMD.NullAssignment")
     private void closeRoseChatIntegration() {
         dependencies.players().vanish().clearPresenceTransitionSink();
+        closeInteractiveChatRenderer();
         resources.close("RoseChat outbound styled Discord bridge", roseChatOutboundRender);
         resources.close("RoseChat outbound Discord bridge", roseChatOutbound);
         resources.close("RoseChat inbound Discord bridge", roseChatInbound);
@@ -471,6 +486,42 @@ final class PaperIntegrationManager implements Listener {
 
     static boolean isRoseChat(String pluginName) {
         return "RoseChat".equals(pluginName);
+    }
+
+    static boolean isInteractiveChatRendererDependency(String pluginName) {
+        return InteractiveChatStagingArtifactProvider.INTERACTIVE_CHAT.equals(pluginName)
+                || InteractiveChatStagingArtifactProvider.DISCORD_ADDON.equals(pluginName);
+    }
+
+    private void refreshInteractiveChatRenderer() {
+        closeInteractiveChatRenderer();
+        if (roseChatOutboundRender == null
+                || !plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+            clearIssue(INTERACTIVE_CHAT_RENDERER);
+            return;
+        }
+        InteractiveChatStagingArtifactProvider.Discovery discovery =
+                InteractiveChatStagingArtifactProvider.discoverAndRegister(
+                        plugin(),
+                        clock(),
+                        workers()
+                );
+        if (discovery.integration().isPresent()) {
+            interactiveChatRenderer = discovery.integration().orElseThrow();
+            clearIssue(INTERACTIVE_CHAT_RENDERER);
+            return;
+        }
+        if (discovery.issue().isEmpty()) {
+            clearIssue(INTERACTIVE_CHAT_RENDERER);
+        } else {
+            issue(INTERACTIVE_CHAT_RENDERER, discovery.issue());
+        }
+    }
+
+    @SuppressWarnings("PMD.NullAssignment")
+    private void closeInteractiveChatRenderer() {
+        resources.close("InteractiveChat staging rich renderer", interactiveChatRenderer);
+        interactiveChatRenderer = null;
     }
 
     private void installEconomy(CurrencyGateway gateway, List<CurrencyAssetSource> removalOrder) {

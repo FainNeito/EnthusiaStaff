@@ -8,6 +8,16 @@ import org.junit.jupiter.api.Test;
 class PaperIntegrationManagerRoseChatLifecycleTest {
 
     @Test
+    void richRendererLifecycleMatcherAcceptsOnlyExactUpstreamPluginNames() {
+        assertTrue(PaperIntegrationManager.isInteractiveChatRendererDependency("InteractiveChat"));
+        assertTrue(PaperIntegrationManager.isInteractiveChatRendererDependency(
+                "InteractiveChatDiscordSrvAddon"));
+        assertFalse(PaperIntegrationManager.isInteractiveChatRendererDependency("interactivechat"));
+        assertFalse(PaperIntegrationManager.isInteractiveChatRendererDependency("DiscordSRV"));
+        assertFalse(PaperIntegrationManager.isInteractiveChatRendererDependency(null));
+    }
+
+    @Test
     void lifecycleMatcherAcceptsOnlyExactRoseChatPluginName() {
         assertTrue(PaperIntegrationManager.isRoseChat("RoseChat"));
         assertFalse(PaperIntegrationManager.isRoseChat("rosechat"));
