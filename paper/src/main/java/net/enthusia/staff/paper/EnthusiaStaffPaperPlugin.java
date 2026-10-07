@@ -46,6 +46,7 @@ import net.enthusia.staff.paper.config.reload.ConfigurationReloadCoordinator;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
 import net.enthusia.staff.paper.discordplatform.PaperManagedRolePlatform;
 import net.enthusia.staff.paper.enforcement.MuteEnforcementListener;
+import net.enthusia.staff.paper.integration.PolarSpectatorPhaseCompatibility;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.enthusia.staff.persistence.DatabaseConfig;
 import net.enthusia.staff.persistence.MariaDb;
@@ -85,6 +86,11 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     private PaperOperationalTaskCoordinator operationalTasks;
     private PaperCommandBridgeRuntime commandBridge;
     private Optional<PaperManagedRolePlatform> managedRolePlatform = Optional.empty();
+
+    @Override
+    public void onLoad() {
+        PolarSpectatorPhaseCompatibility.prepareOnLoad(this, featureIssues);
+    }
 
     @Override
     public void onEnable() {
@@ -183,6 +189,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     }
 
     private void closeNonDatabaseResources() {
+        PolarSpectatorPhaseCompatibility.close(this);
         unregisterManagedRolePlatform();
         resources.close("player activity tracker", getServer().getServicesManager().load(
                 net.enthusia.staff.paper.staff.PlayerActivityListener.class));
