@@ -1,6 +1,5 @@
 package net.enthusia.staff.paper.integration;
 
-import java.lang.ref.WeakReference;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -49,8 +48,7 @@ public final class PolarSpectatorPhaseHook implements Runnable {
             return;
         }
         try {
-            WeakReference<PolarApi> apiReference = PolarApiAccessor.access();
-            PolarApi api = apiReference.get();
+            PolarApi api = PolarApiAccessor.access().get();
             if (api == null) {
                 throw new IllegalStateException("Polar API became unavailable during enable callback");
             }
