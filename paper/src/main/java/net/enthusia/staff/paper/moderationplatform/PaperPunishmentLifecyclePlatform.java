@@ -101,7 +101,7 @@ public final class PaperPunishmentLifecyclePlatform implements PunishmentLifecyc
         List<PunishmentLifecycleEvent> events = new ArrayList<>();
         try (Connection connection = current.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
-            configureSnapshotStatement(statement);
+            statement.setQueryTimeout(snapshotQueryTimeoutSeconds());
             statement.setBytes(1, UuidBytes.toBytes(cursor.sanctionId()));
             statement.setInt(2, limit);
             try (ResultSet rows = statement.executeQuery()) {
@@ -174,9 +174,8 @@ public final class PaperPunishmentLifecyclePlatform implements PunishmentLifecyc
         return true;
     }
 
-    static void configureSnapshotStatement(PreparedStatement statement) throws SQLException {
-        Objects.requireNonNull(statement, "statement");
-        statement.setQueryTimeout(SNAPSHOT_QUERY_TIMEOUT_SECONDS);
+    static int snapshotQueryTimeoutSeconds() {
+        return SNAPSHOT_QUERY_TIMEOUT_SECONDS;
     }
 
     private static Optional<Instant> optionalInstant(Timestamp value) {

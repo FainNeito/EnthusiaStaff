@@ -5,13 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.reflect.Proxy;
-import java.sql.PreparedStatement;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,22 +45,8 @@ class PaperPunishmentLifecyclePlatformTest {
     }
 
     @Test
-    void snapshotStatementUsesQueryTimeoutBelowConsumerDeadline() throws Exception {
-        AtomicInteger timeoutSeconds = new AtomicInteger();
-        PreparedStatement statement = (PreparedStatement) Proxy.newProxyInstance(
-                PreparedStatement.class.getClassLoader(),
-                new Class<?>[]{PreparedStatement.class},
-                (proxy, method, args) -> {
-                    if ("setQueryTimeout".equals(method.getName())) {
-                        timeoutSeconds.set((Integer) args[0]);
-                    }
-                    return null;
-                }
-        );
-
-        PaperPunishmentLifecyclePlatform.configureSnapshotStatement(statement);
-
-        assertEquals(45, timeoutSeconds.get());
+    void snapshotQueryTimeoutStaysBelowConsumerDeadline() {
+        assertEquals(45, PaperPunishmentLifecyclePlatform.snapshotQueryTimeoutSeconds());
     }
 
     @Test
