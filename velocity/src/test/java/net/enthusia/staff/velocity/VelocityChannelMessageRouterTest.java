@@ -14,6 +14,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
+import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
+import net.enthusia.staff.protocol.ChatRenderMessages;
 import net.enthusia.staff.protocol.ProtocolEnvelope;
 import org.junit.jupiter.api.Test;
 
@@ -147,6 +149,83 @@ class VelocityChannelMessageRouterTest {
         relay.close();
         renderedRelay.close();
         inbound.close();
+    }
+
+    @Test
+    void renderedChatIsPaperOnlyAndNeverDelegatesToDurableHandler() throws Exception {
+        AtomicInteger delegated = new AtomicInteger();
+        CountDownLatch delivered = new CountDownLatch(1);
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        VelocityRenderedChatBridgeRelay renderedRelay =
+                new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
+        renderedRelay.installSink(message -> {
+            delivered.countDown();
+            return true;
+        });
+        VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
+                Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
+                Set.of(PAPER_SERVER),
+                relay,
+                renderedRelay,
+                inbound,
+                envelope -> {
+                    delegated.incrementAndGet();
+                    return true;
+                }
+        );
+        ChatBridgeRenderedMessage rendered = renderedMessage(PAPER_SERVER);
+
+        assertTrue(router.handle(new ProtocolEnvelope(
+                1,
+                rendered.eventId(),
+                PAPER_SERVER,
+                ChatRenderMessages.RENDERED,
+                NOW,
+                "nonce",
+                ChatRenderMessages.encode(rendered),
+                "mac"
+        )));
+        assertTrue(delivered.await(2, TimeUnit.SECONDS));
+        assertEquals(0, delegated.get());
+
+        assertFalse(router.handle(new ProtocolEnvelope(
+                1,
+                rendered.eventId(),
+                STAFF_BOT_PEER,
+                ChatRenderMessages.RENDERED,
+                NOW,
+                "nonce",
+                ChatRenderMessages.encode(rendered),
+                "mac"
+        )));
+        assertEquals(0, delegated.get());
+
+        relay.close();
+        renderedRelay.close();
+        inbound.close();
+    }
+
+    private static ChatBridgeRenderedMessage renderedMessage(String sourceServerId) {
+        UUID eventId = UUID.randomUUID();
+        return new ChatBridgeRenderedMessage(
+                eventId,
+                "rosechat-mc-" + eventId,
+                "rosechat-canonical-" + eventId,
+                NOW,
+                NOW + 30_000L,
+                sourceServerId,
+                LOGICAL_CHANNEL,
+                UUID.randomUUID(),
+                "Player",
+                "hello",
+                "hello",
+                "**hello**",
+                "{\"text\":\"hello\",\"color\":\"#12ABEF\"}",
+                "[VIP] Player: hello",
+                "**[VIP] Player:** hello",
+                "{\"text\":\"[VIP] Player: hello\",\"color\":\"#12ABEF\"}"
+        );
     }
 
     private static ChatBridgeOutboundMessage message(String sourceServerId) {
