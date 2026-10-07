@@ -14,7 +14,7 @@ The broad release path remains:
 4. finish the expanded website appeal lifecycle that is still unmerged;
 5. run representative distributed Java/Bedrock/provider/Discord/web validation;
 6. run destructive/load/process-recovery acceptance;
-7. complete LiteBans and Discord-specific migration/cutover evidence;
+7. preserve/reconcile historical LiteBans migration evidence and complete remaining Discord-specific migration/cutover work;
 8. perform final release/no-fix audit on one pinned candidate.
 
 Use [[Implementation Status]] for the merged-main picture. Active PRs are development context, not current behavior.
@@ -28,7 +28,7 @@ Use [[Implementation Status]] for the merged-main picture. Active PRs are develo
 | Discord/StaffBot | console replacement, role-sync parity/provider migration, expanded evidence/cases/alerts, cross-platform moderation, final production authority/cutover | [[Discord Moderation Platform]] |
 | Website/API | expanded appeal lifecycle currently in development plus production deployment/security/operations acceptance | [[Website and Web API]] |
 | Player-state tools | inventory/offline/recovery safety, freeze coverage, vanish integrations, alts and representative Cheat Tester/runtime acceptance | [[Staff Tools, Investigations, and Player-State Safety]] |
-| Integrations/release | provider implementations, LiteBans shadow/cutover, Java/Bedrock/Folia/load/process-kill and complete release evidence | [[Integrations, Migration, and Release Readiness]] |
+| Integrations/release | provider implementations, historical LiteBans migration/rollback evidence, DiscordSRV retirement, Java/Bedrock/Folia/load/process-kill and complete release evidence | [[Integrations, Migration, and Release Readiness]] |
 
 These are product categories, not work assignments.
 
@@ -94,7 +94,7 @@ Regardless of current development ordering:
 - exact-candidate validation follows the code/config/artifacts being accepted;
 - Java/Bedrock/provider/Discord/web acceptance must use the exact candidate;
 - destructive/load/process-kill acceptance comes before production cutover;
-- LiteBans remains authoritative until its accepted transition;
+- LiteBans has been removed from the current network; preserve its migration/shadow/cutover material as historical rollback and audit evidence;
 - Discord production authority remains separately gated even though enforcement code exists;
 - changes after acceptance invalidate affected evidence.
 
@@ -126,7 +126,7 @@ Release confidence still requires the applicable combination of:
 - StaffBot Discord identity/hierarchy/reconnect/rate-limit/reconciliation tests;
 - website authentication/replay/privacy/session checks;
 - destructive workflow interruption/recovery and load/saturation;
-- representative LiteBans migration/shadow comparison;
+- preserved LiteBans migration/shadow evidence where legacy rollback or audit review requires it;
 - subsystem-specific DiscordSRV/Discord authority transition evidence;
 - explicit owner-authorized cutover/rollback acceptance;
 - final release audit.

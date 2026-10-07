@@ -1,6 +1,6 @@
 # Runtime database recovery and Velocity reload
 
-This document describes the ES-P02 operator behavior. It does not authorize production cutover, production database access, Flyway repair, or issue #43 acceptance. LiteBans remains authoritative until the separate production-acceptance sequence is complete.
+This document describes the ES-P02 runtime-recovery behavior. EnthusiaStaff is now live on the Enthusia Network and LiteBans has been removed from the current network. References below to LiteBans source settings, shadow migration, and the old cutover gate are retained for legacy migration/recovery compatibility rather than as a statement of current authority.
 
 ## Database bootstrap recovery
 
@@ -59,7 +59,7 @@ When storage is unavailable and no live reload coordinator exists, `/estaff relo
 
 ## Migration boundary
 
-ES-P02 adds no database migration. The current repository migration boundary is `V18`; V1–V18 remain byte-immutable. A checksum mismatch or unsupported future schema remains a hard safety failure rather than an automatic repair target.
+ES-P02 itself added no database migration. The current repository contains migration files through `V30`; every already-deployed migration file remains byte-immutable. A checksum mismatch or unsupported future schema remains a hard safety failure rather than an automatic repair target.
 
 ## Validation boundary
 
