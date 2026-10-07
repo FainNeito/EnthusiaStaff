@@ -7,12 +7,14 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class VelocityChannelPeerPolicyTest {
+    private static final String PAPER_SERVER = PAPER_SERVER;
+
     @Test
     void staffBotIsAuthenticatedButExcludedFromDurableBackendQuorum() {
         assertEquals(
-                Set.of("HUB", "SMP"),
+                Set.of("HUB", PAPER_SERVER),
                 VelocityChannelPeerPolicy.requiredPaperBackends(
-                        Set.of("HUB", "SMP", VelocityStaffBotChatSink.PEER_ID))
+                        Set.of("HUB", PAPER_SERVER, VelocityStaffBotChatSink.PEER_ID))
         );
     }
 
@@ -29,13 +31,13 @@ class VelocityChannelPeerPolicyTest {
     void staffBotRequiresThePinnedVelocitySignerIdentity() {
         VelocityChannelPeerPolicy.validateProxyIdentity(
                 "VELOCITY",
-                Set.of("SMP", VelocityStaffBotChatSink.PEER_ID)
+                Set.of(PAPER_SERVER, VelocityStaffBotChatSink.PEER_ID)
         );
         assertThrows(
                 IllegalArgumentException.class,
                 () -> VelocityChannelPeerPolicy.validateProxyIdentity(
                         "PROXY",
-                        Set.of("SMP", VelocityStaffBotChatSink.PEER_ID))
+                        Set.of(PAPER_SERVER, VelocityStaffBotChatSink.PEER_ID))
         );
     }
 }
