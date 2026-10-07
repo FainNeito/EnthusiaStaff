@@ -150,6 +150,23 @@ class StaffBotRuntimeTest {
     }
 
     @Test
+    void chatShutdownStillClosesTransportWhenPauseFails() throws Exception {
+        Fixture fixture = new Fixture(true, true);
+        FakeChatLifecycle chat = new FakeChatLifecycle(true);
+        StaffBotRuntime runtime = fixture.runtime(null, chat);
+        runtime.start();
+        fixture.gateway.emitIdentity(validStagingIdentity());
+
+        assertThrows(IllegalStateException.class, runtime::close);
+
+        assertTrue(chat.closed);
+        assertTrue(fixture.gateway.shutdownRequested);
+        assertTrue(fixture.endpoint.closed);
+        assertEquals(StaffBotHealth.Phase.FAILED, runtime.health().snapshot().phase());
+        assertEquals("chat_transport_shutdown_failed", runtime.health().snapshot().reason());
+    }
+
+    @Test
     void gracefulShutdownEscalatesAfterTimeout() throws Exception {
         Fixture fixture = new Fixture(false, true);
         StaffBotRuntime runtime = fixture.runtime();
@@ -231,10 +248,19 @@ class StaffBotRuntimeTest {
     }
 
     private static final class FakeChatLifecycle implements StaffBotChatLifecycle {
+        private final boolean failPause;
         private boolean started;
         private boolean closed;
         private int resumeCount;
         private int pauseCount;
+
+        private FakeChatLifecycle() {
+            this(false);
+        }
+
+        private FakeChatLifecycle(boolean failPause) {
+            this.failPause = failPause;
+        }
 
         @Override
         public void start() {
@@ -249,6 +275,9 @@ class StaffBotRuntimeTest {
         @Override
         public void pause() {
             pauseCount++;
+            if (failPause) {
+                throw new IllegalStateException("test pause failure");
+            }
         }
 
         @Override
