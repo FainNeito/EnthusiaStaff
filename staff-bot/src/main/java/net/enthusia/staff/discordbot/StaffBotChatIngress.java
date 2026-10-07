@@ -81,43 +81,55 @@ final class StaffBotChatIngress implements AutoCloseable {
 
     boolean accept(ProtocolEnvelope envelope) {
         Objects.requireNonNull(envelope, "envelope");
-        if (!accepting.get()
-                || !StaffBotChatBridgeConfiguration.PROXY_ID.equals(envelope.serverId())
-                || !ChatBridgeMessages.OUTBOUND.equals(envelope.messageType())) {
+        if (!eligibleEnvelope(envelope)) {
             return false;
         }
+        Optional<ChatBridgeOutboundMessage> message = validatedMessage(envelope);
+        if (message.isEmpty()) {
+            return false;
+        }
+        Long channelId = routeChannel(message.orElseThrow());
+        return channelId != null && admit(channelId, message.orElseThrow());
+    }
 
+    private boolean eligibleEnvelope(ProtocolEnvelope envelope) {
+        return accepting.get()
+                && StaffBotChatBridgeConfiguration.PROXY_ID.equals(envelope.serverId())
+                && ChatBridgeMessages.OUTBOUND.equals(envelope.messageType());
+    }
+
+    private Optional<ChatBridgeOutboundMessage> validatedMessage(ProtocolEnvelope envelope) {
         Optional<ChatBridgeOutboundMessage> decoded = decode(envelope.payloadJson());
         if (decoded.isEmpty()) {
-            return false;
+            return Optional.empty();
         }
         ChatBridgeOutboundMessage message = decoded.orElseThrow();
         long now = clock.millis();
         if (!message.eventId().equals(envelope.messageId()) || message.isExpired(now)) {
-            return false;
+            return Optional.empty();
         }
+        return Optional.of(message);
+    }
 
-        final StaffBotChatBridgeConfiguration.Route route;
+    private Long routeChannel(ChatBridgeOutboundMessage message) {
         try {
-            route = new StaffBotChatBridgeConfiguration.Route(
+            StaffBotChatBridgeConfiguration.Route route = new StaffBotChatBridgeConfiguration.Route(
                     message.sourceServerId(), message.logicalChannelId());
+            return routes.get(route);
         } catch (IllegalArgumentException failure) {
-            return false;
+            return null;
         }
-        Long channelId = routes.get(route);
-        if (channelId == null) {
-            return false;
-        }
+    }
 
+    private boolean admit(long channelId, ChatBridgeOutboundMessage message) {
         long expectedGeneration = generation.get();
         if (!accepting.get()) {
             return false;
         }
-        Admission admission = reserve(message, now);
+        Admission admission = reserve(message, clock.millis());
         if (!admission.accepted()) {
             return admission.duplicate();
         }
-
         try {
             worker.execute(() -> deliver(expectedGeneration, channelId, message));
             return true;
