@@ -153,13 +153,15 @@ function messageCoverageNode() {
     ? `${baseMessages.length} search result${baseMessages.length === 1 ? '' : 's'}`
     : `${baseMessages.length} message${baseMessages.length === 1 ? '' : 's'} loaded`;
   const mode = state.contextId ? 'Context loaded' : remote ? 'History search' : 'Recent messages';
+  const detail = messageCoverageExplanation();
+  const details = element('div',{className:'coverage-details'},
+    element('div',{className:'muted small',text:range}));
+  if (detail) details.append(element('p',{text:detail}));
   return element('details',{className:'coverage-summary'},
     element('summary',{},
       element('strong',{text:countLabel}),
       element('span',{text:mode})),
-    element('div',{className:'coverage-details'},
-      element('div',{className:'muted small',text:range}),
-      element('p',{text:messageCoverageExplanation()})));
+    details);
 }
 
 function loadedMessageRange() {
@@ -189,7 +191,7 @@ function initialCoverageExplanation() {
 }
 
 function channelCoverageExplanation() {
-  return 'A normal channel page retrieves recent Discord messages. Enter a term and use Search Discord history to scan older messages without manually loading every page.';
+  return '';
 }
 
 function hardenedFiltersNode() {

@@ -525,13 +525,16 @@ function browseContextAlertNode() {
 
 function browseMessageCoverageNode() {
   const range = loadedMessageRange();
-  const coverage = state.contextId ? 'Up to 50 surrounding messages in this channel' : 'Partial until Discord history is fully paged';
-  const detail = state.contextId
-    ? 'Show context uses Discord’s around-message history so the conversation includes nearby messages from all authors, not only the selected player.'
-    : messageCoverageExplanation();
-  return element('section',{className:'card coverage-card'},sectionHeading('Search coverage'),
-    summaryList([['Messages loaded',baseMessages.length],['Loaded date range',range],['Filters search','Loaded messages only'],['Coverage',coverage]]),
-    element('p',{className:'muted small',text:detail}));
+  if (state.contextId) {
+    return element('section',{className:'card coverage-card'},sectionHeading('Conversation context'),
+      summaryList([['Messages loaded',baseMessages.length],['Loaded date range',range]]));
+  }
+  return element('details',{className:'coverage-summary'},
+    element('summary',{},
+      element('strong',{text:`${baseMessages.length} message${baseMessages.length === 1 ? '' : 's'} loaded`}),
+      element('span',{text:state.remoteSearchActive ? 'History search' : 'Recent messages'})),
+    element('div',{className:'coverage-details'},
+      element('div',{className:'muted small',text:range})));
 }
 
 function browseRenderSelectionBar() {

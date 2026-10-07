@@ -45,6 +45,7 @@ final class ModerationDiscordMessageMapper {
                 message.getAttachments().stream().map(attachment -> new ModerationReadApiModel.AttachmentDto(
                         attachment.getId(), attachment.getFileName(), Optional.ofNullable(attachment.getContentType()),
                         attachment.getSize(), attachment.getUrl())).toList(),
+                embedMedia(message.getEmbeds()),
                 isTargetAuthor(context, message), false);
     }
 
@@ -60,6 +61,46 @@ final class ModerationDiscordMessageMapper {
                 display.isEmpty() ? Optional.empty() : Optional.of(display)));
     }
 
+
+    static List<ModerationReadApiModel.MediaDto> embedMedia(List<MessageEmbed> embeds) {
+        if (embeds == null || embeds.isEmpty()) {
+            return List.of();
+        }
+        java.util.LinkedHashMap<String, ModerationReadApiModel.MediaDto> media = new java.util.LinkedHashMap<>();
+        for (MessageEmbed embed : embeds) {
+            if (embed == null) {
+                continue;
+            }
+            MessageEmbed.ImageInfo image = embed.getImage();
+            if (image != null) {
+                addMedia(media, new ModerationReadApiModel.MediaDto(
+                        "image",
+                        firstNonBlank(image.getProxyUrl(), image.getUrl()),
+                        Optional.ofNullable(image.getContentType()),
+                        image.getWidth(),
+                        image.getHeight()));
+            }
+            MessageEmbed.VideoInfo video = embed.getVideoInfo();
+            if (video != null) {
+                addMedia(media, new ModerationReadApiModel.MediaDto(
+                        "video",
+                        firstNonBlank(video.getProxyUrl(), video.getUrl()),
+                        Optional.empty(),
+                        video.getWidth(),
+                        video.getHeight()));
+            }
+        }
+        return List.copyOf(media.values());
+    }
+
+    private static void addMedia(
+            java.util.LinkedHashMap<String, ModerationReadApiModel.MediaDto> media,
+            ModerationReadApiModel.MediaDto candidate
+    ) {
+        if (candidate.url() != null && !candidate.url().isBlank()) {
+            media.putIfAbsent(candidate.url(), candidate);
+        }
+    }
 
     static String visibleText(String display, String raw, List<MessageEmbed> embeds) {
         String textual = firstNonBlank(display, raw);
