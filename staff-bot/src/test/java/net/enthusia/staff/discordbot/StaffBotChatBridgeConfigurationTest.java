@@ -118,7 +118,7 @@ class StaffBotChatBridgeConfigurationTest {
         Map<String, String> values = productionValues();
         values.put(
                 StaffBotChatBridgeConfiguration.INGRESS_ROUTES_ENV,
-                "1650000000000000001=SMP/global");
+                "1650000000000000001=SMP/global;1650000000000000002=HUB/global");
 
         StaffBotChatBridgeConfiguration configuration =
                 StaffBotChatBridgeConfiguration.fromEnvironment(
@@ -132,6 +132,19 @@ class StaffBotChatBridgeConfigurationTest {
         assertEquals(
                 new StaffBotChatBridgeConfiguration.Route("SMP", "global"),
                 configuration.ingressRoutes().get(1650000000000000001L));
+    }
+
+    @Test
+    void authoritativeModeRejectsPartialInboundChannelCoverage() {
+        Map<String, String> values = productionValues();
+        values.put(
+                StaffBotChatBridgeConfiguration.INGRESS_ROUTES_ENV,
+                "1650000000000000001=SMP/global");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> StaffBotChatBridgeConfiguration.fromEnvironment(
+                        StaffBotEnvironment.PRODUCTION, values));
     }
 
     @Test
