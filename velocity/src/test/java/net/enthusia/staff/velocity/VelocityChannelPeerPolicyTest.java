@@ -1,7 +1,9 @@
 package net.enthusia.staff.velocity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,30 @@ class VelocityChannelPeerPolicyTest {
                 VelocityChannelPeerPolicy.requiredPaperBackends(
                         Set.of("HUB", PAPER_SERVER, VelocityStaffBotChatSink.PEER_ID))
         );
+    }
+
+    @Test
+    void paperBackendProjectionExcludesAuxiliaryPeerWithoutRequiringQuorum() {
+        assertEquals(
+                Set.of(PAPER_SERVER),
+                VelocityChannelPeerPolicy.paperBackendIds(
+                        Set.of(PAPER_SERVER, VelocityStaffBotChatSink.PEER_ID))
+        );
+        assertEquals(
+                Set.of(),
+                VelocityChannelPeerPolicy.paperBackendIds(
+                        Set.of(VelocityStaffBotChatSink.PEER_ID))
+        );
+    }
+
+    @Test
+    void auxiliaryPeerConnectivityDoesNotControlPaperBackendReadiness() {
+        Set<String> configured = Set.of(PAPER_SERVER, VelocityStaffBotChatSink.PEER_ID);
+
+        assertTrue(VelocityChannelPeerPolicy.allPaperBackendsConnected(
+                configured, Set.of(PAPER_SERVER)));
+        assertFalse(VelocityChannelPeerPolicy.allPaperBackendsConnected(
+                configured, Set.of(VelocityStaffBotChatSink.PEER_ID)));
     }
 
     @Test
