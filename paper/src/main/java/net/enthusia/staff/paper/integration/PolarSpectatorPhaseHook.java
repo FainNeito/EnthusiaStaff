@@ -24,6 +24,7 @@ public final class PolarSpectatorPhaseHook implements Runnable {
     private static final AtomicReference<PolarSpectatorPhaseHook> ACTIVE = new AtomicReference<>();
 
     private final Logger logger;
+    private final Object lifecycleLock = new Object();
     private boolean closed;
     private EventListenerRepository events;
     private RegisteredListener<MitigationEvent> registration;
@@ -42,22 +43,24 @@ public final class PolarSpectatorPhaseHook implements Runnable {
     }
 
     @Override
-    public synchronized void run() {
-        if (closed || registration != null) {
-            return;
-        }
-        try {
-            PolarApi api = PolarApiAccessor.access().get();
-            if (api == null) {
-                throw new IllegalStateException("Polar API became unavailable during enable callback");
+    public void run() {
+        synchronized (lifecycleLock) {
+            if (closed || registration != null) {
+                return;
             }
-            events = api.events().repository();
-            registration = events.registerListener(MitigationEvent.class, this::onMitigation);
-            logger.info(
-                    "Polar compatibility active: PHASE mitigation is exempted only for explicit staff in Spectator"
-            );
-        } catch (PolarNotLoadedException | RuntimeException failure) {
-            logger.log(Level.WARNING, "Polar Spectator phase compatibility could not start", failure);
+            try {
+                PolarApi api = PolarApiAccessor.access().get();
+                if (api == null) {
+                    throw new IllegalStateException("Polar API became unavailable during enable callback");
+                }
+                events = api.events().repository();
+                registration = events.registerListener(MitigationEvent.class, this::onMitigation);
+                logger.info(
+                        "Polar compatibility active: PHASE mitigation is exempted only for explicit staff in Spectator"
+                );
+            } catch (PolarNotLoadedException | RuntimeException failure) {
+                logger.log(Level.WARNING, "Polar Spectator phase compatibility could not start", failure);
+            }
         }
     }
 
@@ -78,15 +81,17 @@ public final class PolarSpectatorPhaseHook implements Runnable {
         }
     }
 
-    private synchronized void unregister() {
-        if (closed) {
-            return;
-        }
-        closed = true;
-        EventListenerRepository currentEvents = events;
-        RegisteredListener<MitigationEvent> currentRegistration = registration;
-        if (currentEvents != null && currentRegistration != null) {
-            currentEvents.unregisterListener(currentRegistration);
+    private void unregister() {
+        synchronized (lifecycleLock) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            EventListenerRepository currentEvents = events;
+            RegisteredListener<MitigationEvent> currentRegistration = registration;
+            if (currentEvents != null && currentRegistration != null) {
+                currentEvents.unregisterListener(currentRegistration);
+            }
         }
     }
 }

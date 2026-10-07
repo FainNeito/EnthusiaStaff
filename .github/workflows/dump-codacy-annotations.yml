@@ -1,4 +1,3 @@
-# Temporary diagnostic touch for PR #389; remove before merge.
 name: Dump Codacy annotations
 
 on:
