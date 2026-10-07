@@ -1,9 +1,11 @@
 package net.enthusia.staff.paper.tester;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;\nimport static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.comphenix.protocol.PacketType;\nimport java.util.concurrent.atomic.AtomicBoolean;
+import com.comphenix.protocol.PacketType;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 final class ProtocolLibFakeEntityAdapterTest {
