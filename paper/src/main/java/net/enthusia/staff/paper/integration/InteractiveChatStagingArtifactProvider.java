@@ -1,0 +1,623 @@
+package net.enthusia.staff.paper.integration;
+
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
+import net.enthusia.staff.api.chat.RichChatArtifact;
+import net.enthusia.staff.api.chat.RichChatArtifactProvider;
+import net.enthusia.staff.api.chat.RichChatArtifactRequest;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.ServicesManager;
+import org.bukkit.plugin.java.JavaPlugin;
+
+/**
+ * Transitional staging renderer backed by the already-installed InteractiveChat Discord addon.
+ *
+ * <p>No addon implementation is copied or linked into EnthusiaStaff. All upstream calls are
+ * reflective and this service is registered only while both InteractiveChat and
+ * InteractiveChatDiscordSrvAddon are enabled. The permanent renderer remains a separate
+ * GPL-compatible companion.</p>
+ */
+public final class InteractiveChatStagingArtifactProvider
+        implements RichChatArtifactProvider, AutoCloseable {
+    public static final String INTERACTIVE_CHAT = "InteractiveChat";
+    public static final String DISCORD_ADDON = "InteractiveChatDiscordSrvAddon";
+    private static final int PLAYER_INVENTORY_SIZE = 45;
+
+    enum Kind {
+        ITEM("interactivechat.module.item", RichChatArtifact.Kind.ITEM, "Item", "Shared item"),
+        INVENTORY(
+                "interactivechat.module.inventory",
+                RichChatArtifact.Kind.INVENTORY,
+                "Inventory",
+                "Shared inventory"
+        ),
+        ENDER_CHEST(
+                "interactivechat.module.enderchest",
+                RichChatArtifact.Kind.ENDER_CHEST,
+                "EnderChest",
+                "Shared Ender chest"
+        );
+
+        private final String permission;
+        private final RichChatArtifact.Kind artifactKind;
+        private final String filename;
+        private final String altText;
+
+        Kind(
+                String permission,
+                RichChatArtifact.Kind artifactKind,
+                String filename,
+                String altText
+        ) {
+            this.permission = permission;
+            this.artifactKind = artifactKind;
+            this.filename = filename;
+            this.altText = altText;
+        }
+
+        String permission() {
+            return permission;
+        }
+    }
+
+    record RenderJob(Kind kind, int position, ItemStack item, Inventory inventory) {
+        RenderJob {
+            Objects.requireNonNull(kind, "kind");
+            if (position < 0) {
+                throw new IllegalArgumentException("render position must not be negative");
+            }
+        }
+    }
+
+    record Snapshot(Object interactivePlayer, List<RenderJob> jobs) {
+        Snapshot {
+            Objects.requireNonNull(interactivePlayer, "interactivePlayer");
+            jobs = List.copyOf(Objects.requireNonNull(jobs, "jobs"));
+        }
+    }
+
+    public record Discovery(Optional<InteractiveChatStagingArtifactProvider> integration, String issue) {
+        public Discovery {
+            integration = Objects.requireNonNull(integration, "integration");
+            issue = Objects.requireNonNull(issue, "issue");
+        }
+
+        static Discovery inactive() {
+            return new Discovery(Optional.empty(), "");
+        }
+
+        static Discovery unavailable(String issue) {
+            return new Discovery(Optional.empty(), Objects.requireNonNull(issue, "issue"));
+        }
+    }
+
+    interface Access {
+        Snapshot snapshot(Player player, RichChatArtifactRequest request) throws ReflectiveOperationException;
+
+        List<RichChatArtifact> render(UUID eventId, Snapshot snapshot) throws ReflectiveOperationException;
+    }
+
+    private final JavaPlugin plugin;
+    private final Clock clock;
+    private final ExecutorService workers;
+    private final ServicesManager services;
+    private final Access access;
+    private volatile boolean closed;
+
+    private InteractiveChatStagingArtifactProvider(
+            JavaPlugin plugin,
+            Clock clock,
+            ExecutorService workers,
+            Access access
+    ) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.clock = Objects.requireNonNull(clock, "clock");
+        this.workers = Objects.requireNonNull(workers, "workers");
+        this.services = plugin.getServer().getServicesManager();
+        this.access = Objects.requireNonNull(access, "access");
+        services.register(
+                RichChatArtifactProvider.class,
+                this,
+                plugin,
+                ServicePriority.Lowest
+        );
+    }
+
+    public static Discovery discoverAndRegister(
+            JavaPlugin plugin,
+            Clock clock,
+            ExecutorService workers
+    ) {
+        Objects.requireNonNull(plugin, "plugin");
+        Plugin interactiveChat =
+                plugin.getServer().getPluginManager().getPlugin(INTERACTIVE_CHAT);
+        Plugin discordAddon =
+                plugin.getServer().getPluginManager().getPlugin(DISCORD_ADDON);
+        if (interactiveChat == null || !interactiveChat.isEnabled()
+                || discordAddon == null || !discordAddon.isEnabled()) {
+            return Discovery.inactive();
+        }
+
+        try {
+            Access access = new ReflectionAccess(interactiveChat, discordAddon);
+            return new Discovery(
+                    Optional.of(new InteractiveChatStagingArtifactProvider(
+                            plugin,
+                            clock,
+                            workers,
+                            access
+                    )),
+                    ""
+            );
+        } catch (ReflectiveOperationException | LinkageError failure) {
+            return Discovery.unavailable(
+                    "InteractiveChat staging renderer API mismatch: "
+                            + failure.getClass().getSimpleName()
+            );
+        }
+    }
+
+    static int firstUnescapedMatch(Pattern pattern, String message) {
+        Objects.requireNonNull(pattern, "pattern");
+        Objects.requireNonNull(message, "message");
+        Matcher matcher = pattern.matcher(message);
+        while (matcher.find()) {
+            int start = matcher.start();
+            if (start < 1
+                    || message.charAt(start - 1) != '\\'
+                    || (start > 1 && message.charAt(start - 2) == '\\')) {
+                return start;
+            }
+        }
+        return -1;
+    }
+
+    static UUID detachedSnapshotUuid(UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return UUID.nameUUIDFromBytes(
+                ("enthusia-rich-render:" + playerId).getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    static InteractiveChatStagingArtifactProvider forTest(
+            JavaPlugin plugin,
+            Clock clock,
+            ExecutorService workers,
+            Access access
+    ) {
+        return new InteractiveChatStagingArtifactProvider(plugin, clock, workers, access);
+    }
+
+    @Override
+    public CompletionStage<List<RichChatArtifact>> render(RichChatArtifactRequest request) {
+        Objects.requireNonNull(request, "request");
+        CompletableFuture<List<RichChatArtifact>> result = new CompletableFuture<>();
+        if (closed || clock.millis() > request.expiresAtEpochMillis()) {
+            result.complete(List.of());
+            return result;
+        }
+
+        try {
+            plugin.getServer().getGlobalRegionScheduler().execute(plugin, () -> {
+                if (closed || clock.millis() > request.expiresAtEpochMillis()) {
+                    result.complete(List.of());
+                    return;
+                }
+                Player player = plugin.getServer().getPlayer(request.minecraftPlayerId());
+                if (player == null || !player.isOnline()) {
+                    result.complete(List.of());
+                    return;
+                }
+                boolean scheduled = player.getScheduler().execute(
+                        plugin,
+                        () -> snapshotAndRender(player, request, result),
+                        () -> result.complete(List.of()),
+                        1L
+                );
+                if (!scheduled) {
+                    result.complete(List.of());
+                }
+            });
+        } catch (RuntimeException failure) {
+            result.complete(List.of());
+        }
+        return result;
+    }
+
+    private void snapshotAndRender(
+            Player player,
+            RichChatArtifactRequest request,
+            CompletableFuture<List<RichChatArtifact>> result
+    ) {
+        if (closed || result.isDone() || clock.millis() > request.expiresAtEpochMillis()) {
+            result.complete(List.of());
+            return;
+        }
+
+        Snapshot snapshot;
+        try {
+            snapshot = access.snapshot(player, request);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            result.complete(List.of());
+            return;
+        }
+        if (snapshot.jobs().isEmpty()) {
+            result.complete(List.of());
+            return;
+        }
+
+        try {
+            workers.execute(() -> {
+                if (closed || result.isDone() || clock.millis() > request.expiresAtEpochMillis()) {
+                    result.complete(List.of());
+                    return;
+                }
+                try {
+                    result.complete(access.render(request.eventId(), snapshot));
+                } catch (ReflectiveOperationException | RuntimeException failure) {
+                    result.complete(List.of());
+                }
+            });
+        } catch (RejectedExecutionException failure) {
+            result.complete(List.of());
+        }
+    }
+
+    @Override
+    public void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        services.unregister(RichChatArtifactProvider.class, this);
+    }
+
+    private static final class ReflectionAccess implements Access {
+        private final Field useItem;
+        private final Field useInventory;
+        private final Field useEnder;
+        private final Field itemPlaceholder;
+        private final Field inventoryPlaceholder;
+        private final Field enderPlaceholder;
+        private final Method getKeyword;
+        private final Constructor<?> offlinePlayerConstructor;
+        private final Method renderItem;
+        private final Method renderInventory;
+        private final boolean itemImagesEnabled;
+        private final boolean inventoryImagesEnabled;
+        private final boolean enderImagesEnabled;
+
+        private ReflectionAccess(
+                Plugin interactiveChat,
+                Plugin discordAddon
+        ) throws ReflectiveOperationException {
+            ClassLoader interactiveLoader = interactiveChat.getClass().getClassLoader();
+            ClassLoader addonLoader = discordAddon.getClass().getClassLoader();
+
+            Class<?> interactiveClass = Class.forName(
+                    "com.loohp.interactivechat.InteractiveChat",
+                    false,
+                    interactiveLoader
+            );
+            Class<?> placeholderClass = Class.forName(
+                    "com.loohp.interactivechat.objectholders.ICPlaceholder",
+                    false,
+                    interactiveLoader
+            );
+            Class<?> offlinePlayerClass = Class.forName(
+                    "com.loohp.interactivechat.objectholders.OfflineICPlayer",
+                    false,
+                    interactiveLoader
+            );
+            Class<?> imageGeneration = Class.forName(
+                    "com.loohp.interactivechatdiscordsrvaddon.graphics.ImageGeneration",
+                    false,
+                    addonLoader
+            );
+
+            Class<?> addonClass = discordAddon.getClass();
+            itemImagesEnabled = addonClass.getField("itemImage").getBoolean(discordAddon);
+            inventoryImagesEnabled = addonClass.getField("invImage").getBoolean(discordAddon);
+            enderImagesEnabled = addonClass.getField("enderImage").getBoolean(discordAddon);
+
+            useItem = interactiveClass.getField("useItem");
+            useInventory = interactiveClass.getField("useInventory");
+            useEnder = interactiveClass.getField("useEnder");
+            itemPlaceholder = interactiveClass.getField("itemPlaceholder");
+            inventoryPlaceholder = interactiveClass.getField("invPlaceholder");
+            enderPlaceholder = interactiveClass.getField("enderPlaceholder");
+            getKeyword = placeholderClass.getMethod("getKeyword");
+            offlinePlayerConstructor = offlinePlayerClass.getDeclaredConstructor(
+                    UUID.class,
+                    String.class,
+                    int.class,
+                    boolean.class,
+                    int.class,
+                    Inventory.class,
+                    Inventory.class
+            );
+            if (!offlinePlayerConstructor.trySetAccessible()) {
+                throw new IllegalAccessException(
+                        "InteractiveChat OfflineICPlayer snapshot constructor is inaccessible"
+                );
+            }
+            renderItem = imageGeneration.getMethod(
+                    "getItemStackImage",
+                    ItemStack.class,
+                    offlinePlayerClass
+            );
+            renderInventory = imageGeneration.getMethod(
+                    "getInventoryImage",
+                    Inventory.class,
+                    offlinePlayerClass
+            );
+        }
+
+        @Override
+        public Snapshot snapshot(
+                Player player,
+                RichChatArtifactRequest request
+        ) throws ReflectiveOperationException {
+            Inventory inventory = copyInventory(player.getInventory(), PLAYER_INVENTORY_SIZE);
+            Inventory enderChest = copyInventory(
+                    player.getEnderChest(),
+                    normalizedInventorySize(player.getEnderChest().getSize())
+            );
+            Object detachedPlayer = newOfflinePlayer(
+                    player,
+                    inventory,
+                    enderChest
+            );
+
+            List<RenderJob> jobs = new ArrayList<>(3);
+            addItemJob(player, request, inventory, jobs);
+            addInventoryJob(
+                    Kind.INVENTORY,
+                    useInventory,
+                    inventoryPlaceholder,
+                    inventory,
+                    player,
+                    request,
+                    jobs
+            );
+            addInventoryJob(
+                    Kind.ENDER_CHEST,
+                    useEnder,
+                    enderPlaceholder,
+                    enderChest,
+                    player,
+                    request,
+                    jobs
+            );
+            return new Snapshot(detachedPlayer, jobs);
+        }
+
+        private void addItemJob(
+                Player player,
+                RichChatArtifactRequest request,
+                Inventory inventory,
+                List<RenderJob> jobs
+        ) throws ReflectiveOperationException {
+            if (!itemImagesEnabled) {
+                return;
+            }
+            Match match = match(
+                    Kind.ITEM,
+                    useItem,
+                    itemPlaceholder,
+                    player,
+                    request
+            );
+            if (match == null) {
+                return;
+            }
+            int selectedSlot = player.getInventory().getHeldItemSlot();
+            ItemStack item = inventory.getItem(selectedSlot);
+            if (item == null) {
+                return;
+            }
+            jobs.add(new RenderJob(
+                    Kind.ITEM,
+                    match.position(),
+                    item.clone(),
+                    null
+            ));
+        }
+
+        private void addInventoryJob(
+                Kind kind,
+                Field enabled,
+                Field placeholder,
+                Inventory inventory,
+                Player player,
+                RichChatArtifactRequest request,
+                List<RenderJob> jobs
+        ) throws ReflectiveOperationException {
+            if ((kind == Kind.INVENTORY && !inventoryImagesEnabled)
+                    || (kind == Kind.ENDER_CHEST && !enderImagesEnabled)) {
+                return;
+            }
+            Match match = match(kind, enabled, placeholder, player, request);
+            if (match == null) {
+                return;
+            }
+            jobs.add(new RenderJob(kind, match.position(), null, inventory));
+        }
+
+        private Object newOfflinePlayer(
+                Player player,
+                Inventory inventory,
+                Inventory enderChest
+        ) throws ReflectiveOperationException {
+            try {
+                boolean rightHanded = player.getMainHand()
+                        == org.bukkit.inventory.MainHand.RIGHT;
+                return offlinePlayerConstructor.newInstance(
+                        detachedSnapshotUuid(player.getUniqueId()),
+                        player.getName(),
+                        player.getInventory().getHeldItemSlot(),
+                        rightHanded,
+                        player.getLevel(),
+                        inventory,
+                        enderChest
+                );
+            } catch (InvocationTargetException failure) {
+                Throwable cause = failure.getCause();
+                if (cause instanceof ReflectiveOperationException reflective) {
+                    throw reflective;
+                }
+                if (cause instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw failure;
+            }
+        }
+
+        private static Inventory copyInventory(Inventory source, int targetSize) {
+            Inventory copy = Bukkit.createInventory(null, targetSize);
+            int limit = Math.min(source.getSize(), targetSize);
+            for (int index = 0; index < limit; index++) {
+                ItemStack item = source.getItem(index);
+                if (item != null) {
+                    copy.setItem(index, item.clone());
+                }
+            }
+            return copy;
+        }
+
+        private static int normalizedInventorySize(int sourceSize) {
+            return Math.max(9, Math.min(54, ((sourceSize + 8) / 9) * 9));
+        }
+
+        private Match match(
+                Kind kind,
+                Field enabled,
+                Field placeholderField,
+                Player player,
+                RichChatArtifactRequest request
+        ) throws ReflectiveOperationException {
+            if (!enabled.getBoolean(null) || !player.hasPermission(kind.permission)) {
+                return null;
+            }
+            Object placeholder = placeholderField.get(null);
+            if (placeholder == null) {
+                return null;
+            }
+            Pattern pattern = (Pattern) invoke(getKeyword, placeholder);
+            int position = firstUnescapedMatch(pattern, request.canonicalPlainText());
+            return position < 0 ? null : new Match(position);
+        }
+
+        @Override
+        public List<RichChatArtifact> render(
+                UUID eventId,
+                Snapshot snapshot
+        ) throws ReflectiveOperationException {
+            List<RichChatArtifact> artifacts = new ArrayList<>(snapshot.jobs().size());
+            int ordinal = 0;
+            for (RenderJob job : snapshot.jobs()) {
+                BufferedImage image;
+                try {
+                    image = switch (job.kind()) {
+                        case ITEM -> (BufferedImage) invoke(
+                                renderItem,
+                                null,
+                                job.item(),
+                                snapshot.interactivePlayer()
+                        );
+                        case INVENTORY -> (BufferedImage) invoke(
+                                renderInventory,
+                                null,
+                                job.inventory(),
+                                snapshot.interactivePlayer()
+                        );
+                        case ENDER_CHEST -> (BufferedImage) invoke(
+                                renderInventory,
+                                null,
+                                job.inventory(),
+                                snapshot.interactivePlayer()
+                        );
+                    };
+                } catch (ReflectiveOperationException | RuntimeException failure) {
+                    continue;
+                }
+                if (image == null) {
+                    continue;
+                }
+                byte[] png = png(image);
+                if (png.length == 0 || png.length > RichChatArtifact.MAX_ARTIFACT_BYTES) {
+                    continue;
+                }
+                String suffix = eventId.toString().substring(0, 8);
+                artifacts.add(new RichChatArtifact(
+                        job.kind().artifactKind,
+                        job.position(),
+                        "IC-" + job.kind().filename + "-" + suffix + "-" + ordinal++ + ".png",
+                        "image/png",
+                        job.kind().altText,
+                        png
+                ));
+            }
+            return artifacts;
+        }
+
+        private static byte[] png(BufferedImage image) {
+            try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                if (!ImageIO.write(image, "PNG", output)) {
+                    return new byte[0];
+                }
+                return output.toByteArray();
+            } catch (java.io.IOException failure) {
+                return new byte[0];
+            }
+        }
+
+        private static Object invoke(
+                Method method,
+                Object target,
+                Object... arguments
+        ) throws ReflectiveOperationException {
+            try {
+                return method.invoke(target, arguments);
+            } catch (InvocationTargetException failure) {
+                Throwable cause = failure.getCause();
+                if (cause instanceof ReflectiveOperationException reflective) {
+                    throw reflective;
+                }
+                if (cause instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                if (cause instanceof Error error) {
+                    throw error;
+                }
+                throw failure;
+            }
+        }
+
+        private record Match(int position) {
+        }
+    }
+}
