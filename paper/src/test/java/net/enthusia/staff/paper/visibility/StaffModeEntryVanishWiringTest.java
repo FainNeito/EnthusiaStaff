@@ -38,6 +38,22 @@ class StaffModeEntryVanishWiringTest {
     }
 
     @Test
+    void pendingEnableRechecksLiveRankBeforeQueuingPersistence() throws IOException {
+        String source = read("visibility/VanishManager.java");
+        String validation = source.substring(
+                source.indexOf("private void validatePendingEnable("),
+                source.indexOf("private boolean queuePersistSet(")
+        );
+
+        assertTrue(validation.contains("audiences.onOwner("));
+        assertTrue(validation.indexOf("resolveAndPublishRank(current)")
+                < validation.indexOf("VanishRankReconciliationPolicy.mayVanish(liveRank)"));
+        assertTrue(validation.indexOf("VanishRankReconciliationPolicy.mayVanish(liveRank)")
+                < validation.indexOf("queuePersistSet("));
+        assertTrue(validation.contains("failPendingSet("));
+    }
+
+    @Test
     void manualToggleRemembersChoiceButAutomaticExitCleanupDoesNotOverwriteIt() throws IOException {
         String source = read("visibility/VanishManager.java");
         assertTrue(source.contains(

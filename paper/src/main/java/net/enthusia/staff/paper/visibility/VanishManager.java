@@ -508,10 +508,89 @@ public final class VanishManager implements Listener {
         }
         java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
         UUID expectedSession = staffMode.activeSessionId(playerId);
-        if (!submit(() -> {
+        if (vanished) {
+            validatePendingEnable(
+                    playerId,
+                    expectedSession,
+                    restoreSelectedMode,
+                    selectedGameMode,
+                    preferenceUpdate,
+                    result
+            );
+        } else if (!queuePersistSet(
+                playerId,
+                rank,
+                false,
+                expectedSession,
+                restoreSelectedMode,
+                selectedGameMode,
+                preferenceUpdate,
+                result
+        )) {
+            failPendingSet(playerId, result, "The bounded work queue is full; vanish was not changed.");
+        }
+        return result;
+    }
+
+    private void validatePendingEnable(
+            UUID playerId,
+            UUID expectedSession,
+            boolean restoreSelectedMode,
+            GameMode selectedGameMode,
+            VanishStore.PreferenceUpdate preferenceUpdate,
+            java.util.concurrent.CompletableFuture<Boolean> result
+    ) {
+        audiences.onOwner(
+                playerId,
+                current -> {
+                    StaffRank liveRank = resolveAndPublishRank(current);
+                    if (!VanishRankReconciliationPolicy.mayVanish(liveRank)) {
+                        failPendingSet(
+                                playerId,
+                                result,
+                                "Vanish enable was cancelled because your current staff rank does not permit it."
+                        );
+                        return;
+                    }
+                    if (expectedSession != null
+                            && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
+                        failPendingSet(playerId, result, null);
+                        return;
+                    }
+                    if (!queuePersistSet(
+                            playerId,
+                            liveRank,
+                            true,
+                            expectedSession,
+                            restoreSelectedMode,
+                            selectedGameMode,
+                            preferenceUpdate,
+                            result
+                    )) {
+                        failPendingSet(
+                                playerId,
+                                result,
+                                "The bounded work queue is full; vanish was not changed."
+                        );
+                    }
+                },
+                () -> failPendingSet(playerId, result, null)
+        );
+    }
+
+    private boolean queuePersistSet(
+            UUID playerId,
+            StaffRank rank,
+            boolean vanished,
+            UUID expectedSession,
+            boolean restoreSelectedMode,
+            GameMode selectedGameMode,
+            VanishStore.PreferenceUpdate preferenceUpdate,
+            java.util.concurrent.CompletableFuture<Boolean> result
+    ) {
+        return submit(() -> {
             if (expectedSession != null && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
-                stateWrites.remove(playerId);
-                result.complete(false);
+                failPendingSet(playerId, result, null);
                 return;
             }
             result.complete(persistSet(
@@ -522,12 +601,19 @@ public final class VanishManager implements Listener {
                     selectedGameMode,
                     preferenceUpdate
             ));
-        })) {
-            stateWrites.remove(playerId);
-            player.sendMessage(StaffMessageStyle.style(Component.text("The bounded work queue is full; vanish was not changed.")));
-            result.complete(false);
+        });
+    }
+
+    private void failPendingSet(
+            UUID playerId,
+            java.util.concurrent.CompletableFuture<Boolean> result,
+            String reason
+    ) {
+        stateWrites.remove(playerId);
+        if (reason != null) {
+            message(playerId, reason);
         }
-        return result;
+        result.complete(false);
     }
 
     private boolean persistSet(
