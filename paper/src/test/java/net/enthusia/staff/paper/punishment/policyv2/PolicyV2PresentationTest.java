@@ -23,6 +23,7 @@ import net.enthusia.staff.domain.policyv2.IncidentAttributeValue;
 import net.enthusia.staff.domain.policyv2.OffensePolicy;
 import net.enthusia.staff.domain.policyv2.PolicyAction;
 import net.enthusia.staff.domain.policyv2.PolicySnapshot;
+import net.enthusia.staff.domain.policyv2.RemedySpec;
 import net.enthusia.staff.domain.policyv2.ResolutionRule;
 import net.enthusia.staff.domain.policyv2.RuleCondition;
 import net.enthusia.staff.domain.sanction.SanctionLength;
@@ -117,6 +118,97 @@ class PolicyV2PresentationTest {
         assertFalse(view.historyExplanation().matches(".*0\\.[0-9]+.*"));
         assertEquals("policy-test", view.policyVersion());
         assertTrue(view.authorityNotice().contains("Policy v1 remains authoritative"));
+    }
+
+    @Test
+    void remedyOnlyPresentationClearlySeparatesComplianceFromPunishment() {
+        String offenseId = "access.vpn-compliance";
+        RemedySpec remedy = new RemedySpec(
+                "vpn-access",
+                RemedySpec.Type.ACCESS_RESTRICTION,
+                "Disable the unapproved VPN or obtain approval"
+        );
+        OffensePolicy offense = new OffensePolicy(
+                offenseId,
+                "VPN Compliance",
+                "accounts-vpn-access",
+                List.of(),
+                new HistoryPolicy(Map.of(), DecayPolicy.nonDecaying()),
+                List.of(new ResolutionRule(
+                        "compliance-only",
+                        new RuleCondition(Map.of(), HistoryWindow.atLeast(0.0)),
+                        new PolicyAction.RemedyOnly(),
+                        List.of(remedy)
+                ))
+        );
+        PolicySnapshot snapshot = new PolicySnapshot("policy-remedy-only", List.of(offense));
+        PolicyV2ManualWorkflow workflow = new PolicyV2ManualWorkflow(
+                () -> snapshot,
+                (subjectId, at) -> List.of(),
+                (review, key, at) -> UUID.randomUUID(),
+                new DefaultAuthorizationPolicy(),
+                java.time.Clock.systemUTC()
+        );
+        PolicyV2ManualDraft draft = PolicyV2ManualDraft.start(TARGET, NOW)
+                .selectCategory(PolicyV2Category.ACCOUNTS_VPN_ACCESS)
+                .selectOffense(offenseId);
+
+        PolicyV2ReviewPresentation view = PolicyV2ReviewPresentation.from(
+                workflow.review(new Actor(ACTOR_ID, "Mod", StaffRank.MOD), draft)
+        );
+
+        assertEquals(
+                List.of("No punitive sanction; complete the required remedy or compliance condition."),
+                view.sanctionRecommendation()
+        );
+        assertEquals(
+                List.of("Access restriction: Disable the unapproved VPN or obtain approval"),
+                view.remedies()
+        );
+    }
+
+    @Test
+    void exactApprovalPresentationShowsFixedOutcomeAndRequiredRank() {
+        PolicyAction.ExactWithApproval action = new PolicyAction.ExactWithApproval(
+                List.of(new SanctionSpec(
+                        SanctionType.NETWORK_BAN,
+                        SanctionLength.permanent()
+                )),
+                StaffRank.ADMIN
+        );
+        OffensePolicy offense = new OffensePolicy(
+                HARASSMENT_ID,
+                "Terminal Safety Finding",
+                "harassment-abuse",
+                List.of(IncidentAttributeDefinition.booleanValue("targeted", true)),
+                new HistoryPolicy(Map.of(HARASSMENT_ID, 1.0), DecayPolicy.nonDecaying()),
+                List.of(new ResolutionRule(
+                        "terminal",
+                        new RuleCondition(Map.of(), HistoryWindow.atLeast(0.0)),
+                        action,
+                        List.of()
+                ))
+        );
+        PolicySnapshot snapshot = new PolicySnapshot("policy-terminal", List.of(offense));
+        PolicyV2ManualWorkflow workflow = new PolicyV2ManualWorkflow(
+                () -> snapshot,
+                (subjectId, at) -> List.of(),
+                (review, key, at) -> UUID.randomUUID(),
+                new DefaultAuthorizationPolicy(),
+                java.time.Clock.systemUTC()
+        );
+        PolicyV2ManualDraft draft = PolicyV2ManualDraft.start(TARGET, NOW)
+                .selectCategory(PolicyV2Category.HARASSMENT_ABUSE)
+                .selectOffense(HARASSMENT_ID);
+        draft = workflow.answer(draft, "targeted", new IncidentAttributeValue.BooleanValue(true));
+
+        PolicyV2ReviewPresentation view = PolicyV2ReviewPresentation.from(
+                workflow.review(new Actor(ACTOR_ID, "Mod", StaffRank.MOD), draft)
+        );
+
+        assertTrue(view.sanctionRecommendation().getFirst().contains("Permanent"));
+        assertTrue(view.why().contains("Admin or higher approval"));
+        assertEquals("Request approval after an explicit Policy v2 cutover", view.approvalRoute());
     }
 
     @Test

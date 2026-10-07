@@ -311,7 +311,9 @@ final class PolicyV2SnapshotParser {
         String type = PolicyV2Yaml.text(node, ACTION_TYPE_FIELD, path).toLowerCase(java.util.Locale.ROOT);
         return switch (type) {
             case "exact" -> exactAction(node, path);
+            case "exact-with-approval" -> exactWithApprovalAction(node, path);
             case "bounded" -> boundedAction(node, path);
+            case "remedy-only" -> remedyOnlyAction(node, path);
             case "requires-review" -> reviewAction(node, path);
             default -> throw PolicyV2Yaml.invalid(path + ".type has unsupported value " + type);
         };
@@ -323,6 +325,21 @@ final class PolicyV2SnapshotParser {
                 PolicyV2Yaml.required(node, SANCTIONS_FIELD, path),
                 path + ".sanctions"
         ));
+    }
+
+    private PolicyAction exactWithApprovalAction(JsonNode node, String path) {
+        requireAbsent(node, path, ALLOWED_OPTIONS_FIELD, REASON_CODE_FIELD);
+        return new PolicyAction.ExactWithApproval(
+                parseSanctions(
+                        PolicyV2Yaml.required(node, SANCTIONS_FIELD, path),
+                        path + ".sanctions"
+                ),
+                PolicyV2Yaml.enumValue(
+                        StaffRank.class,
+                        PolicyV2Yaml.text(node, MINIMUM_RANK_FIELD, path),
+                        path + ".minimum-rank"
+                )
+        );
     }
 
     private PolicyAction boundedAction(JsonNode node, String path) {
@@ -344,6 +361,11 @@ final class PolicyV2SnapshotParser {
                         path + ".minimum-rank"
                 )
         );
+    }
+
+    private static PolicyAction remedyOnlyAction(JsonNode node, String path) {
+        requireAbsent(node, path, SANCTIONS_FIELD, ALLOWED_OPTIONS_FIELD, MINIMUM_RANK_FIELD, REASON_CODE_FIELD);
+        return new PolicyAction.RemedyOnly();
     }
 
     private static PolicyAction reviewAction(JsonNode node, String path) {
