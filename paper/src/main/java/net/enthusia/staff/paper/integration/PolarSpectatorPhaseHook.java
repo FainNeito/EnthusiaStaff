@@ -44,8 +44,8 @@ public final class PolarSpectatorPhaseHook implements Runnable {
     }
 
     @Override
-    public void run() {
-        if (closed.get()) {
+    public synchronized void run() {
+        if (closed.get() || registration != null) {
             return;
         }
         try {
@@ -81,7 +81,7 @@ public final class PolarSpectatorPhaseHook implements Runnable {
         }
     }
 
-    private void unregister() {
+    private synchronized void unregister() {
         closed.set(true);
         EventListenerRepository currentEvents = events;
         RegisteredListener<MitigationEvent> currentRegistration = registration;
