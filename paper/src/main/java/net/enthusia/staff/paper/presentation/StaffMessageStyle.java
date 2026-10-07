@@ -31,7 +31,21 @@ public final class StaffMessageStyle {
         return Component.text(title, NamedTextColor.AQUA, TextDecoration.BOLD);
     }
 
+    public static Component header(Component title) {
+        return Component.text()
+                .color(NamedTextColor.AQUA)
+                .decorate(TextDecoration.BOLD)
+                .append(title)
+                .build();
+    }
+
     public static Component modeHeader(String title, OperationalMode mode) {
+        return header(title)
+                .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
+                .append(Component.text(displayMode(mode), modeColor(mode), TextDecoration.BOLD));
+    }
+
+    public static Component modeHeader(Component title, OperationalMode mode) {
         return header(title)
                 .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(displayMode(mode), modeColor(mode), TextDecoration.BOLD));
@@ -54,20 +68,53 @@ public final class StaffMessageStyle {
                 .append(Component.text(detail, NamedTextColor.GRAY));
     }
 
+    public static Component statusRow(
+            Component label,
+            Component status,
+            Component detail,
+            Tone tone
+    ) {
+        Component row = Component.text("  ", NamedTextColor.DARK_GRAY)
+                .append(withDefaultColor(label, NamedTextColor.GRAY))
+                .append(Component.text("  ", NamedTextColor.DARK_GRAY))
+                .append(withDefaultColor(status, tone.color));
+        if (detail == null) {
+            return row;
+        }
+        return row.append(Component.text(SEPARATOR, NamedTextColor.DARK_GRAY))
+                .append(withDefaultColor(detail, NamedTextColor.GRAY));
+    }
+
     public static Component success(String text) {
         return Component.text(text, NamedTextColor.GREEN);
+    }
+
+    public static Component success(Component component) {
+        return withDefaultColor(component, NamedTextColor.GREEN);
     }
 
     public static Component warning(String text) {
         return Component.text(text, NamedTextColor.GOLD);
     }
 
+    public static Component warning(Component component) {
+        return withDefaultColor(component, NamedTextColor.GOLD);
+    }
+
     public static Component error(String text) {
         return Component.text(text, NamedTextColor.RED);
     }
 
+    public static Component error(Component component) {
+        return withDefaultColor(component, NamedTextColor.RED);
+    }
+
     public static Component info(String text) {
         return Component.text(text, NamedTextColor.GRAY);
+    }
+
+    public static Component info(Component component) {
+        return withDefaultColor(component, NamedTextColor.GRAY);
     }
 
     public static Component command(String command) {
@@ -131,6 +178,10 @@ public final class StaffMessageStyle {
 
     public static String displayMode(OperationalMode mode) {
         return mode.name().replace('_', ' ');
+    }
+
+    private static Component withDefaultColor(Component component, NamedTextColor color) {
+        return Component.text().color(color).append(component).build();
     }
 
     private static Component neutralLine(String text) {

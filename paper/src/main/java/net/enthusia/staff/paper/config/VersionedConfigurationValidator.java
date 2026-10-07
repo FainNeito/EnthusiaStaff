@@ -47,6 +47,12 @@ public final class VersionedConfigurationValidator implements ConfigurationValid
             return "version " + policies.version();
         }, entries, errors);
 
+        validateSource("messages.yml", () -> {
+            MessageConfigurationSnapshot messages =
+                    new MessageConfigurationLoader().load(dataDirectory.resolve("messages.yml"));
+            return "schema " + messages.schemaVersion();
+        }, entries, errors);
+
         validateReports(entries, errors);
 
         validateSource("policy-v2.yml", () -> {

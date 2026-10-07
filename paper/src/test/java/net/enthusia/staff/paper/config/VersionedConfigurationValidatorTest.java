@@ -29,6 +29,7 @@ class VersionedConfigurationValidatorTest {
                 Set.of(
                         "config.yml",
                         "reason-policies.yml",
+                        "messages.yml",
                         "reports.yml",
                         "gui/reports.yml",
                         "policy-v2.yml"
@@ -50,6 +51,7 @@ class VersionedConfigurationValidatorTest {
         assertTrue(report.errors().stream().anyMatch(error -> error.startsWith("policy-v2.yml:")));
         assertTrue(report.entries().stream().anyMatch(entry -> entry.source().equals("config.yml")));
         assertTrue(report.entries().stream().anyMatch(entry -> entry.source().equals("reason-policies.yml")));
+        assertTrue(report.entries().stream().anyMatch(entry -> entry.source().equals("messages.yml")));
         assertTrue(report.entries().stream().anyMatch(entry -> entry.source().equals("reports.yml")));
         assertTrue(report.entries().stream().anyMatch(entry -> entry.source().equals("gui/reports.yml")));
     }
@@ -64,6 +66,7 @@ class VersionedConfigurationValidatorTest {
     private void copyShippedConfiguration() throws IOException {
         copyResource("config.yml");
         copyResource("reason-policies.yml");
+        copyResource("messages.yml");
         copyResource("reports.yml");
         Files.createDirectories(tempDirectory.resolve("gui"));
         copyResource("gui/reports.yml");
