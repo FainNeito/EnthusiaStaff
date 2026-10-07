@@ -68,9 +68,22 @@ public final class PolarSpectatorPhaseCompatibility {
         }
         EligibilityListener listener = new EligibilityListener();
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);
+        reconcileOnlinePlayers(plugin, listener);
+        plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(
+                plugin,
+                ignored -> reconcileOnlinePlayers(plugin, listener),
+                1L,
+                2L
+        );
+    }
+
+    private static void reconcileOnlinePlayers(JavaPlugin plugin, EligibilityListener listener) {
+        Set<UUID> online = ConcurrentHashMap.newKeySet();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
+            online.add(player.getUniqueId());
             listener.refresh(player, player.getGameMode());
         }
+        ELIGIBLE_SPECTATORS.retainAll(online);
     }
 
     static boolean eligible(UUID playerId) {
