@@ -833,6 +833,17 @@ public final class EnthusiaStaffVelocityPlugin {
         );
     }
 
+    private static boolean allPaperBackendsConnected(
+            VelocityConfiguration loaded,
+            PersistentChannelServer channel
+    ) {
+        return loaded != null
+                && channel != null
+                && VelocityChannelPeerPolicy.allPaperBackendsConnected(
+                        loaded.backendSecretEnvironments().keySet(),
+                        channel.connectedServers());
+    }
+
     private void initializeNetworkIdentity(VelocityConfiguration loaded, NetworkIdentityStore store) {
         networkIdentityStore = store;
         if (!loaded.networkIdentityEnabled()) {
@@ -1123,8 +1134,7 @@ public final class EnthusiaStaffVelocityPlugin {
 
     private void addChannelIssue(Map<String, String> issues, VelocityConfiguration loaded) {
         PersistentChannelServer channel = channelServer;
-        if (loaded == null || channel == null
-                || !channel.connectedServers().containsAll(loaded.backendSecretEnvironments().keySet())) {
+        if (!allPaperBackendsConnected(loaded, channel)) {
             issues.put("channel", "Every configured Paper backend is not authenticated and connected");
         }
     }
@@ -2863,8 +2873,7 @@ public final class EnthusiaStaffVelocityPlugin {
         ) {
             VelocityConfiguration loaded = configuration;
             PersistentChannelServer channel = channelServer;
-            if (loaded == null || channel == null
-                    || !channel.connectedServers().containsAll(loaded.backendSecretEnvironments().keySet())) {
+            if (!allPaperBackendsConnected(loaded, channel)) {
                 source.sendMessage(VelocityMessageStyle.style(Component.text(
                         "Cutover blocked: every configured Paper backend must have an authenticated persistent connection."
                 )));
