@@ -1,5 +1,7 @@
 # LiteBans cutover acceptance plan
 
+> **Historical migration record:** EnthusiaStaff is now live on the Enthusia Network and LiteBans has been removed from the current network. This document is retained as the original migration/rollback acceptance procedure; its pre-cutover statements describe the required state at that time, not current authority.
+
 This plan produces the production-like evidence required before EnthusiaStaff may replace LiteBans as moderation authority. It is a staging procedure. It does not authorize a live cutover, production deployment, database repair, or deletion of legacy data.
 
 Merging reviewed cutover infrastructure into the development branch is separate from authorizing a production cutover. Issue #43 blocks production activation and cutover authorization. It does not block merging dormant, reviewed implementation code.
