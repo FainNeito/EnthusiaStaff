@@ -112,8 +112,10 @@ public final class VanishManager implements Listener {
             try {
                 for (VanishRecord record : loaded.active(10_000)) {
                     durableVanishedRanks.put(record.staffId(), record.rank());
-                    rememberPersistedGameMode(record);
-                    visibility.setVanished(record.staffId(), record.rank(), true);
+                    if (VanishRankReconciliationPolicy.mayVanish(record.rank())) {
+                        rememberPersistedGameMode(record);
+                        visibility.setVanished(record.staffId(), record.rank(), true);
+                    }
                 }
                 durableVanishLoaded.set(true);
                 recoverOnlinePlayers();
@@ -269,6 +271,12 @@ public final class VanishManager implements Listener {
                             + ": no staff rank available on this backend");
             return;
         }
+        if (!VanishRankReconciliationPolicy.mayVanish(rank)) {
+            plugin.getLogger().info(
+                    "Ignoring cross-server vanish snapshot for " + player.getName()
+                            + ": current rank must remain visible");
+            return;
+        }
         durableVanishedRanks.put(playerId, rank);
         if (snapshot.selectedGameMode() != null) {
             try {
@@ -304,6 +312,13 @@ public final class VanishManager implements Listener {
         StaffRank rank = resolveAndPublishRank(player);
         if (rank == null) {
             player.sendMessage(StaffMessageStyle.style(Component.text("An explicit EnthusiaStaff rank is required before using vanish.")));
+            return;
+        }
+        if (!VanishRankReconciliationPolicy.mayVanish(rank)) {
+            if (visibility.isVanished(player.getUniqueId()) || durableVanishedRanks.containsKey(player.getUniqueId())) {
+                set(player, rank, false, false, VanishStore.PreferenceUpdate.KEEP);
+            }
+            player.sendMessage(StaffMessageStyle.style(Component.text("Helpers cannot use vanish.")));
             return;
         }
         if (requiresStaffMode(rank)
@@ -359,6 +374,12 @@ public final class VanishManager implements Listener {
         }
         if (rank == null || !staffMode.active(playerId)) {
             return;
+        }
+        if (!VanishRankReconciliationPolicy.mayVanish(rank) && desired) {
+            player.sendMessage(StaffMessageStyle.style(Component.text(
+                    "Helpers enter Staff Mode visible; vanish is not available to Helper."
+            )));
+            desired = false;
         }
         if (isVanished(playerId) == desired && preferenceUpdate == VanishStore.PreferenceUpdate.KEEP) {
             return;
@@ -474,6 +495,10 @@ public final class VanishManager implements Listener {
             VanishStore.PreferenceUpdate preferenceUpdate
     ) {
         UUID playerId = player.getUniqueId();
+        if (vanished && !VanishRankReconciliationPolicy.mayVanish(rank)) {
+            player.sendMessage(StaffMessageStyle.style(Component.text("Helpers cannot use vanish.")));
+            return java.util.concurrent.CompletableFuture.completedFuture(false);
+        }
         GameMode selectedGameMode = vanished
                 ? selectedGameModeForEnable(player, rank)
                 : selectedGameModes.get(playerId);
@@ -483,10 +508,89 @@ public final class VanishManager implements Listener {
         }
         java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
         UUID expectedSession = staffMode.activeSessionId(playerId);
-        if (!submit(() -> {
+        if (vanished) {
+            validatePendingEnable(
+                    playerId,
+                    expectedSession,
+                    restoreSelectedMode,
+                    selectedGameMode,
+                    preferenceUpdate,
+                    result
+            );
+        } else if (!queuePersistSet(
+                playerId,
+                rank,
+                false,
+                expectedSession,
+                restoreSelectedMode,
+                selectedGameMode,
+                preferenceUpdate,
+                result
+        )) {
+            failPendingSet(playerId, result, "The bounded work queue is full; vanish was not changed.");
+        }
+        return result;
+    }
+
+    private void validatePendingEnable(
+            UUID playerId,
+            UUID expectedSession,
+            boolean restoreSelectedMode,
+            GameMode selectedGameMode,
+            VanishStore.PreferenceUpdate preferenceUpdate,
+            java.util.concurrent.CompletableFuture<Boolean> result
+    ) {
+        audiences.onOwner(
+                playerId,
+                current -> {
+                    StaffRank liveRank = resolveAndPublishRank(current);
+                    if (!VanishRankReconciliationPolicy.mayVanish(liveRank)) {
+                        failPendingSet(
+                                playerId,
+                                result,
+                                "Vanish enable was cancelled because your current staff rank does not permit it."
+                        );
+                        return;
+                    }
+                    if (expectedSession != null
+                            && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
+                        failPendingSet(playerId, result, null);
+                        return;
+                    }
+                    if (!queuePersistSet(
+                            playerId,
+                            liveRank,
+                            true,
+                            expectedSession,
+                            restoreSelectedMode,
+                            selectedGameMode,
+                            preferenceUpdate,
+                            result
+                    )) {
+                        failPendingSet(
+                                playerId,
+                                result,
+                                "The bounded work queue is full; vanish was not changed."
+                        );
+                    }
+                },
+                () -> failPendingSet(playerId, result, null)
+        );
+    }
+
+    private boolean queuePersistSet(
+            UUID playerId,
+            StaffRank rank,
+            boolean vanished,
+            UUID expectedSession,
+            boolean restoreSelectedMode,
+            GameMode selectedGameMode,
+            VanishStore.PreferenceUpdate preferenceUpdate,
+            java.util.concurrent.CompletableFuture<Boolean> result
+    ) {
+        return submit(() -> {
             if (expectedSession != null && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
-                stateWrites.remove(playerId);
-                result.complete(false);
+                failPendingSet(playerId, result, null);
                 return;
             }
             result.complete(persistSet(
@@ -497,12 +601,19 @@ public final class VanishManager implements Listener {
                     selectedGameMode,
                     preferenceUpdate
             ));
-        })) {
-            stateWrites.remove(playerId);
-            player.sendMessage(StaffMessageStyle.style(Component.text("The bounded work queue is full; vanish was not changed.")));
-            result.complete(false);
+        });
+    }
+
+    private void failPendingSet(
+            UUID playerId,
+            java.util.concurrent.CompletableFuture<Boolean> result,
+            String reason
+    ) {
+        stateWrites.remove(playerId);
+        if (reason != null) {
+            message(playerId, reason);
         }
-        return result;
+        result.complete(false);
     }
 
     private boolean persistSet(
@@ -519,7 +630,23 @@ public final class VanishManager implements Listener {
                 message(playerId, "Vanish storage is not ready; no visibility change was made.");
                 return false;
             }
+            if (!pendingEnableStillEligible(playerId, vanished)) {
+                message(playerId, "Vanish enable was cancelled because your current staff rank does not permit it.");
+                return false;
+            }
             persistState(loaded, playerId, rank, vanished, selectedGameMode, preferenceUpdate);
+            if (!pendingEnableStillEligible(playerId, vanished)) {
+                persistState(
+                        loaded,
+                        playerId,
+                        rank,
+                        false,
+                        selectedGameMode,
+                        VanishStore.PreferenceUpdate.KEEP
+                );
+                message(playerId, "Vanish enable was cancelled because your current staff rank changed while it was being saved.");
+                return false;
+            }
             rememberCommittedState(playerId, rank, vanished, restoreSelectedMode, selectedGameMode);
             boolean viewerChanged = publishViewerRank(playerId, rank);
             Set<UUID> presenceViewers = presenceViewers(playerId);
@@ -549,6 +676,10 @@ public final class VanishManager implements Listener {
         }
     }
 
+    private boolean pendingEnableStillEligible(UUID playerId, boolean vanished) {
+        return !vanished
+                || VanishRankReconciliationPolicy.mayVanish(onlineStaffRanks.get(playerId));
+    }
     private void rememberCommittedState(
             UUID playerId,
             StaffRank rank,
@@ -1275,6 +1406,16 @@ public final class VanishManager implements Listener {
             return;
         }
         durableVanishedRanks.put(playerId, record.rank());
+        StaffRank liveRank = resolveLiveRank(player);
+        if (!VanishRankReconciliationPolicy.mayVanish(liveRank)) {
+            selectedGameModes.remove(playerId);
+            visibility.setVanished(playerId, record.rank(), false);
+            reconcileLiveRank(player);
+            audiences.updateGameMode(playerId, player.getGameMode());
+            audiences.refreshViewer(playerId);
+            audiences.refreshTarget(playerId);
+            return;
+        }
         rememberPersistedGameMode(record);
         visibility.setVanished(playerId, record.rank(), true);
         if (!staffMode.transitioning(playerId)) {

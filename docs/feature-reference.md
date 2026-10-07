@@ -81,7 +81,7 @@ Freeze state is designed to survive ordinary runtime transitions rather than bei
 
 ## Staff mode and tools
 
-`/staff` enters/exits durable staff mode. Fresh entry automatically enables durable vanish; entering while already vanished never toggles it off. If automatic vanish cannot be saved, the same newly entered session exits through normal snapshot restoration. Recovery and cross-server resumes retain their existing visibility state, and existing rank-specific exit behavior remains intact.
+`/staff` enters/exits durable staff mode. Fresh entry uses the configured/remembered visibility policy for vanish-capable ranks. Helpers are always forced visible and cannot enable full vanish through `/vanish`, Staff Mode entry options, direct permission grants, persisted state, or cross-server snapshots. If an allowed visibility transition cannot be saved, the same newly entered session exits through normal snapshot restoration. Recovery and cross-server resumes remain subject to current rank policy.
 
 Player-name arguments use bounded, case-insensitive completion with permission and visibility filtering. This includes direct moderation/report/history/client/inventory commands, inspector sub-actions, freeze targets, staff flags, staff-tool follow/spectate, tester/fake-base targets, and console-only staff recovery/API targets. Paper suggests visible local online names and retains its existing offline inventory cache. Velocity `/alts` and both `/alt` player arguments asynchronously suggest known network names, including offline accounts. Reason, case-ID, draft-ID and confirmation inputs retain their existing completion. These changes are unmerged proposals; live Java/Bedrock acceptance remains pending.
 
@@ -93,7 +93,7 @@ Staff tools have explicit exemptions/permissions so ordinary moderation helpers 
 
 ## Vanish
 
-`/vanish` controls durable, rank-aware vanish. The implementation separately supports tab-list presentation through `/vanish tab <show|hide>`.
+`/vanish` controls durable, rank-aware vanish for Mod, Developer, Admin, and Founder. Helper has no full-vanish authority. The implementation separately supports tab-list presentation through `/vanish tab <show|hide>` where that presentation policy permits it.
 
 Vanish is designed around staff hierarchy and recovery rather than only `Player#hidePlayer` state.
 

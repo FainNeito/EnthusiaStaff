@@ -42,7 +42,7 @@ final class VanishRankReconciliationPolicy {
         if (!vanished) {
             return durableRank == null ? VanishAction.NONE : VanishAction.DISABLE;
         }
-        if (!isPlayerRank(liveRank)) {
+        if (!mayVanish(liveRank)) {
             return VanishAction.DISABLE;
         }
         VanishAction sessionAction = requiresStaffMode(liveRank) && !unrestricted
@@ -59,6 +59,10 @@ final class VanishRankReconciliationPolicy {
             case INACTIVE, EXITED -> VanishAction.DISABLE;
             case ACTIVE -> null;
         };
+    }
+
+    static boolean mayVanish(StaffRank rank) {
+        return isPlayerRank(rank) && rank != StaffRank.HELPER;
     }
 
     static boolean requiresStaffMode(StaffRank rank) {
