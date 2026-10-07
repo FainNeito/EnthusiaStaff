@@ -7,11 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.enthusia.staff.protocol.ChatArtifactMessages;
+import net.enthusia.staff.protocol.ChatBridgeArtifact;
+import net.enthusia.staff.protocol.ChatBridgeArtifactBundle;
 import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
 import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
@@ -32,11 +36,14 @@ class VelocityChannelMessageRouterTest {
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
         VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
                 Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityChatArtifactRelay artifactRelay =
+                new VelocityChatArtifactRelay(CLOCK, 32);
         VelocityRenderedChatBridgeRelay renderedRelay =
                 new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                artifactRelay,
                 renderedRelay,
                 inbound,
                 envelope -> {
@@ -66,6 +73,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, delegated.get());
 
         relay.close();
+        artifactRelay.close();
         renderedRelay.close();
         inbound.close();
     }
@@ -80,11 +88,14 @@ class VelocityChannelMessageRouterTest {
         });
         VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
                 Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityChatArtifactRelay artifactRelay =
+                new VelocityChatArtifactRelay(CLOCK, 32);
         VelocityRenderedChatBridgeRelay renderedRelay =
                 new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                artifactRelay,
                 renderedRelay,
                 inbound,
                 envelope -> true
@@ -100,6 +111,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, deliveries.get());
 
         relay.close();
+        artifactRelay.close();
         renderedRelay.close();
         inbound.close();
     }
@@ -115,11 +127,14 @@ class VelocityChannelMessageRouterTest {
         });
         VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
                 Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityChatArtifactRelay artifactRelay =
+                new VelocityChatArtifactRelay(CLOCK, 32);
         VelocityRenderedChatBridgeRelay renderedRelay =
                 new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                artifactRelay,
                 renderedRelay,
                 inbound,
                 envelope -> {
@@ -147,6 +162,66 @@ class VelocityChannelMessageRouterTest {
         assertEquals(1, delegated.get());
 
         relay.close();
+        artifactRelay.close();
+        renderedRelay.close();
+        inbound.close();
+    }
+
+    @Test
+    void artifactFramesArePaperOnlyAndAckOnlyAfterStaffBotSink() {
+        AtomicInteger delegated = new AtomicInteger();
+        AtomicInteger artifacts = new AtomicInteger();
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        VelocityChatArtifactRelay artifactRelay = new VelocityChatArtifactRelay(CLOCK, 32);
+        artifactRelay.installSink(bundle -> {
+            artifacts.incrementAndGet();
+            return true;
+        });
+        VelocityRenderedChatBridgeRelay renderedRelay =
+                new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
+        VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
+                Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
+                Set.of(PAPER_SERVER),
+                relay,
+                artifactRelay,
+                renderedRelay,
+                inbound,
+                envelope -> {
+                    delegated.incrementAndGet();
+                    return true;
+                }
+        );
+        ChatBridgeArtifactBundle bundle = artifactBundle(PAPER_SERVER);
+
+        assertTrue(router.handle(new ProtocolEnvelope(
+                1,
+                ChatArtifactMessages.transportMessageId(bundle.eventId()),
+                PAPER_SERVER,
+                ChatArtifactMessages.ARTIFACTS,
+                NOW,
+                "nonce",
+                ChatArtifactMessages.encode(bundle),
+                "mac"
+        )));
+        assertEquals(1, artifacts.get());
+        assertEquals(0, delegated.get());
+
+        assertFalse(router.handle(new ProtocolEnvelope(
+                1,
+                ChatArtifactMessages.transportMessageId(bundle.eventId()),
+                STAFF_BOT_PEER,
+                ChatArtifactMessages.ARTIFACTS,
+                NOW,
+                "nonce",
+                ChatArtifactMessages.encode(bundle),
+                "mac"
+        )));
+        assertEquals(1, artifacts.get());
+        assertEquals(0, delegated.get());
+
+        relay.close();
+        artifactRelay.close();
         renderedRelay.close();
         inbound.close();
     }
@@ -156,6 +231,8 @@ class VelocityChannelMessageRouterTest {
         AtomicInteger delegated = new AtomicInteger();
         CountDownLatch delivered = new CountDownLatch(1);
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        VelocityChatArtifactRelay artifactRelay =
+                new VelocityChatArtifactRelay(CLOCK, 32);
         VelocityRenderedChatBridgeRelay renderedRelay =
                 new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
         renderedRelay.installSink(message -> {
@@ -167,6 +244,7 @@ class VelocityChannelMessageRouterTest {
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                artifactRelay,
                 renderedRelay,
                 inbound,
                 envelope -> {
@@ -202,8 +280,27 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, delegated.get());
 
         relay.close();
+        artifactRelay.close();
         renderedRelay.close();
         inbound.close();
+    }
+
+    private static ChatBridgeArtifactBundle artifactBundle(String sourceServerId) {
+        return new ChatBridgeArtifactBundle(
+                UUID.randomUUID(),
+                NOW,
+                NOW + 30_000L,
+                sourceServerId,
+                LOGICAL_CHANNEL,
+                List.of(new ChatBridgeArtifact(
+                        ChatBridgeArtifact.Kind.ITEM,
+                        3,
+                        "Item.png",
+                        "image/png",
+                        "Shared item",
+                        new byte[] {1, 2, 3}
+                ))
+        );
     }
 
     private static ChatBridgeRenderedMessage renderedMessage(String sourceServerId) {

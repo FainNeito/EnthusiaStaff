@@ -1,7 +1,10 @@
 package net.enthusia.staff.discordbot;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -26,9 +29,12 @@ import net.dv8tion.jda.api.events.session.SessionResumeEvent;
 import net.dv8tion.jda.api.events.session.ShutdownEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
+import net.dv8tion.jda.api.requests.restaction.MessageCreateAction;
 import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.FileUpload;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
+import net.enthusia.staff.protocol.ChatBridgeArtifact;
 import net.enthusia.staff.protocol.ChatBridgeInboundMessage;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
 import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
@@ -360,8 +366,12 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
 
 
     @Override
-    public boolean sendRendered(long channelId, ChatBridgeRenderedMessage message) {
-        if (message == null) {
+    public boolean sendRendered(
+            long channelId,
+            ChatBridgeRenderedMessage message,
+            List<ChatBridgeArtifact> artifacts
+    ) {
+        if (message == null || artifacts == null) {
             return false;
         }
         JDA api;
@@ -380,8 +390,64 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
             return false;
         }
 
+        String content = renderedChatContent(message);
+        if (artifacts.isEmpty()
+                || !channel.getGuild().getSelfMember().hasPermission(
+                        channel, Permission.MESSAGE_ATTACH_FILES)) {
+            return sendRenderedText(channel, content);
+        }
+
+        List<FileUpload> uploads = artifactUploads(artifacts);
+        if (uploads.isEmpty()) {
+            return sendRenderedText(channel, content);
+        }
         try {
-            channel.sendMessage(renderedChatContent(message))
+            MessageCreateAction action = channel.sendMessage(content)
+                    .setAllowedMentions(List.of())
+                    .addFiles(uploads);
+            action.complete();
+            return true;
+        } catch (RuntimeException failure) {
+            // Delivery is ambiguous once the REST request is submitted; do not risk a duplicate
+            // text-only message after an attachment send failure.
+            return false;
+        } finally {
+            closeUploads(uploads);
+        }
+    }
+
+    private static List<FileUpload> artifactUploads(List<ChatBridgeArtifact> artifacts) {
+        List<ChatBridgeArtifact> ordered = artifacts.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparingInt(ChatBridgeArtifact::position)
+                        .thenComparing(ChatBridgeArtifact::filename))
+                .toList();
+        List<FileUpload> uploads = new ArrayList<>(ordered.size());
+        try {
+            for (ChatBridgeArtifact artifact : ordered) {
+                uploads.add(FileUpload.fromData(artifact.data(), artifact.filename())
+                        .setDescription(artifact.altText()));
+            }
+            return uploads;
+        } catch (RuntimeException failure) {
+            closeUploads(uploads);
+            return List.of();
+        }
+    }
+
+    private static void closeUploads(List<FileUpload> uploads) {
+        for (FileUpload upload : uploads) {
+            try {
+                upload.close();
+            } catch (IOException ignored) {
+                // FileUpload resources are ephemeral byte-array wrappers; cleanup is best effort.
+            }
+        }
+    }
+
+    private static boolean sendRenderedText(TextChannel channel, String content) {
+        try {
+            channel.sendMessage(content)
                     .setAllowedMentions(List.of())
                     .complete();
             return true;

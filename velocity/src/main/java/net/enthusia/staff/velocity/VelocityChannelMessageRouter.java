@@ -14,6 +14,7 @@ import net.enthusia.staff.protocol.ProtocolEnvelope;
 final class VelocityChannelMessageRouter implements ChannelMessageHandler {
     private final Set<String> paperBackendIds;
     private final VelocityChatBridgeRelay chatRelay;
+    private final VelocityChatArtifactRelay artifactRelay;
     private final VelocityRenderedChatBridgeRelay renderedChatRelay;
     private final VelocityDiscordChatIngressRelay discordIngressRelay;
     private final ChannelMessageHandler paperHandler;
@@ -21,6 +22,7 @@ final class VelocityChannelMessageRouter implements ChannelMessageHandler {
     VelocityChannelMessageRouter(
             Set<String> paperBackendIds,
             VelocityChatBridgeRelay chatRelay,
+            VelocityChatArtifactRelay artifactRelay,
             VelocityRenderedChatBridgeRelay renderedChatRelay,
             VelocityDiscordChatIngressRelay discordIngressRelay,
             ChannelMessageHandler paperHandler
@@ -30,6 +32,7 @@ final class VelocityChannelMessageRouter implements ChannelMessageHandler {
             throw new IllegalArgumentException("at least one Paper backend is required");
         }
         this.chatRelay = Objects.requireNonNull(chatRelay, "chatRelay");
+        this.artifactRelay = Objects.requireNonNull(artifactRelay, "artifactRelay");
         this.renderedChatRelay = Objects.requireNonNull(renderedChatRelay, "renderedChatRelay");
         this.discordIngressRelay = Objects.requireNonNull(discordIngressRelay, "discordIngressRelay");
         this.paperHandler = Objects.requireNonNull(paperHandler, "paperHandler");
@@ -43,6 +46,9 @@ final class VelocityChannelMessageRouter implements ChannelMessageHandler {
         }
         if (!paperBackendIds.contains(envelope.serverId())) {
             return false;
+        }
+        if (artifactRelay.handles(envelope)) {
+            return artifactRelay.accept(envelope);
         }
         if (renderedChatRelay.handles(envelope)) {
             return renderedChatRelay.accept(envelope);

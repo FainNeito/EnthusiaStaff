@@ -24,6 +24,7 @@ final class StaffBotRenderedChatIngress implements AutoCloseable {
     private final Clock clock;
     private final Map<StaffBotChatBridgeConfiguration.Route, Long> routes;
     private final DiscordRenderedChatEgress egress;
+    private final StaffBotChatArtifactStore artifactStore;
     private final int maximumDedupeEntries;
     private final Map<UUID, Long> dedupeUntil = new ConcurrentHashMap<>();
     private final Object dedupeLock = new Object();
@@ -34,14 +35,16 @@ final class StaffBotRenderedChatIngress implements AutoCloseable {
     StaffBotRenderedChatIngress(
             StaffBotChatBridgeConfiguration configuration,
             Clock clock,
-            DiscordRenderedChatEgress egress
+            DiscordRenderedChatEgress egress,
+            StaffBotChatArtifactStore artifactStore
     ) {
         this(
                 configuration.routes(),
                 configuration.queueCapacity(),
                 configuration.dedupeCapacity(),
                 clock,
-                egress
+                egress,
+                artifactStore
         );
     }
 
@@ -52,6 +55,24 @@ final class StaffBotRenderedChatIngress implements AutoCloseable {
             Clock clock,
             DiscordRenderedChatEgress egress
     ) {
+        this(
+                routes,
+                queueCapacity,
+                maximumDedupeEntries,
+                clock,
+                egress,
+                new StaffBotChatArtifactStore()
+        );
+    }
+
+    StaffBotRenderedChatIngress(
+            Map<StaffBotChatBridgeConfiguration.Route, Long> routes,
+            int queueCapacity,
+            int maximumDedupeEntries,
+            Clock clock,
+            DiscordRenderedChatEgress egress,
+            StaffBotChatArtifactStore artifactStore
+    ) {
         this.routes = Map.copyOf(Objects.requireNonNull(routes, "routes"));
         if (this.routes.isEmpty() || queueCapacity < 1 || maximumDedupeEntries < 1) {
             throw new IllegalArgumentException("StaffBot styled chat ingress bounds/routes are invalid");
@@ -59,6 +80,7 @@ final class StaffBotRenderedChatIngress implements AutoCloseable {
         this.maximumDedupeEntries = maximumDedupeEntries;
         this.clock = Objects.requireNonNull(clock, "clock");
         this.egress = Objects.requireNonNull(egress, "egress");
+        this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore");
         this.worker = new ThreadPoolExecutor(
                 1,
                 1,
@@ -106,6 +128,7 @@ final class StaffBotRenderedChatIngress implements AutoCloseable {
         synchronized (dedupeLock) {
             dedupeUntil.clear();
         }
+        artifactStore.clear();
     }
 
     private static Optional<ChatBridgeRenderedMessage> decode(String payloadJson) {
@@ -183,7 +206,16 @@ final class StaffBotRenderedChatIngress implements AutoCloseable {
             return;
         }
         try {
-            egress.sendRendered(channelId, message);
+            egress.sendRendered(
+                    channelId,
+                    message,
+                    artifactStore.consume(
+                            message.eventId(),
+                            message.sourceServerId(),
+                            message.logicalChannelId(),
+                            clock.millis()
+                    )
+            );
         } catch (RuntimeException ignored) {
             // Styled Discord chat is ephemeral and never escalates into lifecycle failure.
         }

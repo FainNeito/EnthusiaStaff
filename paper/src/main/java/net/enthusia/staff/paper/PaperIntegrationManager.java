@@ -376,6 +376,7 @@ final class PaperIntegrationManager implements Listener {
         try {
             RoseChatOutboundRenderBridgeIntegration.Discovery discovery =
                     RoseChatOutboundRenderBridgeIntegration.discoverAndInstall(
+                            plugin(),
                             dependencies.environment().serverId(),
                             clock()
                     );
