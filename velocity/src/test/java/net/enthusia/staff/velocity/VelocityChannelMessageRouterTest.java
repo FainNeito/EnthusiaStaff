@@ -1,0 +1,158 @@
+package net.enthusia.staff.velocity;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import net.enthusia.staff.protocol.ChatBridgeMessages;
+import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
+import net.enthusia.staff.protocol.ProtocolEnvelope;
+import org.junit.jupiter.api.Test;
+
+class VelocityChannelMessageRouterTest {
+    private static final long NOW = 1_800_000_000_000L;
+    private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
+
+    @Test
+    void authenticatedAuxiliaryPeerCannotReachPaperApplicationHandler() {
+        AtomicInteger delegated = new AtomicInteger();
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
+                Set.of("SMP"),
+                relay,
+                envelope -> {
+                    delegated.incrementAndGet();
+                    return true;
+                }
+        );
+
+        assertFalse(router.handle(envelope(
+                "STAFFBOT",
+                UUID.randomUUID(),
+                "PUNISHMENT_CREATED",
+                "{}"
+        )));
+        assertFalse(router.handle(envelope(
+                "STAFFBOT",
+                UUID.randomUUID(),
+                "STAFF_MODE_READY",
+                "{}"
+        )));
+        assertFalse(router.handle(envelope(
+                "STAFFBOT",
+                UUID.randomUUID(),
+                "TRANSFER_SNAPSHOT",
+                "{}"
+        )));
+        assertEquals(0, delegated.get());
+
+        relay.close();
+    }
+
+    @Test
+    void staffBotCannotInjectChatFrameEvenWhenRelaySinkExists() {
+        AtomicInteger deliveries = new AtomicInteger();
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        relay.installSink(message -> {
+            deliveries.incrementAndGet();
+            return true;
+        });
+        VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
+                Set.of("SMP"),
+                relay,
+                envelope -> true
+        );
+        ChatBridgeOutboundMessage message = message("STAFFBOT");
+
+        assertFalse(router.handle(envelope(
+                "STAFFBOT",
+                message.eventId(),
+                ChatBridgeMessages.OUTBOUND,
+                ChatBridgeMessages.encodeOutbound(message)
+        )));
+        assertEquals(0, deliveries.get());
+
+        relay.close();
+    }
+
+    @Test
+    void paperChatUsesEphemeralRelayAndOtherFramesUseExistingHandler() throws Exception {
+        AtomicInteger delegated = new AtomicInteger();
+        CountDownLatch chatDelivered = new CountDownLatch(1);
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        relay.installSink(message -> {
+            chatDelivered.countDown();
+            return true;
+        });
+        VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
+                Set.of("SMP"),
+                relay,
+                envelope -> {
+                    delegated.incrementAndGet();
+                    return true;
+                }
+        );
+        ChatBridgeOutboundMessage chat = message("SMP");
+
+        assertTrue(router.handle(envelope(
+                "SMP",
+                chat.eventId(),
+                ChatBridgeMessages.OUTBOUND,
+                ChatBridgeMessages.encodeOutbound(chat)
+        )));
+        assertTrue(chatDelivered.await(2, TimeUnit.SECONDS));
+        assertEquals(0, delegated.get());
+
+        assertTrue(router.handle(envelope(
+                "SMP",
+                UUID.randomUUID(),
+                "PUNISHMENT_CREATED",
+                "{}"
+        )));
+        assertEquals(1, delegated.get());
+
+        relay.close();
+    }
+
+    private static ChatBridgeOutboundMessage message(String sourceServerId) {
+        UUID eventId = UUID.randomUUID();
+        return new ChatBridgeOutboundMessage(
+                eventId,
+                "rosechat-mc-" + eventId,
+                "rosechat-canonical-" + eventId,
+                NOW,
+                NOW + 30_000L,
+                sourceServerId,
+                "global",
+                UUID.randomUUID(),
+                "Player",
+                "hello"
+        );
+    }
+
+    private static ProtocolEnvelope envelope(
+            String serverId,
+            UUID messageId,
+            String messageType,
+            String payload
+    ) {
+        return new ProtocolEnvelope(
+                1,
+                messageId,
+                serverId,
+                messageType,
+                NOW,
+                "nonce",
+                payload,
+                "mac"
+        );
+    }
+}
