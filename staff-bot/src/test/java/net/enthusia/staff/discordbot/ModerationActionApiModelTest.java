@@ -17,6 +17,16 @@ class ModerationActionApiModelTest {
     }
 
     @Test
+    void preservesExplicitCustomConsequenceInDurableIntent() {
+        var input = new ModerationActionApiService.IntentInput(
+                "WARNING", "instant", "Custom punishment", "Manual context", true, Optional.empty());
+        var intent = input.toIntent();
+
+        assertTrue(intent.customConsequence());
+        assertEquals("Custom punishment", intent.publicReason());
+    }
+
+    @Test
     void rejectsUnsupportedActionsAndConflictingRestriction() {
         assertThrows(IllegalArgumentException.class, () -> input("MINECRAFT_BAN", "1d", Optional.empty()).toIntent());
         assertThrows(IllegalArgumentException.class, () -> input("WARNING", "1d", Optional.empty()).toIntent());
