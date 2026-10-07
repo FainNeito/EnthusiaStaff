@@ -126,7 +126,7 @@ class StaffBotChatIngressTest {
                 CLOCK,
                 (channelId, message) -> {
                     int sequence = deliveries.incrementAndGet();
-                    if (sequence == 1) {
+                    if (sequence == FIRST_DELIVERY) {
                         firstStarted.countDown();
                         try {
                             releaseFirst.await();
@@ -164,7 +164,7 @@ class StaffBotChatIngressTest {
         AtomicInteger deliveries = new AtomicInteger();
         StaffBotChatIngress ingress = ingress((channelId, message) -> {
             int sequence = deliveries.incrementAndGet();
-            if (sequence == 1) {
+            if (sequence == FIRST_DELIVERY) {
                 firstStarted.countDown();
                 try {
                     releaseFirst.await();
