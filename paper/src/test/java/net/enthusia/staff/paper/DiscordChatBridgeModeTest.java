@@ -7,6 +7,10 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
 class DiscordChatBridgeModeTest {
+    private static final String BRIDGE_PATH = "discord-chat-bridge";
+    private static final String MODE_PATH = BRIDGE_PATH + ".mode";
+    private static final String SHADOW_ENABLED_PATH = BRIDGE_PATH + ".shadow-enabled";
+    private static final String CUTOVER_ACK_PATH = BRIDGE_PATH + ".authoritative-cutover-ack";
 
     @Test
     void defaultsDisabledAndPreservesLegacyShadowFallback() {
@@ -14,64 +18,58 @@ class DiscordChatBridgeModeTest {
 
         assertEquals(
                 DiscordChatBridgeMode.DISABLED,
-                DiscordChatBridgeMode.from(config.getConfigurationSection("discord-chat-bridge"))
+                DiscordChatBridgeMode.from(config.getConfigurationSection(BRIDGE_PATH))
         );
 
-        config.set("discord-chat-bridge.shadow-enabled", true);
+        config.set(SHADOW_ENABLED_PATH, true);
         assertEquals(
                 DiscordChatBridgeMode.SHADOW,
-                DiscordChatBridgeMode.from(
-                        config.getConfigurationSection("discord-chat-bridge"))
+                DiscordChatBridgeMode.from(config.getConfigurationSection(BRIDGE_PATH))
         );
     }
 
     @Test
     void explicitAuthoritativeModeRequiresCutoverAcknowledgement() {
         YamlConfiguration config = new YamlConfiguration();
-        config.set("discord-chat-bridge.mode", "AUTHORITATIVE");
+        config.set(MODE_PATH, "AUTHORITATIVE");
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> DiscordChatBridgeMode.from(
-                        config.getConfigurationSection("discord-chat-bridge"))
+                () -> DiscordChatBridgeMode.from(config.getConfigurationSection(BRIDGE_PATH))
         );
 
-        config.set("discord-chat-bridge.authoritative-cutover-ack", true);
+        config.set(CUTOVER_ACK_PATH, true);
         assertEquals(
                 DiscordChatBridgeMode.AUTHORITATIVE,
-                DiscordChatBridgeMode.from(
-                        config.getConfigurationSection("discord-chat-bridge"))
+                DiscordChatBridgeMode.from(config.getConfigurationSection(BRIDGE_PATH))
         );
     }
 
     @Test
     void explicitModeRejectsConflictingLegacyShadowFlag() {
         YamlConfiguration config = new YamlConfiguration();
-        config.set("discord-chat-bridge.mode", "DISABLED");
-        config.set("discord-chat-bridge.shadow-enabled", true);
+        config.set(MODE_PATH, "DISABLED");
+        config.set(SHADOW_ENABLED_PATH, true);
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> DiscordChatBridgeMode.from(
-                        config.getConfigurationSection("discord-chat-bridge"))
+                () -> DiscordChatBridgeMode.from(config.getConfigurationSection(BRIDGE_PATH))
         );
     }
 
     @Test
     void modeNamesAreCaseInsensitiveButUnknownValuesFailClosed() {
         YamlConfiguration config = new YamlConfiguration();
-        config.set("discord-chat-bridge.mode", "shadow");
+        config.set(MODE_PATH, "shadow");
         assertEquals(
                 DiscordChatBridgeMode.SHADOW,
-                DiscordChatBridgeMode.from(
-                        config.getConfigurationSection("discord-chat-bridge"))
+                DiscordChatBridgeMode.from(config.getConfigurationSection(BRIDGE_PATH))
         );
 
-        config.set("discord-chat-bridge.mode", "production");
+        config.set(MODE_PATH, "production");
         assertThrows(
                 IllegalArgumentException.class,
-                () -> DiscordChatBridgeMode.from(
-                        config.getConfigurationSection("discord-chat-bridge"))
+                () -> DiscordChatBridgeMode.from(config.getConfigurationSection(BRIDGE_PATH))
         );
     }
 }

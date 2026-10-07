@@ -143,37 +143,59 @@ final class StaffBotChatBridgeConfiguration {
             Map<String, String> values
     ) {
         String rawMode = values.get(MODE_ENV);
-        boolean legacyPresent = values.containsKey(ENABLED_ENV)
-                && values.get(ENABLED_ENV) != null
-                && !values.get(ENABLED_ENV).isBlank();
-        boolean legacyEnabled = legacyPresent && enabled(values.get(ENABLED_ENV));
-
+        boolean legacyEnabled = legacyEnabled(values);
         if (rawMode == null || rawMode.isBlank()) {
-            if (!legacyEnabled) {
-                return Optional.empty();
-            }
-            if (environment != StaffBotEnvironment.STAGING) {
-                throw new IllegalArgumentException(
-                        "production chat bridge requires explicit " + MODE_ENV + "=AUTHORITATIVE");
-            }
-            return Optional.of(Mode.SHADOW);
+            return legacyMode(environment, legacyEnabled);
         }
 
         Mode selected = Mode.parse(rawMode);
-        if (legacyPresent) {
-            boolean modeEnabled = selected != Mode.DISABLED;
-            if (legacyEnabled != modeEnabled) {
-                throw new IllegalArgumentException(
-                        ENABLED_ENV + " conflicts with explicit " + MODE_ENV);
-            }
-        }
-        if (selected == Mode.DISABLED) {
+        validateLegacyMode(values, selected, legacyEnabled);
+        validateModeEnvironment(environment, selected);
+        return selected == Mode.DISABLED ? Optional.empty() : Optional.of(selected);
+    }
+
+    private static boolean legacyEnabled(Map<String, String> values) {
+        String legacyValue = values.get(ENABLED_ENV);
+        return legacyValue != null && !legacyValue.isBlank() && enabled(legacyValue);
+    }
+
+    private static Optional<Mode> legacyMode(
+            StaffBotEnvironment environment,
+            boolean legacyEnabled
+    ) {
+        if (!legacyEnabled) {
             return Optional.empty();
         }
+        if (environment != StaffBotEnvironment.STAGING) {
+            throw new IllegalArgumentException(
+                    "production chat bridge requires explicit " + MODE_ENV + "=AUTHORITATIVE");
+        }
+        return Optional.of(Mode.SHADOW);
+    }
+
+    private static void validateLegacyMode(
+            Map<String, String> values,
+            Mode selected,
+            boolean legacyEnabled
+    ) {
+        String legacyValue = values.get(ENABLED_ENV);
+        if (legacyValue == null || legacyValue.isBlank()) {
+            return;
+        }
+        boolean modeEnabled = selected != Mode.DISABLED;
+        if (legacyEnabled != modeEnabled) {
+            throw new IllegalArgumentException(
+                    ENABLED_ENV + " conflicts with explicit " + MODE_ENV);
+        }
+    }
+
+    private static void validateModeEnvironment(
+            StaffBotEnvironment environment,
+            Mode selected
+    ) {
         if (selected == Mode.SHADOW && environment != StaffBotEnvironment.STAGING) {
             throw new IllegalArgumentException("SHADOW chat bridge mode is staging-only");
         }
-        return Optional.of(selected);
     }
 
     private static OptionalLong pinnedChannel(StaffBotEnvironment environment) {

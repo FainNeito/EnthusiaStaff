@@ -22,33 +22,47 @@ enum DiscordChatBridgeMode {
             return DISABLED;
         }
 
+        DiscordChatBridgeMode selected = configuredMode(section);
+        validateAuthoritativeAcknowledgement(section, selected);
+        return selected;
+    }
+
+    private static DiscordChatBridgeMode configuredMode(ConfigurationSection section) {
         String raw = section.getString("mode");
         boolean legacyShadow = section.getBoolean("shadow-enabled", false);
         if (raw == null || raw.isBlank()) {
             return legacyShadow ? SHADOW : DISABLED;
         }
 
-        DiscordChatBridgeMode selected;
+        DiscordChatBridgeMode selected = parseExplicitMode(raw);
+        if (legacyShadow && selected != SHADOW) {
+            throw new IllegalArgumentException(
+                    "discord-chat-bridge.shadow-enabled conflicts with explicit mode"
+            );
+        }
+        return selected;
+    }
+
+    private static DiscordChatBridgeMode parseExplicitMode(String raw) {
         try {
-            selected = valueOf(raw.trim().toUpperCase(Locale.ROOT));
+            return valueOf(raw.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException(
                     "discord-chat-bridge.mode must be DISABLED, SHADOW, or AUTHORITATIVE",
                     exception
             );
         }
+    }
 
-        if (legacyShadow && selected != SHADOW) {
-            throw new IllegalArgumentException(
-                    "discord-chat-bridge.shadow-enabled conflicts with explicit mode"
-            );
-        }
+    private static void validateAuthoritativeAcknowledgement(
+            ConfigurationSection section,
+            DiscordChatBridgeMode selected
+    ) {
         if (selected == AUTHORITATIVE
                 && !section.getBoolean("authoritative-cutover-ack", false)) {
             throw new IllegalArgumentException(
                     "AUTHORITATIVE chat mode requires authoritative-cutover-ack=true"
             );
         }
-        return selected;
     }
 }

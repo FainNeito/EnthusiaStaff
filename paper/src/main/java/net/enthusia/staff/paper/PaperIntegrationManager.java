@@ -72,6 +72,7 @@ final class PaperIntegrationManager implements Listener {
     private static final String INTERACTIVE_CHAT_RENDERER = "interactivechat-rich-renderer";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
+    private static final String PMD_NULL_ASSIGNMENT = "PMD.NullAssignment";
     private static final long CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS = 20L;
     private static final List<CurrencyAssetSource> DEFAULT_REMOVAL_ORDER = List.of(
             CurrencyAssetSource.BANK,
@@ -339,6 +340,7 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     void closeChatBridge() {
         HandlerList.unregisterAll(this);
         roseChatLifecycleRegistered = false;
@@ -553,7 +555,7 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    @SuppressWarnings("PMD.NullAssignment")
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void releaseLegacyDiscordSuppression() {
         resources.close("RoseChat legacy Discord suppression", legacyDiscordSuppression);
         legacyDiscordSuppression = null;
@@ -611,7 +613,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     // Null is the explicit inactive state for these optional hot-reloadable provider slots.
-    @SuppressWarnings("PMD.NullAssignment")
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void rollbackDiscordChatTransport() {
         releaseLegacyDiscordSuppression();
         chatPublishingReadyUntil.set(0L);
@@ -626,7 +628,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     // Null is the explicit inactive state for this optional hot-reloadable provider slot.
-    @SuppressWarnings("PMD.NullAssignment")
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void closeRoseChatIntegration() {
         rollbackDiscordChatTransport();
         dependencies.players().vanish().clearPresenceTransitionSink();
@@ -643,7 +645,7 @@ final class PaperIntegrationManager implements Listener {
     }
 
     // Null is the explicit inactive state after the listener has been unregistered.
-    @SuppressWarnings("PMD.NullAssignment")
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void deactivateMuteFallback() {
         if (muteFallback == null) {
             return;
@@ -685,7 +687,7 @@ final class PaperIntegrationManager implements Listener {
         }
     }
 
-    @SuppressWarnings("PMD.NullAssignment")
+    @SuppressWarnings(PMD_NULL_ASSIGNMENT)
     private void closeInteractiveChatRenderer() {
         resources.close("InteractiveChat staging rich renderer", interactiveChatRenderer);
         interactiveChatRenderer = null;
