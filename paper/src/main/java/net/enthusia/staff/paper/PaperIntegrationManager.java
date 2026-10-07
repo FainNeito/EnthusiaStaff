@@ -33,6 +33,7 @@ import net.enthusia.staff.paper.freeze.FreezeManager;
 import net.enthusia.staff.paper.integration.MarketIntegration;
 import net.enthusia.staff.paper.integration.ReputationIntegration;
 import net.enthusia.staff.paper.integration.ReputationRestrictionSynchronizer;
+import net.enthusia.staff.paper.integration.RoseChatInboundBridgeIntegration;
 import net.enthusia.staff.paper.integration.RoseChatIntegration;
 import net.enthusia.staff.paper.integration.RoseChatOutboundBridgeIntegration;
 import net.enthusia.staff.paper.inventory.ConfiscationCoordinator;
@@ -41,7 +42,9 @@ import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
 import net.enthusia.staff.paper.visibility.VanishManager;
+import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.PersistentChannelClient;
+import net.enthusia.staff.protocol.ProtocolEnvelope;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
@@ -55,6 +58,7 @@ final class PaperIntegrationManager implements Listener {
     private static final String ROSECHAT = "rosechat";
     private static final String ROSECHAT_COMMANDS = "rosechat-commands";
     private static final String ROSECHAT_OUTBOUND = "rosechat-discord-bridge";
+    private static final String ROSECHAT_INBOUND = "rosechat-discord-ingress";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
     private static final List<CurrencyAssetSource> DEFAULT_REMOVAL_ORDER = List.of(
@@ -69,6 +73,7 @@ final class PaperIntegrationManager implements Listener {
     private ConfiscationCoordinator confiscation;
     private RoseChatIntegration roseChat;
     private RoseChatOutboundBridgeIntegration roseChatOutbound;
+    private RoseChatInboundBridgeIntegration roseChatInbound;
     private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
     private MuteCommandFallbackListener muteFallback;
@@ -201,6 +206,7 @@ final class PaperIntegrationManager implements Listener {
         activateMuteFallback();
         clearIssue(ROSECHAT_COMMANDS);
         issue(ROSECHAT_OUTBOUND, "RoseChat is absent; Discord chat relay is unavailable");
+        issue(ROSECHAT_INBOUND, "RoseChat is absent; Discord-to-Minecraft chat ingress is unavailable");
         issue(ROSECHAT, "RoseChat is absent; staff channel/chat bridge are unavailable; private-message mute fallback is active");
     }
 
@@ -222,6 +228,17 @@ final class PaperIntegrationManager implements Listener {
 
     ReputationIntegration reputation() {
         return reputation;
+    }
+
+    boolean handleInboundChat(String expectedProxyId, ProtocolEnvelope envelope) {
+        if (envelope == null || !ChatBridgeMessages.INBOUND.equals(envelope.messageType())) {
+            return false;
+        }
+        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+            return false;
+        }
+        RoseChatInboundBridgeIntegration current = roseChatInbound;
+        return current != null && current.accept(expectedProxyId, envelope);
     }
 
     void bindChatChannel(PersistentChannelClient client) {
@@ -305,6 +322,7 @@ final class PaperIntegrationManager implements Listener {
                     roseChat::renderPresenceTransition
             );
             installRoseChatOutboundBridge();
+            installRoseChatInboundBridge();
             deactivateMuteFallback();
             clearIssue(ROSECHAT);
         } catch (IllegalArgumentException exception) {
@@ -336,6 +354,32 @@ final class PaperIntegrationManager implements Listener {
         clearIssue(ROSECHAT_OUTBOUND);
     }
 
+    private void installRoseChatInboundBridge() {
+        if (!plugin().getConfig().getBoolean("discord-chat-bridge.shadow-enabled", false)) {
+            clearIssue(ROSECHAT_INBOUND);
+            return;
+        }
+        try {
+            RoseChatInboundBridgeIntegration.Discovery discovery =
+                    RoseChatInboundBridgeIntegration.discover(
+                            plugin(),
+                            dependencies.environment().serverId(),
+                            clock()
+                    );
+            if (discovery.integration().isEmpty()) {
+                issue(ROSECHAT_INBOUND, discovery.issue());
+                return;
+            }
+            roseChatInbound = discovery.integration().orElseThrow();
+            clearIssue(ROSECHAT_INBOUND);
+        } catch (RuntimeException | LinkageError failure) {
+            issue(
+                    ROSECHAT_INBOUND,
+                    "RoseChat inbound bridge API is unavailable: " + failure.getClass().getSimpleName()
+            );
+        }
+    }
+
     private void reconcileRoseChatCommands() {
         if (roseChatCommands == null) {
             roseChatCommands = RoseChatCommandOwnershipCoordinator.forPlugin(plugin());
@@ -353,8 +397,10 @@ final class PaperIntegrationManager implements Listener {
     private void closeRoseChatIntegration() {
         dependencies.players().vanish().clearPresenceTransitionSink();
         resources.close("RoseChat outbound Discord bridge", roseChatOutbound);
+        resources.close("RoseChat inbound Discord bridge", roseChatInbound);
         resources.close("RoseChat bridge", roseChat);
         roseChatOutbound = null;
+        roseChatInbound = null;
         roseChat = null;
     }
 

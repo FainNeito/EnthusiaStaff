@@ -154,17 +154,25 @@ public final class StaffBotRuntime implements AutoCloseable {
         InteractionReplayGuard replayGuard = new InteractionReplayGuard(
                 configuration.interactionCapacity(), configuration.interactionTtl());
         Optional<StaffModerationRuntime> moderation = Optional.empty();
+        Optional<StaffBotChatTransport> chatTransport = Optional.empty();
         try {
             moderation = StaffModerationRuntime.open(
                     moderationConfigFile,
                     configuration.environment().guildId(),
                     configuration.interactionCapacity(),
                     configuration.interactionTtl());
+            Optional<StaffBotChatBridgeConfiguration> chatConfiguration =
+                    StaffBotChatBridgeConfiguration.fromEnvironment(
+                            configuration.environment(), System.getenv());
             StaffBotHealthServer healthServer = new StaffBotHealthServer(configuration.healthAddress(), health);
-            JdaDiscordGateway gateway = new JdaDiscordGateway(configuration, workers, replayGuard, moderation);
-            Optional<StaffBotChatLifecycle> chat = StaffBotChatBridgeConfiguration
-                    .fromEnvironment(configuration.environment(), System.getenv())
-                    .map(chatConfiguration -> StaffBotChatTransport.create(chatConfiguration, gateway));
+            JdaDiscordGateway gateway = new JdaDiscordGateway(
+                    configuration, workers, replayGuard, moderation, chatConfiguration);
+            chatTransport = chatConfiguration.map(current -> StaffBotChatTransport.create(current, gateway));
+            if (chatConfiguration.map(current -> !current.ingressRoutes().isEmpty()).orElse(false)) {
+                gateway.installChatIngress(chatTransport.orElseThrow());
+            }
+            Optional<StaffBotChatLifecycle> chat =
+                    chatTransport.map(current -> (StaffBotChatLifecycle) current);
             return new StaffBotRuntime(
                     configuration,
                     health,
@@ -175,6 +183,7 @@ public final class StaffBotRuntime implements AutoCloseable {
                     moderation,
                     new RuntimeServices(tunnel, chat));
         } catch (IOException | RuntimeException exception) {
+            chatTransport.ifPresent(StaffBotChatTransport::close);
             moderation.ifPresent(StaffModerationRuntime::close);
             workers.close();
             throw exception;

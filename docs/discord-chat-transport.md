@@ -24,9 +24,9 @@ RoseChat
   -> StaffBot JDA
 ```
 
-The reverse Discord -> Minecraft path remains separate. It must route explicitly to a target
-backend and enter the canonical RoseChat pipeline without bypassing moderation or creating an echo
-loop.
+The reverse Discord -> Minecraft path is now implemented as a separate staging-only checkpoint.
+It routes explicitly to one target backend and enters RoseChat's canonical Discord-origin pipeline
+without using the durable moderation inbox or creating an outbound echo loop.
 
 ## Outbound wire contract
 
@@ -129,14 +129,78 @@ StaffBot chat configuration is disabled unless
 `ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ENABLED=true`, and enabling it is rejected outside the staging
 StaffBot environment.
 
+## Discord -> Minecraft staging checkpoint
+
+PR #391 adds the reverse ephemeral path while preserving the same migration boundary:
+
+```text
+Discord staging channel
+  -> StaffBot JDA listener
+  -> CHAT_BRIDGE_INBOUND_V1
+  -> existing authenticated StaffBot PersistentChannelClient
+  -> Velocity StaffBot-only ingress relay
+  -> exact configured Paper backend
+  -> Paper RoseChat ingress bridge
+  -> Bukkit primary thread
+  -> RoseChatAPI.dispatchInboundChat(...)
+```
+
+The inbound provider-neutral wire type is `ChatBridgeInboundMessage`. It carries a stable event ID,
+Discord external/canonical IDs, creation/expiry timestamps, source Discord channel and user IDs,
+display name, exact target backend, logical RoseChat channel, and bounded plain text. It uses the
+same 16 KiB JSON ceiling, 2,000-character text ceiling, unknown-field rejection, and maximum
+60-second lifetime as the outbound checkpoint.
+
+Ingress remains disabled unless the normal staging bridge is enabled **and**
+`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_INGRESS_ROUTES` is set. Its syntax is:
+
+```text
+discordChannelId=server/channel
+```
+
+Multiple entries use semicolons. During migration every inbound Discord channel must be the pinned
+staging test channel and must select an already-configured symmetric outbound route. The runtime
+does not infer a reverse route from `ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_ROUTES`, because multiple
+Minecraft routes may intentionally share one Discord staging channel.
+
+When at least one ingress route is configured, StaffBot additionally requests JDA
+`GUILD_MESSAGES` and `MESSAGE_CONTENT`. The Discord application must therefore have the Message
+Content privileged intent enabled for this staging bot. Without ingress routes, those intents are
+not requested.
+
+Ingress admission rules are deliberately repeated at each hop:
+
+- JDA ignores bot and webhook messages and accepts only the pinned guild/channel route.
+- JDA converts Discord-native user/role/channel mentions and custom emoji to readable display text before transport; raw Discord mention syntax is not delegated to RoseChat's legacy Discord provider.
+- StaffBot revalidates source Discord channel, target backend, logical RoseChat channel, expiry,
+  connection state, and payload bounds before enqueueing.
+- StaffBot sends on one bounded worker and waits for the normal short ACK before dequeuing the next
+  message, preserving bounded backpressure.
+- Velocity accepts `CHAT_BRIDGE_INBOUND_V1` only from authenticated peer `STAFFBOT`; that peer
+  remains denied from punishment, staff-mode, transfer, verification, and durable-inbox handlers.
+- Velocity validates event ID, expiry, and exact allowlisted Paper target and forwards on a bounded
+  in-memory relay only.
+- Paper diverts inbound chat before `PaperNetworkMessageHandler`, so it is never written to the
+  durable moderation/network inbox.
+- Paper validates proxy identity, event ID, target backend, expiry, queue/dedupe bounds, then
+  schedules the final RoseChat call on Bukkit's primary thread.
+- RoseChat receives a provider-neutral `InboundChatMessage`, creates its existing Discord-proxy
+  sender + wrapped `RoseMessage`, and uses the canonical Discord-to-Minecraft path. Existing Staff
+  preflight remains active and Discord-origin messages are not offered back to the outbound bridge.
+
+ACKs remain hop-local admission acknowledgements, not end-to-end delivery receipts. Disconnect,
+expiry, queue saturation, invalid routes, missing RoseChat channels, or provider errors drop the
+message. There is no durable retry or replay backlog.
+
 ## Still out of scope
 
 This checkpoint does not:
 
 - carry InteractiveChat rich-render artifacts;
-- support Discord -> Minecraft ingress;
 - authorize production Discord routing;
 - change or disable DiscordSRV;
-- authorize DiscordSRV cutover/removal.
+- authorize DiscordSRV cutover/removal;
+- migrate account linking, role synchronization, console forwarding, or other remaining
+  DiscordSRV responsibilities.
 
 Those remain separate reviewable checkpoints.

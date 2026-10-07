@@ -34,6 +34,7 @@ class StaffBotChatBridgeConfigurationTest {
         assertEquals(28_765, configuration.port());
         assertEquals(256, configuration.queueCapacity());
         assertEquals(4_096, configuration.dedupeCapacity());
+        assertTrue(configuration.ingressRoutes().isEmpty());
         assertEquals(
                 STAGING_CHANNEL_ID,
                 configuration.routes().get(new StaffBotChatBridgeConfiguration.Route("SMP", "global")));
@@ -43,6 +44,43 @@ class StaffBotChatBridgeConfigurationTest {
         assertFalse(configuration.toString().contains(KEY));
         assertFalse(configuration.toString().contains("trust-password"));
         assertTrue(configuration.toString().contains("clientKey=<redacted>"));
+    }
+
+    @Test
+    void parsesOneExplicitInboundRouteWithoutReversingAmbiguousOutboundRoutes() {
+        Map<String, String> values = enabledValues();
+        values.put(
+                StaffBotChatBridgeConfiguration.INGRESS_ROUTES_ENV,
+                STAGING_CHANNEL_ID + "=SMP/global");
+
+        StaffBotChatBridgeConfiguration configuration =
+                StaffBotChatBridgeConfiguration.fromEnvironment(
+                        StaffBotEnvironment.STAGING, values).orElseThrow();
+
+        assertEquals(
+                new StaffBotChatBridgeConfiguration.Route("SMP", "global"),
+                configuration.ingressRoutes().get(STAGING_CHANNEL_ID));
+    }
+
+    @Test
+    void inboundRouteMustBePinnedAndSymmetric() {
+        Map<String, String> wrongChannel = enabledValues();
+        wrongChannel.put(
+                StaffBotChatBridgeConfiguration.INGRESS_ROUTES_ENV,
+                "123456789=SMP/global");
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> StaffBotChatBridgeConfiguration.fromEnvironment(
+                        StaffBotEnvironment.STAGING, wrongChannel));
+
+        Map<String, String> missingOutbound = enabledValues();
+        missingOutbound.put(
+                StaffBotChatBridgeConfiguration.INGRESS_ROUTES_ENV,
+                STAGING_CHANNEL_ID + "=SURVIVAL/global");
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> StaffBotChatBridgeConfiguration.fromEnvironment(
+                        StaffBotEnvironment.STAGING, missingOutbound));
     }
 
     @Test

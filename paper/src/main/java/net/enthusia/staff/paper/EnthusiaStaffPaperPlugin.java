@@ -1019,7 +1019,12 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         }
         PaperPersistentChannelFactory.start(
                 channel,
-                (backendId, envelope) -> messageHandler.handle(runtime.networkOutboxStore(), backendId, envelope),
+                (backendId, envelope) -> {
+                    if (net.enthusia.staff.protocol.ChatBridgeMessages.INBOUND.equals(envelope.messageType())) {
+                        return integrations.handleInboundChat(channel.proxyId(), envelope);
+                    }
+                    return messageHandler.handle(runtime.networkOutboxStore(), backendId, envelope);
+                },
                 state -> channelConnected.set(!lifecycle.stopping() && "CONNECTED".equals(state))
         ).ifPresent(started -> {
             if (!lifecycle.publishChannel(started)) {

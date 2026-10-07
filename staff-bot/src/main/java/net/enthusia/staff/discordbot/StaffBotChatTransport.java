@@ -1,28 +1,59 @@
 package net.enthusia.staff.discordbot;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.net.ssl.SSLContext;
+import net.enthusia.staff.protocol.ChatBridgeInboundMessage;
+import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.PersistentChannelClient;
 import net.enthusia.staff.protocol.TlsContextLoader;
 
 /** Outbound-connecting authenticated StaffBot peer for ephemeral chat frames. */
-final class StaffBotChatTransport implements StaffBotChatLifecycle {
+final class StaffBotChatTransport implements StaffBotChatLifecycle, DiscordChatIngress {
     private static final System.Logger LOGGER = System.getLogger(StaffBotChatTransport.class.getName());
 
+    private static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
+
     private final StaffBotChatIngress ingress;
+    private final Map<Long, StaffBotChatBridgeConfiguration.Route> ingressRoutes;
     private final PersistentChannelClient client;
+    private final ThreadPoolExecutor discordSender;
     private final AtomicBoolean started = new AtomicBoolean();
+    private final AtomicBoolean acceptingDiscord = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicLong generation = new AtomicLong();
 
     private StaffBotChatTransport(
             StaffBotChatIngress ingress,
-            PersistentChannelClient client
+            Map<Long, StaffBotChatBridgeConfiguration.Route> ingressRoutes,
+            PersistentChannelClient client,
+            int queueCapacity
     ) {
         this.ingress = Objects.requireNonNull(ingress, "ingress");
+        this.ingressRoutes = Map.copyOf(Objects.requireNonNull(ingressRoutes, "ingressRoutes"));
         this.client = Objects.requireNonNull(client, "client");
+        this.discordSender = new ThreadPoolExecutor(
+                1,
+                1,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(queueCapacity),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "EnthusiaStaff-StaffBot-Discord-Ingress");
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     static StaffBotChatTransport create(
@@ -53,7 +84,12 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle {
                     ingress::accept,
                     StaffBotChatTransport::connectionState
             );
-            return new StaffBotChatTransport(ingress, client);
+            return new StaffBotChatTransport(
+                    ingress,
+                    configuration.ingressRoutes(),
+                    client,
+                    configuration.queueCapacity()
+            );
         } catch (RuntimeException failure) {
             ingress.close();
             throw failure;
@@ -79,13 +115,64 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle {
     @Override
     public void resume() {
         if (!closed.get()) {
+            generation.incrementAndGet();
+            acceptingDiscord.set(true);
             ingress.resume();
         }
     }
 
     @Override
     public void pause() {
+        acceptingDiscord.set(false);
+        generation.incrementAndGet();
+        discordSender.getQueue().clear();
         ingress.pause();
+    }
+
+    @Override
+    public boolean offer(ChatBridgeInboundMessage message) {
+        Objects.requireNonNull(message, "message");
+        if (!acceptingDiscord.get() || !started.get() || closed.get() || message.isExpired(System.currentTimeMillis())) {
+            return false;
+        }
+        StaffBotChatBridgeConfiguration.Route expected = ingressRoutes.get(message.sourceDiscordChannelId());
+        if (expected == null
+                || !expected.sourceServerId().equals(message.targetServerId())
+                || !expected.logicalChannelId().equals(message.logicalChannelId())
+                || !client.connected()) {
+            return false;
+        }
+        String payload;
+        try {
+            payload = ChatBridgeMessages.encodeInbound(message);
+        } catch (IllegalArgumentException failure) {
+            return false;
+        }
+        long expectedGeneration = generation.get();
+        try {
+            discordSender.execute(() -> sendDiscordInbound(expectedGeneration, message, payload));
+            return true;
+        } catch (RejectedExecutionException failure) {
+            return false;
+        }
+    }
+
+    private void sendDiscordInbound(
+            long expectedGeneration,
+            ChatBridgeInboundMessage message,
+            String payload
+    ) {
+        if (!acceptingDiscord.get()
+                || generation.get() != expectedGeneration
+                || !client.connected()
+                || message.isExpired(System.currentTimeMillis())) {
+            return;
+        }
+        try {
+            client.send(message.eventId(), ChatBridgeMessages.INBOUND, payload, ACK_TIMEOUT).join();
+        } catch (RuntimeException ignored) {
+            // Best-effort chat drops on transport failure; serial ACK wait preserves queue backpressure.
+        }
     }
 
     @Override
@@ -94,6 +181,9 @@ final class StaffBotChatTransport implements StaffBotChatLifecycle {
             return;
         }
         ingress.pause();
+        acceptingDiscord.set(false);
+        generation.incrementAndGet();
+        discordSender.shutdownNow();
         client.close();
         ingress.close();
     }

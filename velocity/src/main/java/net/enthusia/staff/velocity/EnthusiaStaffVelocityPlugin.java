@@ -172,6 +172,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile ScheduledTask operationalStateTask;
     private volatile PersistentChannelServer channelServer;
     private volatile VelocityChatBridgeRelay chatBridgeRelay;
+    private volatile VelocityDiscordChatIngressRelay discordChatIngressRelay;
     private volatile VelocityChatBridgeRelay.Registration chatBridgeSinkRegistration;
     private volatile NetworkOutboxWorker outboxWorker;
     private volatile DiscordOutboxWorker discordOutboxWorker;
@@ -629,8 +630,18 @@ public final class EnthusiaStaffVelocityPlugin {
     // Clear the published reference before closing; SLF4J placeholders defer formatting.
     private void closeChannelServer() {
         closeChatBridgeRelay();
+        VelocityDiscordChatIngressRelay inboundRelay = discordChatIngressRelay;
+        discordChatIngressRelay = null;
         PersistentChannelServer server = channelServer;
         channelServer = null;
+        if (inboundRelay != null) {
+            try {
+                inboundRelay.unbind(server);
+                inboundRelay.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity Discord chat ingress cleanup failed ({})", exception.getClass().getSimpleName());
+            }
+        }
         if (server != null) {
             try {
                 server.close();
@@ -759,12 +770,23 @@ public final class EnthusiaStaffVelocityPlugin {
         SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
         SSLContext tlsContext = serverTlsContext(loaded);
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(Clock.systemUTC());
+        VelocityDiscordChatIngressRelay inboundRelay = new VelocityDiscordChatIngressRelay(
+                Set.copyOf(requiredBackends), Clock.systemUTC());
         chatBridgeRelay = relay;
+        discordChatIngressRelay = inboundRelay;
         try {
             PersistentChannelServer server = createChannelServer(
-                    loaded, outbox, peerKeys, Set.copyOf(requiredBackends), proxyKey, tlsContext, relay
+                    loaded,
+                    outbox,
+                    peerKeys,
+                    Set.copyOf(requiredBackends),
+                    proxyKey,
+                    tlsContext,
+                    relay,
+                    inboundRelay
             );
             server.start();
+            inboundRelay.bind(server);
             channelServer = server;
             if (peerKeys.containsKey(VelocityStaffBotChatSink.PEER_ID)) {
                 chatBridgeSinkRegistration = relay.installSink(new VelocityStaffBotChatSink(server));
@@ -796,7 +818,8 @@ public final class EnthusiaStaffVelocityPlugin {
             Set<String> paperBackendIds,
             SecretKey proxyKey,
             SSLContext tlsContext,
-            VelocityChatBridgeRelay chatRelay
+            VelocityChatBridgeRelay chatRelay,
+            VelocityDiscordChatIngressRelay discordIngressRelay
     ) throws java.net.UnknownHostException {
         return new PersistentChannelServer(
                 new PersistentChannelServer.Configuration(
@@ -812,6 +835,7 @@ public final class EnthusiaStaffVelocityPlugin {
                 new VelocityChannelMessageRouter(
                         paperBackendIds,
                         chatRelay,
+                        discordIngressRelay,
                         envelope -> {
                             if (acceptTransferSnapshot(envelope)) {
                                 return true;
