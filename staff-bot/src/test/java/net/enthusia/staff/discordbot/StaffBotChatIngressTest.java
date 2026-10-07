@@ -46,6 +46,9 @@ class StaffBotChatIngressTest {
 
         ChatBridgeOutboundMessage wrongRoute = message("HUB", "global", NOW + 30_000L);
         assertFalse(ingress.accept(envelope(wrongRoute)));
+
+        ChatBridgeOutboundMessage invalidRouteToken = message("SMP", "global chat", NOW + 30_000L);
+        assertFalse(ingress.accept(envelope(invalidRouteToken)));
         ingress.close();
     }
 
