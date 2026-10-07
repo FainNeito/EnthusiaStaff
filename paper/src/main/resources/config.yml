@@ -149,9 +149,9 @@ discord-chat-bridge:
   # environment has been configured and validated.
   # mode: DISABLED
   #
-  # SHADOW installs the provider-neutral bridge while RoseChat's legacy DiscordSRV send remains
+  # SHADOW installs the provider-neutral bridge while RoseChat's legacy DiscordSRV chat path remains
   # active. AUTHORITATIVE installs the same replacement bridge and, only after all required
-  # replacement surfaces are ready, suppresses RoseChat's legacy DiscordSRV send.
+  # replacement surfaces are ready, suppresses RoseChat's legacy DiscordSRV chat path.
   #
   # Backward-compatible staging fallback: when mode is omitted, shadow-enabled=true selects SHADOW.
   shadow-enabled: false
