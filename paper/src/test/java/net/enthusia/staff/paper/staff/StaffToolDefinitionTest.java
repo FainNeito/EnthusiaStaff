@@ -51,10 +51,16 @@ class StaffToolDefinitionTest {
     }
 
     @Test
-    void ordinaryOperationalToolsRemainAvailableToHelper() {
+    void ordinaryOperationalToolsRemainAvailableToHelperExceptRestrictedTools() {
         assertTrue(Arrays.stream(StaffToolDefinition.values())
                 .filter(tool -> tool != StaffToolDefinition.CHEAT_TESTER)
+                .filter(tool -> tool != StaffToolDefinition.VANISH)
                 .allMatch(tool -> tool.availableFor(StaffRank.HELPER)));
+        assertFalse(StaffToolDefinition.VANISH.availableFor(StaffRank.HELPER));
+        assertTrue(StaffToolDefinition.VANISH.availableFor(StaffRank.MOD));
+        assertTrue(StaffToolDefinition.VANISH.availableFor(StaffRank.DEVELOPER));
+        assertTrue(StaffToolDefinition.VANISH.availableFor(StaffRank.ADMIN));
+        assertTrue(StaffToolDefinition.VANISH.availableFor(StaffRank.FOUNDER));
     }
 
     @Test

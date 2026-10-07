@@ -325,7 +325,6 @@ permissions:
       enthusiastaff.stafftools.teleport: true
       enthusiastaff.stafftools.spectate: true
       enthusiastaff.stafftools.menu: true
-      enthusiastaff.vanish: true
       enthusiastaff.staffchat: true
       enthusiastaff.staffwho: true
       enthusiastaff.inventory.view: true
@@ -365,6 +364,7 @@ permissions:
     default: false
     children:
       enthusiastaff.rank.helper: true
+      enthusiastaff.vanish: true
       enthusiastaff.history.view-sensitive: true
       enthusiastaff.punishment.requests.review: true
       enthusiastaff.punish.ip: true
