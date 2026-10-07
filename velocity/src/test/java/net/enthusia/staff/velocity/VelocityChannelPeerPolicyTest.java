@@ -7,7 +7,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class VelocityChannelPeerPolicyTest {
-    private static final String PAPER_SERVER = PAPER_SERVER;
+    private static final String PAPER_SERVER = "SMP";
 
     @Test
     void staffBotIsAuthenticatedButExcludedFromDurableBackendQuorum() {
