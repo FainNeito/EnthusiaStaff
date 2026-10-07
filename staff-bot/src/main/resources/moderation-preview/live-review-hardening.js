@@ -228,7 +228,7 @@ function notificationPreviewDuration(w) {
 
 function notificationPreviewReason(w) {
   return element('p',{},element('strong',{text:'Reason: '}),
-    document.createTextNode(w.offense?.label || 'Custom'));
+    document.createTextNode(w.custom ? 'Custom punishment' : (w.offense?.label || 'Custom punishment')));
 }
 
 function notificationPreviewExplanation(w) {
