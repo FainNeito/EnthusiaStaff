@@ -11,14 +11,28 @@ final class VelocityChannelPeerPolicy {
     private VelocityChannelPeerPolicy() {
     }
 
-    static Set<String> requiredPaperBackends(Set<String> authenticatedPeerIds) {
+    static Set<String> paperBackendIds(Set<String> authenticatedPeerIds) {
         Objects.requireNonNull(authenticatedPeerIds, "authenticatedPeerIds");
-        Set<String> required = new LinkedHashSet<>(authenticatedPeerIds);
-        required.remove(VelocityStaffBotChatSink.PEER_ID);
+        Set<String> paperBackends = new LinkedHashSet<>(authenticatedPeerIds);
+        paperBackends.remove(VelocityStaffBotChatSink.PEER_ID);
+        return Set.copyOf(paperBackends);
+    }
+
+    static Set<String> requiredPaperBackends(Set<String> authenticatedPeerIds) {
+        Set<String> required = paperBackendIds(authenticatedPeerIds);
         if (required.isEmpty()) {
             throw new IllegalArgumentException("at least one Paper backend peer is required");
         }
-        return Set.copyOf(required);
+        return required;
+    }
+
+    static boolean allPaperBackendsConnected(
+            Set<String> authenticatedPeerIds,
+            Set<String> connectedPeerIds
+    ) {
+        Objects.requireNonNull(connectedPeerIds, "connectedPeerIds");
+        Set<String> required = paperBackendIds(authenticatedPeerIds);
+        return !required.isEmpty() && connectedPeerIds.containsAll(required);
     }
 
     static void validateProxyIdentity(String proxyId, Set<String> authenticatedPeerIds) {
