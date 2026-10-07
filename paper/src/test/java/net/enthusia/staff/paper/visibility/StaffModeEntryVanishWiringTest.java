@@ -54,6 +54,27 @@ class StaffModeEntryVanishWiringTest {
     }
 
     @Test
+    void persistenceBoundaryRechecksPendingEnableAndRollsBackIfRankChanges() throws IOException {
+        String source = read("visibility/VanishManager.java");
+        String persistence = source.substring(
+                source.indexOf("private boolean persistSet("),
+                source.indexOf("private void rememberCommittedState(")
+        );
+
+        int firstEligibility = persistence.indexOf("pendingEnableStillEligible(playerId, vanished)");
+        int persist = persistence.indexOf("persistState(loaded, playerId, rank, vanished");
+        int secondEligibility = persistence.indexOf(
+                "pendingEnableStillEligible(playerId, vanished)",
+                firstEligibility + 1
+        );
+        int publish = persistence.indexOf("rememberCommittedState(");
+
+        assertTrue(firstEligibility >= 0 && firstEligibility < persist);
+        assertTrue(secondEligibility > persist && secondEligibility < publish);
+        assertTrue(persistence.contains("VanishStore.PreferenceUpdate.KEEP"));
+        assertTrue(persistence.contains("return false;"));
+    }
+    @Test
     void manualToggleRemembersChoiceButAutomaticExitCleanupDoesNotOverwriteIt() throws IOException {
         String source = read("visibility/VanishManager.java");
         assertTrue(source.contains(

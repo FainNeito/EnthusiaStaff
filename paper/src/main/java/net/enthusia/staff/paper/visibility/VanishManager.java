@@ -630,7 +630,23 @@ public final class VanishManager implements Listener {
                 message(playerId, "Vanish storage is not ready; no visibility change was made.");
                 return false;
             }
+            if (!pendingEnableStillEligible(playerId, vanished)) {
+                message(playerId, "Vanish enable was cancelled because your current staff rank does not permit it.");
+                return false;
+            }
             persistState(loaded, playerId, rank, vanished, selectedGameMode, preferenceUpdate);
+            if (!pendingEnableStillEligible(playerId, vanished)) {
+                persistState(
+                        loaded,
+                        playerId,
+                        rank,
+                        false,
+                        selectedGameMode,
+                        VanishStore.PreferenceUpdate.KEEP
+                );
+                message(playerId, "Vanish enable was cancelled because your current staff rank changed while it was being saved.");
+                return false;
+            }
             rememberCommittedState(playerId, rank, vanished, restoreSelectedMode, selectedGameMode);
             boolean viewerChanged = publishViewerRank(playerId, rank);
             Set<UUID> presenceViewers = presenceViewers(playerId);
@@ -660,6 +676,10 @@ public final class VanishManager implements Listener {
         }
     }
 
+    private boolean pendingEnableStillEligible(UUID playerId, boolean vanished) {
+        return !vanished
+                || VanishRankReconciliationPolicy.mayVanish(onlineStaffRanks.get(playerId));
+    }
     private void rememberCommittedState(
             UUID playerId,
             StaffRank rank,
