@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":persistence"))
     implementation(project(":protocol"))
     implementation(project(":discord-platform-api"))
+    implementation(project(":moderation-platform-api"))
     compileOnly(integrationContractsProject)
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.20.1")
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")

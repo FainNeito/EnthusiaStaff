@@ -19,6 +19,7 @@ rootProject.name = "EnthusiaStaff"
 include(
     "common",
     "discord-platform-api",
+    "moderation-platform-api",
     "domain",
     "integration-contracts",
     "persistence",
