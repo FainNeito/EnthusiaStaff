@@ -95,7 +95,14 @@ function liveActionInput(w) {
   requireLiveActionContext(w);
   const type = liveConsequenceType(w.actual.action);
   const duration = type === 'WARNING' || type === 'KICK' ? 'instant' : actionDuration(w.duration);
-  const intent = {type, duration, reason:w.offense.label, explanation:liveExplanation(w), restriction:null};
+  const intent = {
+    type,
+    duration,
+    reason:w.custom ? 'Custom punishment' : w.offense.label,
+    explanation:liveExplanation(w),
+    customConsequence:Boolean(w.custom),
+    restriction:null
+  };
   intent.restriction = liveRestriction(w, type);
   return {targetKey:liveModeration.bootstrap?.targetKey, intent};
 }
@@ -271,8 +278,13 @@ window.renderCompleteStep = function () {
     element('p',{text:'Target notification: ' + (result?.dmOutcome || 'Unknown')}),
     element('p',{text:'Punishment ID: ' + (result?.punishmentId || 'Unknown')})));
   replaceChildrenOf($('#workflowFooter'),buttonNode('Done','button primary',{done:''}));
-  $('[data-done]').addEventListener('click',closeWorkflow);
+  $('[data-done]').addEventListener('click',finishLiveAction);
 };
+
+async function finishLiveAction() {
+  closeWorkflow();
+  await loadSession();
+}
 
 const simulationBoundary = window.testEnvironmentBoundary;
 window.testEnvironmentBoundary = function () {

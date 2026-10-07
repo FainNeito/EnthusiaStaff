@@ -64,6 +64,33 @@ test('self-target punishment attempts fail locally with a clear message before b
   );
 });
 
+test('custom Discord punishment is explicitly durable as custom instead of inheriting the selected rule family', () => {
+  const context = runtime();
+  context.liveActionCapabilities = {discordEnabled:true};
+  context.state.session = {actorId:'111'};
+  context.state.evidence = new Set();
+  context.liveModeration = {bootstrap:{targetKey:'discord:222'}};
+  context.identity = {discordId:'222'};
+  const custom = {
+    scope:'Discord',
+    actual:{action:'Warning'},
+    duration:'—',
+    custom:true,
+    offense:{label:'Rep Abuse'},
+    reason:'manual custom warning',
+    externalEvidence:'',
+    dm:true
+  };
+  const input = context.liveActionInput(custom);
+  assert.equal(input.intent.reason,'Custom punishment');
+  assert.equal(input.intent.customConsequence,true);
+
+  custom.custom = false;
+  const configured = context.liveActionInput(custom);
+  assert.equal(configured.intent.reason,'Rep Abuse');
+  assert.equal(configured.intent.customConsequence,false);
+});
+
 test('live action preparation is bounded and exposes a retry state instead of hanging forever', () => {
   assert.match(source,/LIVE_ACTION_TIMEOUT_MS = 12000/);
   assert.match(source,/AbortController/);
@@ -75,4 +102,6 @@ test('live action preparation is bounded and exposes a retry state instead of ha
   assert.match(source,/liveActionPrepareError/);
   assert.match(source,/No additional staff explanation was provided\./);
   assert.doesNotMatch(source,/Server-prepared live action/);
+  assert.match(source,/async function finishLiveAction\(\)/);
+  assert.match(source,/await loadSession\(\)/);
 });

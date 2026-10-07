@@ -49,16 +49,21 @@ final class ModerationActionApiService {
     record MinecraftIntent(String reasonId, String explanation) { }
 
     record IntentInput(String type, String duration, String reason, String explanation,
-            Optional<DiscordRestrictionTarget> restriction) {
+            boolean customConsequence, Optional<DiscordRestrictionTarget> restriction) {
         IntentInput {
             restriction = restriction == null ? Optional.empty() : restriction;
+        }
+
+        IntentInput(String type, String duration, String reason, String explanation,
+                Optional<DiscordRestrictionTarget> restriction) {
+            this(type, duration, reason, explanation, false, restriction);
         }
 
         DiscordPunishmentIntent toIntent() {
             DiscordConsequenceType consequence = consequenceType();
             ParsedLength parsed = parsedLength(consequence);
             return new DiscordPunishmentIntent(
-                    consequence, parsed.length(), parsed.custom(), false,
+                    consequence, parsed.length(), parsed.custom(), customConsequence,
                     restriction, reason, explanation, 0, true);
         }
 
