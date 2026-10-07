@@ -10,7 +10,11 @@ const browseBaseSessionBoundChannelId = window.sessionBoundChannelId;
 const TARGET_ONLY_VIEWS = new Set(['overview', 'history', 'cases', 'notes', 'accounts']);
 
 liveModeration.targetSelected = false;
+liveModeration.playerSearchResults = [];
+liveModeration.playerSearchBusy = false;
 state.activeTargetKey = '';
+state.playerPickerPrompted = false;
+const PLAYER_PICKER_MIN_SEARCH = 2;
 
 function browseSessionBoundChannelId() {
   const key = state.session?.targetKey;
@@ -23,6 +27,10 @@ function browseApplyLiveBootstrap(payload) {
   browseBaseApplyLiveBootstrap(payload);
   applyBrowseTargetState(payload);
   renderAll();
+  if (!liveModeration.targetSelected && browseSessionSupportsPlayerSwitch() && !state.playerPickerPrompted) {
+    state.playerPickerPrompted = true;
+    setTimeout(openPlayerPicker,0);
+  }
 }
 
 function applyBrowseTargetState(payload) {
@@ -46,28 +54,43 @@ function setNoPlayerIdentity() {
 function browseRenderTargetHeader() {
   if (liveModeration.targetSelected) {
     browseBaseRenderTargetHeader();
-    $('#targetHeader .target-identity')?.append(browsePickerNode());
+    if (browseSessionSupportsPlayerSwitch()) {
+      const actions = $('#targetHeader .target-actions');
+      if (actions) actions.insertBefore(
+        buttonNode('Change player','button secondary',{openPlayerPicker:''}),
+        actions.firstChild
+      );
+      $('#targetHeader .target-identity')?.append(browseChannelPickerNode());
+    }
   } else {
     renderChannelBrowseHeader();
   }
   bindBrowsePickers();
 }
 
+function browseSessionSupportsPlayerSwitch() {
+  const key = state.session?.targetKey;
+  return typeof key === 'string' && key.startsWith('channel:');
+}
+
 function renderChannelBrowseHeader() {
   const channel = selectedChannel();
   const identityBlock = element('div',{className:'target-identity'},
-    element('div',{className:'identity-line'},element('h1',{id:'targetName',text:'Channel moderation'})),
-    element('div',{className:'target-subline',text:channel ? `Browsing #${channel.name} · no player selected` : 'No player selected'}));
+    element('div',{className:'identity-line'},element('h1',{id:'targetName',text:'Select a player'})),
+    element('div',{className:'target-subline',text:channel
+      ? `Browsing #${channel.name} · choose a player to view history and take action`
+      : 'Choose a player to view moderation history and actions'}));
+  const actions = element('div',{className:'target-actions player-entry-actions'},
+    browseChannelPickerNode(),
+    buttonNode('Select player','button primary',{openPlayerPicker:''}));
   replaceChildrenOf($('#targetHeader'),
-    element('div',{className:'target-avatar',text:'#',attrs:{'aria-hidden':'true'}}),
+    element('div',{className:'target-avatar',text:'?',attrs:{'aria-hidden':'true'}}),
     identityBlock,
-    browsePickerNode());
+    actions);
 }
 
-function browsePickerNode() {
-  return element('div',{className:'target-actions browse-pickers'},
-    browsePickerField('Channel', channelPickerNode()),
-    browsePickerField('Player', playerPickerNode()));
+function browseChannelPickerNode() {
+  return browsePickerField('Channel', channelPickerNode());
 }
 
 function browsePickerField(label, control) {
@@ -79,28 +102,205 @@ function channelPickerNode() {
     liveModeration.channels.map((channel) => optionNode(channel.id, `#${channel.name}`, state.channel === channel.id)));
 }
 
-function playerPickerNode() {
-  const selectedId = liveModeration.targetSelected ? identity.discordId : '';
-  const authors = loadedAuthors(selectedId);
-  return element('select',{id:'workspacePlayerPicker'},
-    optionNode('','No player selected',!selectedId),
-    authors.map((author) => optionNode(author.id, author.label, author.id === selectedId)));
-}
-
 function loadedAuthors(selectedId) {
   const byId = new Map();
   for (const message of baseMessages) {
-    if (message.authorId) byId.set(message.authorId,{id:message.authorId,label:`${message.author} · @${message.username}`});
+    if (!message.authorId) continue;
+    byId.set(message.authorId,{
+      id:message.authorId,
+      label:`${message.author} · @${message.username}`,
+      avatarUrl:message.avatarUrl || '',
+      source:'recent'
+    });
   }
   if (selectedId && !byId.has(selectedId)) {
-    byId.set(selectedId,{id:selectedId,label:`${identity.displayName} · @${identity.username}`});
+    byId.set(selectedId,{
+      id:selectedId,
+      label:`${identity.displayName} · @${identity.username}`,
+      avatarUrl:identity.avatarUrl || '',
+      source:'current'
+    });
   }
   return [...byId.values()].sort((left,right) => left.label.localeCompare(right.label));
 }
 
 function bindBrowsePickers() {
   $('#workspaceChannelPicker')?.addEventListener('change', changeBrowseChannel);
-  $('#workspacePlayerPicker')?.addEventListener('change', changeBrowsePlayer);
+  $$('[data-open-player-picker]').forEach((button) => button.addEventListener('click', openPlayerPicker));
+}
+
+function openPlayerPicker() {
+  if (!browseSessionSupportsPlayerSwitch()) {
+    showToast('Open /moderate without choosing a user to switch between players.',true);
+    return;
+  }
+  $('#playerPickerDialog')?.remove();
+  const dialog = ensurePlayerPickerDialog();
+  liveModeration.playerSearchResults = [];
+  liveModeration.playerSearchBusy = false;
+  renderPlayerPickerResults('');
+  if (!dialog.open) dialog.showModal();
+  $('#playerPickerSearch')?.focus();
+}
+
+function ensurePlayerPickerDialog() {
+  let dialog = $('#playerPickerDialog');
+  if (dialog) return dialog;
+  dialog = element('dialog',{id:'playerPickerDialog',className:'player-picker-dialog'},
+    element('div',{className:'player-picker-frame'},
+      element('header',{className:'dialog-header'},
+        element('div',{},
+          element('div',{className:'eyebrow',text:'Moderation target'}),
+          element('h2',{text:'Select player'})),
+        element('button',{type:'button',className:'icon-button',text:'×',
+          attrs:{'aria-label':'Close player selector'},dataset:{closePlayerPicker:''}})),
+      element('div',{className:'player-picker-body'},
+        element('div',{className:'player-search-row'},
+          element('input',{id:'playerPickerSearch',type:'search',
+            placeholder:'Search Discord name or paste a user ID',
+            attrs:{autocomplete:'off','aria-label':'Search players'}}),
+          buttonNode('Search history','button secondary',{searchPlayers:''})),
+        element('div',{id:'playerPickerStatus',className:'muted small'}),
+        element('div',{id:'playerPickerResults',className:'player-picker-results'})),
+      element('footer',{className:'dialog-footer player-picker-footer'},
+        liveModeration.targetSelected
+          ? buttonNode('Clear player','button ghost',{clearPlayer:''})
+          : element('span',{className:'muted small',text:'Choose a player to continue'}),
+        buttonNode('Close','button secondary',{closePlayerPicker:''}))));
+  document.body.append(dialog);
+  $('#playerPickerSearch').addEventListener('input', (event) => renderPlayerPickerResults(event.target.value));
+  $('#playerPickerSearch').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    searchBrowsePlayers();
+  });
+  $('[data-search-players]').addEventListener('click',searchBrowsePlayers);
+  $$('[data-close-player-picker]').forEach((button) => button.addEventListener('click',() => dialog.close()));
+  $('[data-clear-player]')?.addEventListener('click',async () => {
+    if (await clearBrowsePlayer()) dialog.close();
+  });
+  return dialog;
+}
+
+function playerPickerCandidates(term) {
+  const selectedId = liveModeration.targetSelected ? identity.discordId : '';
+  const byId = new Map();
+  for (const candidate of [...loadedAuthors(selectedId), ...liveModeration.playerSearchResults]) {
+    if (candidate?.id) byId.set(candidate.id,candidate);
+  }
+  const normalized = String(term || '').trim().toLowerCase();
+  if (/^[1-9][0-9]{0,19}$/.test(normalized) && !byId.has(normalized)) {
+    byId.set(normalized,{id:normalized,label:`Discord user ${normalized}`,avatarUrl:'',source:'id'});
+  }
+  const candidates = [...byId.values()];
+  if (!normalized || /^[1-9][0-9]{0,19}$/.test(normalized)) return candidates;
+  return candidates.filter((candidate) =>
+    candidate.id.includes(normalized) || candidate.label.toLowerCase().includes(normalized));
+}
+
+function renderPlayerPickerResults(term) {
+  const container = $('#playerPickerResults');
+  if (!container) return;
+  const input = String(term || '').trim();
+  const candidates = playerPickerCandidates(input);
+  const status = $('#playerPickerStatus');
+  if (status) {
+    status.textContent = liveModeration.playerSearchBusy
+      ? 'Searching Discord history…'
+      : input.length >= PLAYER_PICKER_MIN_SEARCH
+        ? 'Select a result, search older Discord history, or paste an exact Discord user ID.'
+        : 'Recent players from loaded Discord messages.';
+  }
+  if (liveModeration.playerSearchBusy) {
+    replaceChildrenOf(container,element('div',{className:'empty-inline',text:'Searching…'}));
+    return;
+  }
+  if (!candidates.length) {
+    replaceChildrenOf(container,emptyState('No matching recent players',
+      'Search Discord history, switch channels, or paste the exact Discord user ID.'));
+    return;
+  }
+  replaceChildrenOf(container,candidates.map(playerCandidateNode));
+  $$('[data-pick-player]').forEach((button) => button.addEventListener('click',choosePlayerFromDialog));
+}
+
+function playerCandidateNode(candidate) {
+  const current = liveModeration.targetSelected && candidate.id === identity.discordId;
+  const avatar = candidate.avatarUrl
+    ? playerCandidateImage(candidate)
+    : element('div',{className:'player-result-avatar',text:initials(candidate.label),attrs:{'aria-hidden':'true'}});
+  return element('button',{type:'button',className:`player-result${current ? ' current' : ''}`,
+    dataset:{pickPlayer:candidate.id}},
+    avatar,
+    element('span',{className:'player-result-copy'},
+      element('strong',{text:candidate.label}),
+      element('small',{text:`${candidate.id}${current ? ' · Current player' : ''}`})),
+    element('span',{className:'player-result-action',text:current ? 'Selected' : 'Open'}));
+}
+
+function playerCandidateImage(candidate) {
+  const image = document.createElement('img');
+  image.className = 'player-result-avatar';
+  image.src = candidate.avatarUrl;
+  image.alt = '';
+  image.referrerPolicy = 'no-referrer';
+  return image;
+}
+
+async function choosePlayerFromDialog(event) {
+  const button = event.currentTarget;
+  const userId = button.dataset.pickPlayer;
+  button.disabled = true;
+  const selected = await selectBrowsePlayer(userId);
+  button.disabled = false;
+  if (selected) $('#playerPickerDialog')?.close();
+}
+
+async function searchBrowsePlayers() {
+  const input = $('#playerPickerSearch');
+  const term = String(input?.value || '').trim();
+  if (/^[1-9][0-9]{0,19}$/.test(term)) {
+    liveModeration.playerSearchResults = [];
+    renderPlayerPickerResults(term);
+    return;
+  }
+  if (term.length < PLAYER_PICKER_MIN_SEARCH) {
+    showToast(`Enter at least ${PLAYER_PICKER_MIN_SEARCH} characters or paste a Discord user ID.`,true);
+    input?.focus();
+    return;
+  }
+  liveModeration.playerSearchBusy = true;
+  renderPlayerPickerResults(term);
+  try {
+    const response = await requestDirectModerationRead('/api/messages',{
+      method:'POST',
+      headers:{Accept:'application/json','Content-Type':'application/json'},
+      body:JSON.stringify({author:term,limit:50})
+    });
+    const page = await readJsonResponse(response);
+    if (!response.ok) throw new Error(page.message || 'Player search is unavailable.');
+    liveModeration.playerSearchResults = uniquePlayerCandidates(asArray(page.messages).map(window.mapMessage));
+  } catch (error) {
+    liveModeration.playerSearchResults = [];
+    showToast(error.message || 'Player search is temporarily unavailable.',true);
+  } finally {
+    liveModeration.playerSearchBusy = false;
+    renderPlayerPickerResults(term);
+  }
+}
+
+function uniquePlayerCandidates(messages) {
+  const byId = new Map();
+  for (const message of messages) {
+    if (!message.authorId) continue;
+    byId.set(message.authorId,{
+      id:message.authorId,
+      label:`${message.author} · @${message.username}`,
+      avatarUrl:message.avatarUrl || '',
+      source:'search'
+    });
+  }
+  return [...byId.values()].sort((left,right) => left.label.localeCompare(right.label));
 }
 
 async function changeBrowseChannel(event) {
@@ -112,24 +312,21 @@ async function changeBrowseChannel(event) {
   await loadChannelPage();
 }
 
-async function changeBrowsePlayer(event) {
-  const userId = event.target.value;
-  if (!userId) await clearBrowsePlayer();
-  else await selectBrowsePlayer(userId);
-}
-
 async function selectBrowsePlayer(userId) {
   if (!/^[1-9][0-9]{0,19}$/.test(userId)) {
     showToast('That Discord user cannot be selected.',true);
-    return;
+    return false;
   }
   const preserved = preserveMessageWorkspace();
   try {
     const payload = await fetchBrowseBootstrap({target:userId,channel:currentBrowseChannel()});
     if (!payload.targetSelected || !payload.identity) throw new Error('Player details were not returned.');
+    state.playerPickerPrompted = true;
     applySelectedPlayerPayload(payload,preserved);
+    return true;
   } catch (error) {
     showToast(error.message || 'Player details are temporarily unavailable.',true);
+    return false;
   }
 }
 
@@ -137,11 +334,14 @@ async function clearBrowsePlayer() {
   try {
     const payload = await fetchBrowseBootstrap({browse:true,channel:currentBrowseChannel()});
     resetCaseSelections();
+    state.playerPickerPrompted = true;
     browseApplyLiveBootstrap(payload);
     state.view = 'messages';
     renderAll();
+    return true;
   } catch (error) {
     showToast(error.message || 'Channel moderation view is temporarily unavailable.',true);
+    return false;
   }
 }
 
