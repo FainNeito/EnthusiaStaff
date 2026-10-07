@@ -32,6 +32,7 @@ import net.enthusia.staff.paper.freeze.FreezeNoticeService;
 import net.enthusia.staff.paper.inventory.InventoryCoordinator;
 import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.inventory.InventoryRecoveryGuard;
+import net.enthusia.staff.paper.integration.PolarSpectatorPhaseCompatibility;
 import net.enthusia.staff.paper.report.ReportEvidenceMaintenance;
 import net.enthusia.staff.paper.staff.HelperObserverProtectionListener;
 import net.enthusia.staff.paper.staff.StaffModeDeathListener;
@@ -93,6 +94,9 @@ record PaperRuntimeComponents(
         );
         StaffModeManager staffMode = createStaffModeManager(dependencies);
         registerStaffDutyContext(dependencies, staffMode);
+        PolarSpectatorPhaseCompatibility.installEligibilityTracking(
+                dependencies.environment().plugin()
+        );
         DefaultStaffVisibilityService visibility = createVisibilityService(dependencies);
         VanishManager vanish = createVanishManager(dependencies, staffMode, visibility);
         registerListener(
