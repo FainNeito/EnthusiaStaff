@@ -55,6 +55,7 @@ class PolicyV2PresentationTest {
                 "Evasion/Alt Abuse",
                 "Profiles/Identity",
                 "Reports/Evidence/Staff Cooperation",
+                "Complicity & Assistance",
                 "Economy/Market",
                 "Reputation",
                 "Policy Gap"
@@ -82,6 +83,12 @@ class PolicyV2PresentationTest {
         assertEquals(
                 List.of("cheating.client"),
                 workflow.offenses(PolicyV2Category.CHEATING).stream()
+                        .map(OffensePolicy::id)
+                        .toList()
+        );
+        assertEquals(
+                List.of("complicity.assisting-cheating"),
+                workflow.offenses(PolicyV2Category.COMPLICITY_ASSISTANCE).stream()
                         .map(OffensePolicy::id)
                         .toList()
         );
@@ -236,6 +243,10 @@ class PolicyV2PresentationTest {
                 offense(
                         "cheating.client", "Unauthorized Client", "cheating",
                         List.of(IncidentAttributeDefinition.enumValue("severity", true, Set.of("low", "high")))
+                ),
+                offense(
+                        "complicity.assisting-cheating", "Assisting Cheating", "complicity",
+                        List.of()
                 )
         ));
     }
