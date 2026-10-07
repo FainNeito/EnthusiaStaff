@@ -113,6 +113,11 @@ final class StaffBotChatBridgeConfiguration {
                 requireText(values.get(ROUTES_ENV), ROUTES_ENV), pinnedChannel);
         Map<Long, Route> inboundRoutes = ingressRoutes(
                 values.get(INGRESS_ROUTES_ENV), pinnedChannel, outboundRoutes);
+        if (mode == Mode.AUTHORITATIVE && inboundRoutes.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "AUTHORITATIVE Discord chat bridge requires at least one explicit ingress route"
+            );
+        }
         SecretConfiguration secrets = secretConfiguration(values);
         try {
             return Optional.of(new StaffBotChatBridgeConfiguration(
