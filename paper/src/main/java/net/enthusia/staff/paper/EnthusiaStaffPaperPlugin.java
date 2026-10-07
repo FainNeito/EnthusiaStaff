@@ -2,6 +2,7 @@ package net.enthusia.staff.paper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -105,7 +106,9 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
             return;
         }
         databaseSettings = PaperDatabaseConfiguration.snapshot(getConfig());
-        saveResource("reason-policies.yml", false);
+        if (Files.notExists(reasonPolicyFile())) {
+            saveResource("reason-policies.yml", false);
+        }
         boolean policiesReady = loadReasonPolicies();
         RestartRequiredConfiguration bootstrap = configurationSnapshot.restartRequired();
         workers = BoundedExecutorFactory.create(bootstrap.workerThreads(), bootstrap.workerQueueCapacity());
