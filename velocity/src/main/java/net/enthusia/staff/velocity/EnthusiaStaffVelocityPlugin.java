@@ -172,6 +172,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile ScheduledTask operationalStateTask;
     private volatile PersistentChannelServer channelServer;
     private volatile VelocityChatBridgeRelay chatBridgeRelay;
+    private volatile VelocityChatBridgeRelay.Registration chatBridgeSinkRegistration;
     private volatile NetworkOutboxWorker outboxWorker;
     private volatile DiscordOutboxWorker discordOutboxWorker;
     private volatile WebsiteModerationStore websiteModerationStore;
@@ -641,6 +642,15 @@ public final class EnthusiaStaffVelocityPlugin {
 
     @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
     private void closeChatBridgeRelay() {
+        VelocityChatBridgeRelay.Registration registration = chatBridgeSinkRegistration;
+        chatBridgeSinkRegistration = null;
+        if (registration != null) {
+            try {
+                registration.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity chat sink cleanup failed ({})", exception.getClass().getSimpleName());
+            }
+        }
         VelocityChatBridgeRelay relay = chatBridgeRelay;
         chatBridgeRelay = null;
         if (relay != null) {
@@ -734,21 +744,33 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         if (loaded.backendSecretEnvironments().isEmpty()) {
-            throw new IllegalStateException("No required backend channel secrets are configured");
+            throw new IllegalStateException("No authenticated channel peer secrets are configured");
         }
-        Map<String, SecretKey> backendKeys = new LinkedHashMap<>();
+        Map<String, SecretKey> peerKeys = new LinkedHashMap<>();
         loaded.backendSecretEnvironments().forEach((serverId, environment) ->
-                backendKeys.put(serverId, secretFromEnvironment(environment)));
+                peerKeys.put(serverId, secretFromEnvironment(environment)));
+        Set<String> requiredBackends = new java.util.LinkedHashSet<>(peerKeys.keySet());
+        requiredBackends.remove(VelocityStaffBotChatSink.PEER_ID);
+        if (requiredBackends.isEmpty()) {
+            throw new IllegalStateException("No required Paper backend channel secrets are configured");
+        }
+        if (peerKeys.containsKey(VelocityStaffBotChatSink.PEER_ID)
+                && !"VELOCITY".equals(loaded.channelProxyId())) {
+            throw new IllegalStateException("StaffBot chat peer requires channel.proxy-id=VELOCITY");
+        }
         SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
         SSLContext tlsContext = serverTlsContext(loaded);
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(Clock.systemUTC());
         chatBridgeRelay = relay;
         try {
             PersistentChannelServer server = createChannelServer(
-                    loaded, outbox, backendKeys, proxyKey, tlsContext, relay
+                    loaded, outbox, peerKeys, Set.copyOf(requiredBackends), proxyKey, tlsContext, relay
             );
             server.start();
             channelServer = server;
+            if (peerKeys.containsKey(VelocityStaffBotChatSink.PEER_ID)) {
+                chatBridgeSinkRegistration = relay.installSink(new VelocityStaffBotChatSink(server));
+            }
             outboxWorker = new NetworkOutboxWorker(
                     this,
                     proxy,
@@ -757,14 +779,14 @@ public final class EnthusiaStaffVelocityPlugin {
                     workers,
                     outbox,
                     server,
-                    backendKeys.keySet()
+                    Set.copyOf(requiredBackends)
             );
             outboxWorker.start();
         } catch (java.io.IOException exception) {
-            closeChatBridgeRelay();
+            closeChannelServer();
             throw new IllegalStateException("Unable to bind the persistent backend channel", exception);
         } catch (RuntimeException exception) {
-            closeChatBridgeRelay();
+            closeChannelServer();
             throw exception;
         }
     }
@@ -772,7 +794,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private PersistentChannelServer createChannelServer(
             VelocityConfiguration loaded,
             NetworkOutboxStore outbox,
-            Map<String, SecretKey> backendKeys,
+            Map<String, SecretKey> peerKeys,
+            Set<String> paperBackendIds,
             SecretKey proxyKey,
             SSLContext tlsContext,
             VelocityChatBridgeRelay chatRelay
@@ -782,31 +805,32 @@ public final class EnthusiaStaffVelocityPlugin {
                         loaded.channelProxyId(),
                         InetAddress.getByName(loaded.channelBindAddress()),
                         loaded.channelPort(),
-                        backendKeys,
+                        peerKeys,
                         proxyKey,
                         tlsContext,
-                        backendKeys.size() + 2
+                        peerKeys.size() + 2
                 ),
                 Clock.systemUTC(),
-                envelope -> {
-                    if (chatRelay.handles(envelope)) {
-                        return chatRelay.accept(envelope);
-                    }
-                    if (acceptTransferSnapshot(envelope)) {
-                        return true;
-                    }
-                    if (networkVerifier.acceptReport(envelope) || acceptStaffModeReady(envelope)) {
-                        return true;
-                    }
-                    outbox.recordInboxOnce(
-                            loaded.serverId(),
-                            envelope.messageId(),
-                            envelope.messageType(),
-                            "{\"outcome\":\"accepted\"}",
-                            Clock.systemUTC().instant()
-                    );
-                    return true;
-                },
+                new VelocityChannelMessageRouter(
+                        paperBackendIds,
+                        chatRelay,
+                        envelope -> {
+                            if (acceptTransferSnapshot(envelope)) {
+                                return true;
+                            }
+                            if (networkVerifier.acceptReport(envelope) || acceptStaffModeReady(envelope)) {
+                                return true;
+                            }
+                            outbox.recordInboxOnce(
+                                    loaded.serverId(),
+                                    envelope.messageId(),
+                                    envelope.messageType(),
+                                    "{\"outcome\":\"accepted\"}",
+                                    Clock.systemUTC().instant()
+                            );
+                            return true;
+                        }
+                ),
                 warning -> logger.warn("{}", warning)
         );
     }
