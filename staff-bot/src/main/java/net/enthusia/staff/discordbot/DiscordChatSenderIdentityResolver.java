@@ -58,17 +58,19 @@ final class DiscordChatSenderIdentityResolver {
         this.lookup = Objects.requireNonNull(lookup, "lookup");
     }
 
-    synchronized Optional<String> resolve(UUID minecraftPlayerId) {
+    Optional<String> resolve(UUID minecraftPlayerId) {
         Objects.requireNonNull(minecraftPlayerId, "minecraftPlayerId");
         long now = clock.millis();
-        Entry existing = cache.get(minecraftPlayerId);
-        if (existing != null && existing.expiresAtEpochMillis() >= now) {
-            return existing.discordUserId();
+        synchronized (this) {
+            Entry existing = cache.get(minecraftPlayerId);
+            if (existing != null && existing.expiresAtEpochMillis() >= now) {
+                return existing.discordUserId();
+            }
+            if (existing != null) {
+                cache.remove(minecraftPlayerId);
+            }
+            purgeExpired(now);
         }
-        if (existing != null) {
-            cache.remove(minecraftPlayerId);
-        }
-        purgeExpired(now);
 
         Optional<String> resolved;
         try {
@@ -79,14 +81,21 @@ final class DiscordChatSenderIdentityResolver {
             resolved = Optional.empty();
         }
 
-        if (cache.size() >= capacity) {
-            Iterator<UUID> iterator = cache.keySet().iterator();
-            if (iterator.hasNext()) {
-                iterator.next();
-                iterator.remove();
+        long expiresAt = Math.addExact(clock.millis(), ttlMillis);
+        synchronized (this) {
+            Entry refreshed = cache.get(minecraftPlayerId);
+            if (refreshed != null && refreshed.expiresAtEpochMillis() >= clock.millis()) {
+                return refreshed.discordUserId();
             }
+            if (cache.size() >= capacity) {
+                Iterator<UUID> iterator = cache.keySet().iterator();
+                if (iterator.hasNext()) {
+                    iterator.next();
+                    iterator.remove();
+                }
+            }
+            cache.put(minecraftPlayerId, new Entry(resolved, expiresAt));
         }
-        cache.put(minecraftPlayerId, new Entry(resolved, Math.addExact(now, ttlMillis)));
         return resolved;
     }
 
