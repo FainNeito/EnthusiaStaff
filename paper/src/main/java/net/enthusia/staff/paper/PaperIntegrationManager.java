@@ -2,12 +2,14 @@ package net.enthusia.staff.paper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rosewood.rosechat.api.RoseChatAPI;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import dev.rosewood.rosechat.api.chatbridge.LegacyDiscordChatSuppression;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -47,6 +49,7 @@ import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
 import net.enthusia.staff.paper.visibility.VanishManager;
+import net.enthusia.staff.protocol.ChatBridgeHealthMessage;
 import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.PersistentChannelClient;
 import net.enthusia.staff.protocol.ProtocolEnvelope;
@@ -69,6 +72,7 @@ final class PaperIntegrationManager implements Listener {
     private static final String INTERACTIVE_CHAT_RENDERER = "interactivechat-rich-renderer";
     private static final String MARKET = "market";
     private static final String REPUTATION = "reputation";
+    private static final long CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS = 20L;
     private static final List<CurrencyAssetSource> DEFAULT_REMOVAL_ORDER = List.of(
             CurrencyAssetSource.BANK,
             CurrencyAssetSource.INVENTORY,
@@ -87,6 +91,8 @@ final class PaperIntegrationManager implements Listener {
     private LegacyDiscordChatSuppression.Registration legacyDiscordSuppression;
     private volatile DiscordChatBridgeMode activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
     private final AtomicReference<PersistentChannelClient> chatChannel = new AtomicReference<>();
+    private final AtomicLong chatPublishingReadyUntil = new AtomicLong();
+    private ScheduledTask chatAuthorityWatchdog;
     private RoseChatCommandOwnershipCoordinator roseChatCommands;
     private MuteCommandFallbackListener muteFallback;
     private boolean roseChatLifecycleRegistered;
@@ -199,6 +205,7 @@ final class PaperIntegrationManager implements Listener {
 
     void initializeRoseChat() {
         registerRoseChatLifecycle();
+        startChatAuthorityWatchdog();
         refreshRoseChatIntegration();
     }
 
@@ -276,6 +283,34 @@ final class PaperIntegrationManager implements Listener {
         return current != null && current.accept(expectedProxyId, envelope);
     }
 
+    boolean handleChatBridgeHealth(String expectedProxyId, ProtocolEnvelope envelope) {
+        if (envelope == null
+                || !ChatBridgeMessages.HEALTH.equals(envelope.messageType())
+                || !java.util.Objects.equals(expectedProxyId, envelope.serverId())) {
+            return false;
+        }
+        ChatBridgeHealthMessage health;
+        try {
+            health = ChatBridgeMessages.decodeHealth(envelope.payloadJson());
+        } catch (IllegalArgumentException failure) {
+            return false;
+        }
+        long now = clock().millis();
+        if (health.isExpired(now)) {
+            return false;
+        }
+        long boundedExpiry = Math.min(
+                health.expiresAtEpochMillis(),
+                now + ChatBridgeHealthMessage.MAX_LIFETIME_MILLIS
+        );
+        chatPublishingReadyUntil.set(health.ready() ? boundedExpiry : 0L);
+        plugin().getServer().getGlobalRegionScheduler().execute(
+                plugin(),
+                ignored -> reconcileRoseChatAuthority()
+        );
+        return true;
+    }
+
     void bindChatChannel(PersistentChannelClient client) {
         PersistentChannelClient required = java.util.Objects.requireNonNull(client, "client");
         chatChannel.set(required);
@@ -292,6 +327,7 @@ final class PaperIntegrationManager implements Listener {
 
     void unbindChatChannel(PersistentChannelClient client) {
         releaseLegacyDiscordSuppression();
+        chatPublishingReadyUntil.set(0L);
         chatChannel.compareAndSet(client, null);
         RoseChatOutboundBridgeIntegration current = roseChatOutbound;
         if (current != null) {
@@ -306,6 +342,10 @@ final class PaperIntegrationManager implements Listener {
     void closeChatBridge() {
         HandlerList.unregisterAll(this);
         roseChatLifecycleRegistered = false;
+        if (chatAuthorityWatchdog != null) {
+            chatAuthorityWatchdog.cancel();
+            chatAuthorityWatchdog = null;
+        }
         closeRoseChatIntegration();
         deactivateMuteFallback();
         closeModerationProviders();
@@ -485,6 +525,7 @@ final class PaperIntegrationManager implements Listener {
                 roseChatOutboundRender != null,
                 roseChatInbound != null,
                 currentChannel != null && currentChannel.connected(),
+                chatPublishingReady(),
                 interactiveChatEnabled,
                 richArtifactProviderReady)) {
             releaseLegacyDiscordSuppression();
@@ -523,6 +564,7 @@ final class PaperIntegrationManager implements Listener {
             boolean renderReady,
             boolean inboundReady,
             boolean channelConnected,
+            boolean discordPublishingReady,
             boolean richArtifactsRequired,
             boolean richArtifactProviderReady
     ) {
@@ -530,7 +572,30 @@ final class PaperIntegrationManager implements Listener {
                 && renderReady
                 && inboundReady
                 && channelConnected
+                && discordPublishingReady
                 && (!richArtifactsRequired || richArtifactProviderReady);
+    }
+
+    private boolean chatPublishingReady() {
+        return chatPublishingReadyUntil.get() >= clock().millis();
+    }
+
+    private void startChatAuthorityWatchdog() {
+        if (chatAuthorityWatchdog != null) {
+            return;
+        }
+        chatAuthorityWatchdog = plugin().getServer().getGlobalRegionScheduler().runAtFixedRate(
+                plugin(),
+                ignored -> {
+                    if (activeChatBridgeMode.authoritative()
+                            && legacyDiscordSuppression != null
+                            && !chatPublishingReady()) {
+                        reconcileRoseChatAuthority();
+                    }
+                },
+                CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS,
+                CHAT_AUTHORITY_WATCHDOG_PERIOD_TICKS
+        );
     }
 
     private void reconcileRoseChatCommands() {
@@ -549,6 +614,7 @@ final class PaperIntegrationManager implements Listener {
     @SuppressWarnings("PMD.NullAssignment")
     private void rollbackDiscordChatTransport() {
         releaseLegacyDiscordSuppression();
+        chatPublishingReadyUntil.set(0L);
         activeChatBridgeMode = DiscordChatBridgeMode.DISABLED;
         closeInteractiveChatRenderer();
         resources.close("RoseChat outbound styled Discord bridge", roseChatOutboundRender);
