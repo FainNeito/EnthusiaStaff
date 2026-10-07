@@ -171,7 +171,8 @@ public final class StaffBotRuntime implements AutoCloseable {
             if (chatConfiguration.map(current -> !current.ingressRoutes().isEmpty()).orElse(false)) {
                 gateway.installChatIngress(chatTransport.orElseThrow());
             }
-            Optional<StaffBotChatLifecycle> chat = chatTransport.map(current -> current);
+            Optional<StaffBotChatLifecycle> chat =
+                    chatTransport.map(current -> (StaffBotChatLifecycle) current);
             return new StaffBotRuntime(
                     configuration,
                     health,
