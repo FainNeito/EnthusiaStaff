@@ -68,6 +68,9 @@ jobs:
           cp validation/staff-state-reset-proof/target/staff-state-reset-proof-1.0.0.jar "$RUNNER_TEMP/StaffStateResetProof.jar"
           printf 'source=%s\n' "$(git rev-parse HEAD)" | tee "$RUNNER_TEMP/evidence/source.txt"
 
+      - name: Verify packet trace fixtures
+        run: node --test validation/staff-state-reset-proof/player-info-trace.test.js
+
       - name: Install protocol clients
         shell: bash
         run: |
@@ -221,6 +224,8 @@ jobs:
               return 1
             }
           }
+          # Physics is disabled and position packets are injected by the client harness.
+          # Geometry establishes server movement acceptance, not vanilla collision/no-clip.
           for name in leaf115 paper128 paper129 paper134; do
             evidence="$root/$name/server/staff-state-reset-proof.txt"
             client="$root/$name/client.log"
@@ -231,6 +236,8 @@ jobs:
             for phase in VISIBLE_WALL VISIBLE_FLOOR VISIBLE_CEILING VANISHED_WALL VANISHED_FLOOR VANISHED_CEILING VISIBLE_FINAL_TELEPORT_WALL; do
               require "$evidence" "^GEOMETRY\\|$phase\\|pass=true\\|mode=SPECTATOR"
             done
+            require "$client" '^CLIENT_PHYSICS[|]enabled=false[|]purpose=server-movement-acceptance-not-vanilla-collision-proof$'
+            require "$client" '^SELF_PLAYER_INFO[|]packet=player_info[|]gameMode=3[|]'
             require "$client" '^MARKER\|STATE\|VISIBLE_SURVIVAL\|mode=survival$'
             require "$client" '^MARKER\|STATE\|VISIBLE_SPECTATOR\|mode=spectator$'
             require "$client" '^MARKER\|STATE\|VANISHED_SELECT_SURVIVAL\|mode=survival$'

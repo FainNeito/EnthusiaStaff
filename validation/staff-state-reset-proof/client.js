@@ -3,6 +3,7 @@
 const port = Number(process.argv[2])
 const version = process.argv[3]
 const mineflayer = require('mineflayer')
+const { traceOwnPlayerInfo } = require('./player-info-trace')
 let done = false
 const seen = new Set()
 
@@ -38,6 +39,8 @@ const bot = mineflayer.createBot({
   physicsEnabled: false
 })
 bot.physicsEnabled = false
+log('CLIENT_PHYSICS|enabled=false|purpose=server-movement-acceptance-not-vanilla-collision-proof')
+bot._client.on('player_info', packet => traceOwnPlayerInfo(bot, packet, log))
 
 bot._client.on('game_state_change', packet => {
   log('GAME_STATE|reason=' + String(packet.reason) + '|gameMode=' + String(packet.gameMode))
