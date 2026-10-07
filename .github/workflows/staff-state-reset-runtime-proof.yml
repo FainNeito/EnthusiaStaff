@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   prove:
-    name: Same JAR on Leaf 115 and Paper 128/129/134
+    name: Same JAR protocol-state matrix plus Via translation bridges
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
@@ -26,6 +26,10 @@ jobs:
       PAPER128_SHA256: 85efd679ac1b5c0133aa53ea4222fcdc65b8a5b0d7f4e85497b64747f19634aa
       PAPER129_SHA256: b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083
       PAPER134_SHA256: 16c5494aed1015de4e7c6e5aefece74e0b398f733bd3fcd8975c820598c19bca
+      VIAVERSION_SHA256: 72c40a6a702d67f226fc9a0d8ad82aba1483fdabe2e6159bcdddb2dc070750b0
+      VIABACKWARDS_SHA256: 194e9250224632274d7b3c17e411e031a9223c1863c6f5138d53c721f07ab78d
+      PROTOCOLLIB_COMMIT: 583353e9fa3dcec1f6da06d89c189d4ecda1afd4
+      PROTOCOLLIB_SHA256: bdd7c55799ea625e66992c89f7746be6d25e5adacb6aaf173316bebd493bf834
       MINEFLAYER_COMMIT: f9e7db4447afda7838f08aa13430ec768738c178
       PAPER_USER_AGENT: EnthusiaStaff-state-reset-proof/1.0.0
 
@@ -81,7 +85,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           root="$RUNNER_TEMP/servers"
-          mkdir -p "$root/leaf115" "$root/paper128" "$root/paper129" "$root/paper134"
+          mkdir -p "$root/leaf115" "$root/paper128" "$root/paper129" "$root/paper129protolib" "$root/paper129via" "$root/paper129back" "$root/paper134"
           leaf_url="https://api.leafmc.one/v2/projects/leaf/versions/1.21.11/builds/115/downloads/leaf-1.21.11-115.jar"
           curl --fail --location --retry 4 --retry-all-errors "$leaf_url" -o "$root/leaf115/server.jar"
           test "$(sha256sum "$root/leaf115/server.jar" | awk '{print $1}')" = "$LEAF_SHA256"
@@ -101,9 +105,47 @@ jobs:
           }
           fetch_paper 26.2 128 "$PAPER128_SHA256" "$root/paper128"
           fetch_paper 26.2 129 "$PAPER129_SHA256" "$root/paper129"
+
+          cp "$root/paper129/server.jar" "$root/paper129protolib/server.jar"
+          cp "$root/paper129/receipt.txt" "$root/paper129protolib/receipt.txt"
+
+          cp "$root/paper129/server.jar" "$root/paper129via/server.jar"
+          cp "$root/paper129/receipt.txt" "$root/paper129via/receipt.txt"
+          viaversion_url="https://github.com/ViaVersion/ViaVersion/releases/download/5.12.0/ViaVersion-5.12.0.jar"
+          curl --fail --location --retry 4 --retry-all-errors "$viaversion_url" -o "$root/paper129via/ViaVersion.jar"
+          test "$(sha256sum "$root/paper129via/ViaVersion.jar" | awk '{print $1}')" = "$VIAVERSION_SHA256"
+          printf 'translator=ViaVersion 5.12.0\nsha256=%s\nurl=%s\n' "$VIAVERSION_SHA256" "$viaversion_url" >> "$root/paper129via/receipt.txt"
+
+          cp "$root/paper129/server.jar" "$root/paper129back/server.jar"
+          cp "$root/paper129/receipt.txt" "$root/paper129back/receipt.txt"
+          cp "$root/paper129via/ViaVersion.jar" "$root/paper129back/ViaVersion.jar"
+          viabackwards_url="https://github.com/ViaVersion/ViaBackwards/releases/download/5.12.0/ViaBackwards-5.12.0.jar"
+          curl --fail --location --retry 4 --retry-all-errors "$viabackwards_url" -o "$root/paper129back/ViaBackwards.jar"
+          test "$(sha256sum "$root/paper129back/ViaBackwards.jar" | awk '{print $1}')" = "$VIABACKWARDS_SHA256"
+          printf 'translator=ViaVersion 5.12.0 + ViaBackwards 5.12.0\nviaversion_sha256=%s\nviabackwards_sha256=%s\n' "$VIAVERSION_SHA256" "$VIABACKWARDS_SHA256" >> "$root/paper129back/receipt.txt"
           fetch_paper 26.3 134 "$PAPER134_SHA256" "$root/paper134"
 
-      - name: Run four-runtime real-client matrix
+      - name: Build exact production ProtocolLib artifact
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_dir="$RUNNER_TEMP/protocollib-source"
+          dest="$RUNNER_TEMP/servers/paper129protolib/ProtocolLib.jar"
+          git init "$source_dir"
+          git -C "$source_dir" remote add origin https://github.com/dmulloy2/ProtocolLib.git
+          git -C "$source_dir" fetch --depth=1 origin "$PROTOCOLLIB_COMMIT"
+          git -C "$source_dir" checkout --detach FETCH_HEAD
+          (
+            cd "$source_dir"
+            COMMIT_SHA="$PROTOCOLLIB_COMMIT" ./gradlew build shadowJar --no-daemon
+          )
+          cp "$source_dir/build/libs/ProtocolLib.jar" "$dest"
+          actual="$(sha256sum "$dest" | awk '{print $1}')"
+          test "$actual" = "$PROTOCOLLIB_SHA256"
+          printf 'dependency=ProtocolLib dev-build\ncommit=%s\nsha256=%s\n' \
+            "$PROTOCOLLIB_COMMIT" "$actual" >> "$RUNNER_TEMP/servers/paper129protolib/receipt.txt"
+
+      - name: Run native, ProtocolLib, and ViaVersion protocol-client state matrix
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -118,6 +160,12 @@ jobs:
             cp "$RUNNER_TEMP/servers/$name/receipt.txt" "$dir/runtime-receipt.txt"
             cp "$RUNNER_TEMP/candidate/EnthusiaStaff-Paper.jar" "$dir/server/plugins/EnthusiaStaff-Paper.jar"
             cp "$RUNNER_TEMP/StaffStateResetProof.jar" "$dir/server/plugins/StaffStateResetProof.jar"
+            if [[ -f "$RUNNER_TEMP/servers/$name/ProtocolLib.jar" ]]; then
+              cp "$RUNNER_TEMP/servers/$name/ProtocolLib.jar" "$dir/server/plugins/"
+            fi
+            for bridge in "$RUNNER_TEMP/servers/$name"/Via*.jar; do
+              if [[ -f "$bridge" ]]; then cp "$bridge" "$dir/server/plugins/"; fi
+            done
             printf 'eula=true\n' > "$dir/server/eula.txt"
             cat > "$dir/server/server.properties" <<EOF
           online-mode=false
@@ -206,6 +254,9 @@ jobs:
           run_one leaf115 25590 1.21.11 'RUNTIME|brandId=winds-studio:leaf|minecraft=1.21.11|build=115'
           run_one paper128 25591 26.2 'RUNTIME|brandId=papermc:paper|minecraft=26.2|build=128'
           run_one paper129 25592 26.2 'RUNTIME|brandId=papermc:paper|minecraft=26.2|build=129'
+          run_one paper129protolib 25596 26.2 'RUNTIME|brandId=papermc:paper|minecraft=26.2|build=129'
+          run_one paper129via 25594 26.3 'RUNTIME|brandId=papermc:paper|minecraft=26.2|build=129'
+          run_one paper129back 25595 1.21.11 'RUNTIME|brandId=papermc:paper|minecraft=26.2|build=129'
           run_one paper134 25593 26.3 'RUNTIME|brandId=papermc:paper|minecraft=26.3|build=134'
 
       - name: Verify state and geometry acceptance
@@ -221,9 +272,13 @@ jobs:
               return 1
             }
           }
-          # Vanish must not rewrite a rank-allowed real game mode. Spectator phasing is
-          # asserted only while the player's actual server-side mode is Spectator.
-          for name in leaf115 paper128 paper129 paper134; do
+          # Vanish must not rewrite a rank-allowed real game mode.
+          #
+          # IMPORTANT: client.js intentionally runs Mineflayer with physics disabled and
+          # injects position packets. The GEOMETRY lines below prove that the server accepts
+          # those movements while the authoritative server-side mode is Spectator. They do
+          # NOT prove that a vanilla client has Spectator collision/no-clip enabled.
+          for name in leaf115 paper128 paper129 paper129protolib paper129via paper129back paper134; do
             evidence="$root/$name/server/staff-state-reset-proof.txt"
             client="$root/$name/client.log"
             require "$evidence" '^HARNESS_READY=true$'
@@ -233,8 +288,10 @@ jobs:
             for phase in VISIBLE_WALL VISIBLE_FLOOR VISIBLE_CEILING VANISHED_WALL VANISHED_FLOOR VANISHED_CEILING VISIBLE_FINAL_TELEPORT_WALL; do
               require "$evidence" "^GEOMETRY\\|$phase\\|pass=true\\|mode=SPECTATOR"
             done
+            require "$client" '^CLIENT_PHYSICS\\|enabled=false\\|purpose=server-movement-acceptance-not-vanilla-collision-proof$'
             require "$client" '^MARKER\\|STATE\\|VISIBLE_SURVIVAL\\|mode=survival$'
             require "$client" '^MARKER\\|STATE\\|VISIBLE_SPECTATOR\\|mode=spectator$'
+            require "$client" '^SELF_PLAYER_INFO\\|packet=.*\\|gameMode=3\\|'
             require "$client" '^MARKER\\|STATE\\|VANISHED_SELECT_SURVIVAL\\|mode=survival$'
             require "$client" '^MARKER\\|STATE\\|VANISHED_SELECT_SPECTATOR\\|mode=spectator$'
             require "$client" '^MARKER\\|STATE\\|VANISHED_SELECT_CREATIVE\\|mode=creative$'
