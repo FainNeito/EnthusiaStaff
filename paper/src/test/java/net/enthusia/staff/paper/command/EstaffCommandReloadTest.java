@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -14,6 +15,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.paper.RuntimeHealth;
 import net.enthusia.staff.paper.config.ConfigurationValidationReport;
+import net.enthusia.staff.paper.config.MessageCatalog;
+import net.enthusia.staff.paper.config.MessageKey;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
@@ -521,6 +524,39 @@ class EstaffCommandReloadTest {
                 "estaff",
                 new String[]{CONFIG_OPERATION, ""}
         ));
+    }
+
+    @Test
+    void configuredMessagesOverrideEstaffPermissionAndUsageText() {
+        EnumMap<MessageKey, String> templates = new EnumMap<>(MessageKey.class);
+        templates.putAll(MessageCatalog.builtIn().templates());
+        templates.put(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED, "Custom status denial.");
+        templates.put(MessageKey.ESTAFF_USAGE, "Try /{label} with {operations}");
+        MessageCatalog catalog = new MessageCatalog(templates);
+
+        EstaffCommand command = new EstaffCommand(health());
+        command.configureMessages(() -> catalog);
+
+        List<String> denied = new ArrayList<>();
+        command.onCommand(
+                sender(Map.of(), denied),
+                COMMAND,
+                "estaff",
+                new String[]{"status"}
+        );
+        assertEquals(List.of("Custom status denial."), denied);
+
+        List<String> usage = new ArrayList<>();
+        command.onCommand(
+                sender(Map.of("enthusiastaff.status", true), usage),
+                COMMAND,
+                "staffadmin",
+                new String[]{"unknown"}
+        );
+        assertEquals(
+                List.of("Try /staffadmin with status|verify [full]|reload|config <validate|reload>|sanction"),
+                usage
+        );
     }
 
     private static RuntimeHealth health() {

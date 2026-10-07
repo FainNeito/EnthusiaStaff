@@ -12,6 +12,7 @@ The Paper runtime currently validates these configuration families:
 | --- | --- | --- |
 | `config.yml` | `config-version` | Core Paper/runtime settings, including reloadable and restart-owned sections |
 | `reason-policies.yml` | `version` | Current punishment reason-policy definitions |
+| `messages.yml` | `schema-version` | Player/staff-facing message catalog; C1 initially covers `/estaff` operator responses |
 | `reports.yml` | `version` | Report policy |
 | `gui/reports.yml` | `version` | Report GUI presentation |
 | `policy-v2.yml` | `schema-version` plus versioned policy snapshots | Policy v2 publication/shadow configuration |
@@ -44,6 +45,18 @@ These commands use the same existing safe reload coordinator:
 `/estaff config reload` is an alias, not a second reload implementation.
 
 The existing coordinator validates a candidate before publication, rejects restart-owned changes, preserves the previous runtime on validation failure, and performs the existing rollback/reconciliation behavior for reloadable subsystems.
+
+`messages.yml` participates in that same reload chain. A message candidate is parsed and validated before the existing reload runs, then published as one immutable snapshot only after the delegated reload succeeds. If message validation or the delegated reload fails, the previous message catalog remains active.
+
+## Message configuration
+
+C1 introduces a strict `messages.yml` catalog and begins migration with the bounded `/estaff` command family. Shipped defaults reproduce the current wording.
+
+Message templates currently use plain text plus explicitly declared placeholders such as `{label}` and `{operations}`. Every configured key is required, unknown keys are rejected, and each template must use exactly the placeholder set defined for that message. Placeholder values are inserted literally.
+
+This first phase intentionally does **not** enable arbitrary MiniMessage click, hover, or run-command markup. Existing Adventure/`StaffMessageStyle` presentation remains responsible for colors and severity. Rich configurable formatting can be added later behind an explicit safety/validation contract rather than silently changing message behavior during the initial migration.
+
+Internal audit/security log messages and raw runtime diagnostic details are not automatically operator-editable merely because ordinary chat responses become configurable.
 
 ## Restart-owned settings
 

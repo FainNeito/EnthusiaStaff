@@ -1,0 +1,37 @@
+schema-version: 1
+
+messages:
+  estaff:
+    permissions:
+      status: "You do not have permission to view EnthusiaStaff status."
+      verify: "You do not have permission to verify EnthusiaStaff runtime state."
+      reload: "You do not have permission to reload EnthusiaStaff configuration."
+      diagnostics: "You do not have permission to run full EnthusiaStaff diagnostics."
+      config: "You do not have permission to validate or reload EnthusiaStaff configuration."
+      policy-v2: "You do not have permission to use Policy v2 shadow review."
+
+    config:
+      validation-unexpected: "Configuration validation failed unexpectedly; no runtime state was changed."
+      validation-passed: "Configuration validation passed; no runtime state was changed."
+      validation-failed: "Configuration validation failed; no runtime state was changed."
+      errors-omitted: "Additional configuration errors were omitted from command output."
+
+    reload:
+      scheduled: "EnthusiaStaff reload scheduled on the global region thread."
+      rejected: "EnthusiaStaff reload could not be scheduled; no configuration was changed."
+      details-omitted: "Additional sanitized reload details were written to the server log."
+      reason-policies-reloaded: "Reason policies were replaced atomically."
+      presentation-hook-failed: "Reload applied, but a presentation-settings hook failed; previous values remain active."
+
+    status:
+      title: "EnthusiaStaff"
+      runtime-label: "Runtime"
+      healthy: "Healthy"
+      no-issues: "No active runtime health issues"
+      blocked: "Blocked"
+      disabled: "Disabled"
+
+    verify:
+      full-failed: "Full verification failed; see the sanitized server log."
+
+    usage: "Usage: /{label} <{operations}>"

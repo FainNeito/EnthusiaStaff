@@ -48,6 +48,7 @@ import net.enthusia.staff.paper.command.StaffModeCommand;
 import net.enthusia.staff.paper.command.StaffModeVanishEntryCoordinator;
 import net.enthusia.staff.paper.command.StaffWhoCommand;
 import net.enthusia.staff.paper.command.VanishCommand;
+import net.enthusia.staff.paper.config.MessageConfigurationRuntime;
 import net.enthusia.staff.paper.config.ModerationFeatureSettings;
 import net.enthusia.staff.paper.config.ReloadableModerationFeatureSettings;
 import net.enthusia.staff.paper.config.ReportConfigurationRuntime;
@@ -107,7 +108,10 @@ final class PaperCommandRegistrar {
             ConfigurationReloadAction reloadAction
     ) {
         ConfigurationReloadAction reportAware = ReportConfigurationRuntime.initialize(plugin, reloadAction);
-        registerStatus(plugin, health, new EstaffCommand(plugin, health, reportAware));
+        ConfigurationReloadAction messageAware = MessageConfigurationRuntime.initialize(plugin, reportAware);
+        EstaffCommand executor = new EstaffCommand(plugin, health, messageAware);
+        executor.configureMessages(MessageConfigurationRuntime::catalog);
+        registerStatus(plugin, health, executor);
     }
 
     private static void registerStatus(JavaPlugin plugin, RuntimeHealth health, EstaffCommand executor) {
