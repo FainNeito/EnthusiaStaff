@@ -359,18 +359,25 @@ final class PaperIntegrationManager implements Listener {
             clearIssue(ROSECHAT_INBOUND);
             return;
         }
-        RoseChatInboundBridgeIntegration.Discovery discovery =
-                RoseChatInboundBridgeIntegration.discover(
-                        plugin(),
-                        dependencies.environment().serverId(),
-                        clock()
-                );
-        if (discovery.integration().isEmpty()) {
-            issue(ROSECHAT_INBOUND, discovery.issue());
-            return;
+        try {
+            RoseChatInboundBridgeIntegration.Discovery discovery =
+                    RoseChatInboundBridgeIntegration.discover(
+                            plugin(),
+                            dependencies.environment().serverId(),
+                            clock()
+                    );
+            if (discovery.integration().isEmpty()) {
+                issue(ROSECHAT_INBOUND, discovery.issue());
+                return;
+            }
+            roseChatInbound = discovery.integration().orElseThrow();
+            clearIssue(ROSECHAT_INBOUND);
+        } catch (RuntimeException | LinkageError failure) {
+            issue(
+                    ROSECHAT_INBOUND,
+                    "RoseChat inbound bridge API is unavailable: " + failure.getClass().getSimpleName()
+            );
         }
-        roseChatInbound = discovery.integration().orElseThrow();
-        clearIssue(ROSECHAT_INBOUND);
     }
 
     private void reconcileRoseChatCommands() {
