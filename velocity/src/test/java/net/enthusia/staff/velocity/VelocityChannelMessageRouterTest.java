@@ -28,9 +28,12 @@ class VelocityChannelMessageRouterTest {
     void authenticatedAuxiliaryPeerCannotReachPaperApplicationHandler() {
         AtomicInteger delegated = new AtomicInteger();
         VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
+                Set.of(PAPER_SERVER), CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                inbound,
                 envelope -> {
                     delegated.incrementAndGet();
                     return true;
@@ -58,6 +61,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, delegated.get());
 
         relay.close();
+        inbound.close();
     }
 
     @Test
@@ -68,9 +72,12 @@ class VelocityChannelMessageRouterTest {
             deliveries.incrementAndGet();
             return true;
         });
+        VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
+                Set.of(PAPER_SERVER), CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                inbound,
                 envelope -> true
         );
         ChatBridgeOutboundMessage message = message(STAFF_BOT_PEER);
@@ -84,6 +91,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(0, deliveries.get());
 
         relay.close();
+        inbound.close();
     }
 
     @Test
@@ -95,9 +103,12 @@ class VelocityChannelMessageRouterTest {
             chatDelivered.countDown();
             return true;
         });
+        VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
+                Set.of(PAPER_SERVER), CLOCK, 8, 32);
         VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
                 Set.of(PAPER_SERVER),
                 relay,
+                inbound,
                 envelope -> {
                     delegated.incrementAndGet();
                     return true;
@@ -123,6 +134,7 @@ class VelocityChannelMessageRouterTest {
         assertEquals(1, delegated.get());
 
         relay.close();
+        inbound.close();
     }
 
     private static ChatBridgeOutboundMessage message(String sourceServerId) {
