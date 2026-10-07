@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.staff.protocol.ChatArtifactMessages;
 import net.enthusia.staff.protocol.ChatBridgeArtifact;
 import net.enthusia.staff.protocol.ChatBridgeArtifactBundle;
+import net.enthusia.staff.protocol.ChatBridgeHealthMessage;
 import net.enthusia.staff.protocol.ChatBridgeMessages;
 import net.enthusia.staff.protocol.ChatBridgeOutboundMessage;
 import net.enthusia.staff.protocol.ChatBridgeRenderedMessage;
@@ -71,6 +72,56 @@ class VelocityChannelMessageRouterTest {
                 "TRANSFER_SNAPSHOT",
                 "{}"
         )));
+        assertEquals(0, delegated.get());
+
+        relay.close();
+        artifactRelay.close();
+        renderedRelay.close();
+        inbound.close();
+    }
+
+    @Test
+    void staffBotHealthIsForwardedOnlyThroughTheEphemeralHealthRelay() {
+        AtomicInteger delegated = new AtomicInteger();
+        AtomicInteger forwarded = new AtomicInteger();
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(CLOCK, 8, 32);
+        VelocityDiscordChatIngressRelay inbound = new VelocityDiscordChatIngressRelay(
+                Set.of(PAPER_SERVER), CLOCK, 8, 32);
+        VelocityChatArtifactRelay artifactRelay = new VelocityChatArtifactRelay(CLOCK, 32);
+        VelocityRenderedChatBridgeRelay renderedRelay =
+                new VelocityRenderedChatBridgeRelay(CLOCK, 8, 32);
+        VelocityStaffBotChatHealthRelay healthRelay = new VelocityStaffBotChatHealthRelay(
+                Set.of(PAPER_SERVER),
+                CLOCK,
+                (peerId, messageId, messageType, payload, timeout) -> {
+                    assertEquals(PAPER_SERVER, peerId);
+                    assertEquals(ChatBridgeMessages.HEALTH, messageType);
+                    forwarded.incrementAndGet();
+                    return java.util.concurrent.CompletableFuture.completedFuture(
+                            net.enthusia.staff.protocol.PersistentChannelServer.DeliveryStatus.ACKNOWLEDGED);
+                }
+        );
+        VelocityChannelMessageRouter router = new VelocityChannelMessageRouter(
+                Set.of(PAPER_SERVER),
+                relay,
+                artifactRelay,
+                renderedRelay,
+                inbound,
+                healthRelay,
+                envelope -> {
+                    delegated.incrementAndGet();
+                    return true;
+                }
+        );
+        ChatBridgeHealthMessage health = new ChatBridgeHealthMessage(true, NOW, NOW + 15_000L);
+
+        assertTrue(router.handle(envelope(
+                STAFF_BOT_PEER,
+                UUID.randomUUID(),
+                ChatBridgeMessages.HEALTH,
+                ChatBridgeMessages.encodeHealth(health)
+        )));
+        assertEquals(1, forwarded.get());
         assertEquals(0, delegated.get());
 
         relay.close();
