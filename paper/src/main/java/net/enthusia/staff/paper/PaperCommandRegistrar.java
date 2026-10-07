@@ -307,7 +307,9 @@ final class PaperCommandRegistrar {
         );
         bindCompleting("staff", staffMode, staffMode);
         bind("staffinv", new StaffInventoryCommand(dependencies.players().staffMode()));
-        bind("vanish", new VanishCommand(writeMode(), dependencies.players().vanish()));
+        VanishCommand vanish = new VanishCommand(writeMode(), dependencies.players().vanish());
+        vanish.configureMessages(MessageConfigurationRuntime::catalog);
+        bind("vanish", vanish);
         bind("staffchat", new StaffChatCommand(dependencies.integrations().roseChat()));
         bind("staffwho", new StaffWhoCommand(
                 plugin(),

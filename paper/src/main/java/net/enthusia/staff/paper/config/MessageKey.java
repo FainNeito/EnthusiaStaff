@@ -98,6 +98,30 @@ public enum MessageKey {
     ESTAFF_PRESENTATION_HOOK_FAILED(
             "estaff.reload.presentation-hook-failed",
             "Reload applied, but a presentation-settings hook failed; previous values remain active."
+    ),
+    VANISH_PERMISSION_DENIED(
+            "vanish.permission-denied",
+            "You do not have permission to change vanish or spectator tab visibility.",
+            Set.of(),
+            2
+    ),
+    VANISH_PLAYER_ONLY(
+            "vanish.player-only",
+            "Only a player can change vanish or spectator tab visibility.",
+            Set.of(),
+            2
+    ),
+    VANISH_USAGE(
+            "vanish.usage",
+            "<gray>Usage: </gray><aqua>/{label} | /{label} tab {choices}</aqua>",
+            Set.of("label", "choices"),
+            2
+    ),
+    VANISH_MODE_DISABLED(
+            "vanish.mode-disabled",
+            "Vanish enable is disabled while moderation is {mode}.",
+            Set.of("mode"),
+            2
     );
 
     private static final Map<String, MessageKey> BY_PATH = java.util.Arrays.stream(values())
@@ -106,15 +130,21 @@ public enum MessageKey {
     private final String path;
     private final String defaultText;
     private final Set<String> placeholders;
+    private final int introducedSchemaVersion;
 
     MessageKey(String path, String defaultText) {
-        this(path, defaultText, Set.of());
+        this(path, defaultText, Set.of(), 1);
     }
 
     MessageKey(String path, String defaultText, Set<String> placeholders) {
+        this(path, defaultText, placeholders, 1);
+    }
+
+    MessageKey(String path, String defaultText, Set<String> placeholders, int introducedSchemaVersion) {
         this.path = path;
         this.defaultText = defaultText;
         this.placeholders = Set.copyOf(placeholders);
+        this.introducedSchemaVersion = introducedSchemaVersion;
     }
 
     public String path() {
@@ -127,6 +157,10 @@ public enum MessageKey {
 
     public Set<String> placeholders() {
         return placeholders;
+    }
+
+    public int introducedSchemaVersion() {
+        return introducedSchemaVersion;
     }
 
     public static MessageKey fromPath(String path) {
