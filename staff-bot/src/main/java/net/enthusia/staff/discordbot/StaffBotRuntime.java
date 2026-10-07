@@ -67,8 +67,7 @@ public final class StaffBotRuntime implements AutoCloseable {
                 healthEndpoint,
                 gateway,
                 moderationRuntime,
-                Optional.empty(),
-                Optional.empty());
+                RuntimeServices.empty());
     }
 
     StaffBotRuntime(
@@ -88,8 +87,7 @@ public final class StaffBotRuntime implements AutoCloseable {
                 healthEndpoint,
                 gateway,
                 moderationRuntime,
-                stagingTunnel,
-                Optional.empty());
+                new RuntimeServices(stagingTunnel, Optional.empty()));
     }
 
     StaffBotRuntime(
@@ -100,8 +98,7 @@ public final class StaffBotRuntime implements AutoCloseable {
             HealthEndpoint healthEndpoint,
             DiscordGateway gateway,
             Optional<StaffModerationRuntime> moderationRuntime,
-            Optional<StagingTunnel> stagingTunnel,
-            Optional<StaffBotChatLifecycle> chatLifecycle) {
+            RuntimeServices runtimeServices) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.health = Objects.requireNonNull(health, "health");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
@@ -109,8 +106,23 @@ public final class StaffBotRuntime implements AutoCloseable {
         this.healthEndpoint = Objects.requireNonNull(healthEndpoint, "healthEndpoint");
         this.gateway = Objects.requireNonNull(gateway, "gateway");
         this.moderationRuntime = Objects.requireNonNull(moderationRuntime, "moderationRuntime");
-        this.stagingTunnel = Objects.requireNonNull(stagingTunnel, "stagingTunnel");
-        this.chatLifecycle = Objects.requireNonNull(chatLifecycle, "chatLifecycle");
+        RuntimeServices services = Objects.requireNonNull(runtimeServices, "runtimeServices");
+        this.stagingTunnel = services.stagingTunnel();
+        this.chatLifecycle = services.chatLifecycle();
+    }
+
+    record RuntimeServices(
+            Optional<StagingTunnel> stagingTunnel,
+            Optional<StaffBotChatLifecycle> chatLifecycle
+    ) {
+        RuntimeServices {
+            Objects.requireNonNull(stagingTunnel, "stagingTunnel");
+            Objects.requireNonNull(chatLifecycle, "chatLifecycle");
+        }
+
+        static RuntimeServices empty() {
+            return new RuntimeServices(Optional.empty(), Optional.empty());
+        }
     }
 
     public static StaffBotRuntime create(StaffBotConfiguration configuration) throws IOException {
@@ -162,8 +174,7 @@ public final class StaffBotRuntime implements AutoCloseable {
                     healthServer,
                     gateway,
                     moderation,
-                    tunnel,
-                    chat);
+                    new RuntimeServices(tunnel, chat));
         } catch (IOException | RuntimeException exception) {
             moderation.ifPresent(StaffModerationRuntime::close);
             workers.close();
