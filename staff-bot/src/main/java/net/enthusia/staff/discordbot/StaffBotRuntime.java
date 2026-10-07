@@ -47,8 +47,7 @@ public final class StaffBotRuntime implements AutoCloseable {
                 healthEndpoint,
                 gateway,
                 Optional.empty(),
-                Optional.empty(),
-                Optional.empty());
+                RuntimeServices.empty());
     }
 
     StaffBotRuntime(
