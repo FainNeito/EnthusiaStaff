@@ -242,8 +242,9 @@ class StaffBotRuntimeTest {
                     endpoint,
                     gateway,
                     Optional.empty(),
-                    Optional.ofNullable(tunnel),
-                    Optional.ofNullable(chat));
+                    new StaffBotRuntime.RuntimeServices(
+                            Optional.ofNullable(tunnel),
+                            Optional.ofNullable(chat)));
         }
     }
 
