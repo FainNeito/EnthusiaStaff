@@ -469,7 +469,7 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress {
             if (route == null) {
                 return;
             }
-            String plainText = normalizeDiscordText(event.getMessage().getContentRaw());
+            String plainText = normalizeDiscordText(event.getMessage().getContentDisplay());
             if (plainText.isBlank()) {
                 return;
             }
