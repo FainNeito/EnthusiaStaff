@@ -43,7 +43,7 @@ public record ChatBridgeRenderedMessage(
         canonicalMessageId = safeToken(canonicalMessageId, "canonicalMessageId", 128);
         sourceServerId = safeToken(sourceServerId, "sourceServerId", 64);
         logicalChannelId = safeToken(logicalChannelId, "logicalChannelId", 64);
-        displayName = safeText(displayName, "displayName", 128, true);
+        displayName = safeToken(displayName, "displayName", 128);
         canonicalPlainText = safeText(
                 canonicalPlainText, "canonicalPlainText", MAX_CANONICAL_TEXT_LENGTH, false);
         bodyPlainText = safeText(bodyPlainText, "bodyPlainText", MAX_PLAIN_LENGTH, false);
