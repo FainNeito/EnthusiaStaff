@@ -104,6 +104,16 @@ class StaffBotChatBridgeConfigurationTest {
     }
 
     @Test
+    void authoritativeModeRequiresReplacementInboundRoute() {
+        Map<String, String> values = productionValues();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> StaffBotChatBridgeConfiguration.fromEnvironment(
+                        StaffBotEnvironment.PRODUCTION, values));
+    }
+
+    @Test
     void productionAuthoritativeModeAllowsExplicitSymmetricRoutes() {
         Map<String, String> values = productionValues();
         values.put(
