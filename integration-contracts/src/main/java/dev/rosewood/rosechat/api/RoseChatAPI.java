@@ -1,0 +1,19 @@
+package dev.rosewood.rosechat.api;
+
+import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridge;
+import dev.rosewood.rosechat.api.chatbridge.OutboundChatBridgeCoordinator;
+
+public final class RoseChatAPI {
+    private RoseChatAPI() {
+    }
+
+    public static RoseChatAPI getInstance() {
+        throw new UnsupportedOperationException("compile-time RoseChat contract only");
+    }
+
+    public OutboundChatBridgeCoordinator.Registration installOutboundChatBridge(
+            OutboundChatBridge bridge
+    ) {
+        throw new UnsupportedOperationException("compile-time RoseChat contract only");
+    }
+}

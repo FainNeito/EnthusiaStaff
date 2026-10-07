@@ -144,6 +144,11 @@ rosechat:
   global-channel: global
   private-channels: []
 
+discord-chat-bridge:
+  # Migration-only dual-publish path. Keep false until the Velocity/StaffBot relay is staged.
+  # DiscordSRV remains the live Minecraft <-> Discord chat transport while this is enabled.
+  shadow-enabled: false
+
 channel:
   enabled: false
   host: 127.0.0.1
