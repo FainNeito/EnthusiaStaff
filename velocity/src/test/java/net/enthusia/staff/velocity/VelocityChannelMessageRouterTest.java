@@ -19,9 +19,9 @@ import org.junit.jupiter.api.Test;
 
 class VelocityChannelMessageRouterTest {
     private static final long NOW = 1_800_000_000_000L;
-    private static final String PAPER_SERVER = PAPER_SERVER;
-    private static final String STAFF_BOT_PEER = STAFF_BOT_PEER;
-    private static final String LOGICAL_CHANNEL = LOGICAL_CHANNEL;
+    private static final String PAPER_SERVER = "SMP";
+    private static final String STAFF_BOT_PEER = "STAFFBOT";
+    private static final String LOGICAL_CHANNEL = "global";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC);
 
     @Test
