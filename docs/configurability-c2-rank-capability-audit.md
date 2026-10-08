@@ -53,6 +53,16 @@ Additional condition: `blocksAllInventoryMutation` denies general inventory muta
 
 Current VANISH hotbar eligibility: Helper denied; Mod, Developer, Admin, Founder permitted *at that rank-policy step*, subject to explicit permission and session/visibility checks. `VanishRankReconciliationPolicy` independently forbids Helper and SYSTEM.
 
+## Existing parity test inventory (reuse before adding duplicate fixtures)
+
+- `paper/src/test/java/net/enthusia/staff/paper/staff/StaffModeAccessPolicyTest.java`: Helper/Mod mode limits, Developer and Admin/Founder real gamemode access, inventory/ender chest view-versus-edit, tool transfer protection, null/SYSTEM deny paths, and reconciliation.
+- `paper/src/test/java/net/enthusia/staff/paper/staff/StaffToolDefinitionTest.java`: stable IDs, slots, hotbar availability, Helper no-vanish, and advanced-tool policy.
+- `paper/src/test/java/net/enthusia/staff/paper/visibility/VanishRankReconciliationPolicyTest.java`: promotions/demotions, durable state corrections, Helper no-vanish even when unrestricted, inactive sessions, unknown sessions, null/SYSTEM and persisted rank restoration.
+- `paper/src/test/java/net/enthusia/staff/paper/auth/PaperStaffRankResolverTest.java`: identity/legacy precedence.
+- `domain/src/test/java/net/enthusia/staff/domain/auth/StaffHierarchyTest.java` and `StaffTargetHierarchyPolicyTest.java`: issuer/target hierarchy decisions.
+
+C2 shadow parity should reuse these exact assertions as the legacy oracle before enabling any configured decision. New tests should cover *cross-subsystem* and *configuration-reload* scenarios not presently covered, especially revocation while an async operation is in flight.
+
 ## Capability model proposed for C2-B (not deployed)
 
 Keep a stable typed ID per action, e.g. `STAFF_MODE_ENTER`, `VANISH`, `SPECTATE`, `REPORT_MANAGE`, `FREEZE`, `INVENTORY_VIEW`, `INVENTORY_EDIT`, `ENDER_CHEST_VIEW`, `ENDER_CHEST_EDIT`, `PUNISH_REQUEST`, `PUNISH_ISSUE`, `PUNISH_REVIEW`, `CHEAT_TEST`, `STAFF_TOOL_TELEPORT`, `SENSITIVE_HISTORY`, `RECOVERY_ADMIN`. Names need a design review before becoming persisted schema IDs.
