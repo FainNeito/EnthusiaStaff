@@ -356,6 +356,64 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
     }
 
     @Override
+    public Optional<StaffSessionSnapshot> beginDetachedExit(StaffSessionSnapshot expected, Instant now) {
+        if (expected == null || now == null || !StaffSessionOwnership.detached(expected.serverId())
+                || (expected.state() != StaffSessionState.EXITING
+                    && expected.state() != StaffSessionState.RECOVERY_REQUIRED)) {
+            throw new IllegalArgumentException("valid detached terminal recovery fields are required");
+        }
+        return new JdbcDeadlockRetry().execute(
+                "Detached Staff session exit was interrupted during deadlock retry",
+                () -> beginDetachedExitOnce(expected)
+        );
+    }
+
+    private Optional<StaffSessionSnapshot> beginDetachedExitOnce(StaffSessionSnapshot expected) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                StaffSessionSnapshot current = active(connection, expected.staffId(), true);
+                if (current == null || !current.sessionId().equals(expected.sessionId())
+                        || current.revision() != expected.revision()
+                        || !StaffSessionOwnership.detached(current.serverId())
+                        || current.state() != expected.state()
+                        || !current.checksum().equals(expected.checksum())) {
+                    connection.rollback();
+                    return Optional.empty();
+                }
+                if (current.state() == StaffSessionState.RECOVERY_REQUIRED) {
+                    try (PreparedStatement statement = connection.prepareStatement("""
+                            UPDATE staff_sessions SET state = 'EXITING', revision = revision + 1
+                            WHERE session_id = ? AND state = 'RECOVERY_REQUIRED'
+                                AND server_id = ? AND revision = ?
+                            """)) {
+                        statement.setBytes(1, UuidBytes.toBytes(expected.sessionId()));
+                        statement.setString(2, current.serverId());
+                        statement.setLong(3, expected.revision());
+                        JdbcTransactionSupport.requireSingleUpdate(
+                                statement.executeUpdate(), "Detached Staff exit lost its recovery fence"
+                        );
+                    }
+                    current = active(connection, expected.staffId(), true);
+                }
+                connection.commit();
+                return Optional.of(current);
+            } catch (SQLException | RuntimeException | Error exception) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackFailure) {
+                    exception.addSuppressed(rollbackFailure);
+                }
+                throw exception;
+            }
+            // Close the owned connection without toggling auto-commit after an uncertain rollback.
+
+        } catch (SQLException exception) {
+            throw new ModerationPersistenceException("Unable to begin fenced detached Staff exit", exception);
+        }
+    }
+
+    @Override
     public boolean completeExit(UUID sessionId, String restoredChecksum, Instant now) {
         if (sessionId == null || restoredChecksum == null || !restoredChecksum.matches("[0-9a-f]{64}") || now == null) {
             throw new IllegalArgumentException("valid staff exit verification fields are required");
