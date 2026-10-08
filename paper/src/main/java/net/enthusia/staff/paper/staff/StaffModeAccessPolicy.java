@@ -5,7 +5,7 @@ import net.enthusia.staff.domain.auth.StaffRank;
 import org.bukkit.GameMode;
 import org.bukkit.event.inventory.ClickType;
 
-final class StaffModeAccessPolicy {
+public final class StaffModeAccessPolicy {
     private StaffModeAccessPolicy() {
     }
 
@@ -44,20 +44,35 @@ final class StaffModeAccessPolicy {
         };
     }
 
-    static GameMode initialGameMode(StaffRank rank) {
-        return rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER
-                ? GameMode.CREATIVE
-                : GameMode.SPECTATOR;
+    public static GameMode initialGameMode(StaffRank rank) {
+        if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
+            return GameMode.CREATIVE;
+        }
+        if (rank == StaffRank.MOD || rank == StaffRank.DEVELOPER) {
+            // Mods (and Developer, which rides the Mod tier) must work in Survival while on
+            // duty: Spectator cannot interact with containers or items.
+            return GameMode.SURVIVAL;
+        }
+        return GameMode.SPECTATOR;
     }
 
-    static boolean allowsGameMode(StaffRank rank, GameMode gameMode) {
+    public static boolean allowsGameMode(StaffRank rank, GameMode gameMode) {
         Objects.requireNonNull(gameMode, "gameMode");
         if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
             return gameMode == GameMode.SURVIVAL
                     || gameMode == GameMode.CREATIVE
                     || gameMode == GameMode.SPECTATOR;
         }
-        return rank != null && gameMode == GameMode.SPECTATOR;
+        if (rank == StaffRank.HELPER) {
+            // Helpers choose between Survival and Spectator while on duty.
+            return gameMode == GameMode.SURVIVAL || gameMode == GameMode.SPECTATOR;
+        }
+        if (rank == StaffRank.MOD || rank == StaffRank.DEVELOPER) {
+            // Mods must stay in Survival while on duty so container/item interactions work.
+            return gameMode == GameMode.SURVIVAL;
+        }
+        // SYSTEM and any other non-player rank keep the historical spectator-only grant.
+        return rank == StaffRank.SYSTEM && gameMode == GameMode.SPECTATOR;
     }
 
     static GameMode reconciledGameMode(StaffRank rank, GameMode currentGameMode) {

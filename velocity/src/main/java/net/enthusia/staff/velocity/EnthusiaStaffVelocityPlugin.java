@@ -14,8 +14,8 @@ import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
-import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.Dependency;
+import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -50,20 +50,21 @@ import javax.net.ssl.SSLContext;
 import net.enthusia.staff.common.CaseId;
 import net.enthusia.staff.common.security.HmacTokenService;
 import net.enthusia.staff.common.security.NetworkIdentityProtector;
-import net.enthusia.staff.common.security.SecretKeyMaterial;
 import net.enthusia.staff.common.security.PrivateRuntimeSecrets;
+import net.enthusia.staff.common.security.SecretKeyMaterial;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.alt.AltRelationshipState;
 import net.enthusia.staff.domain.alt.AltRelationshipSummary;
 import net.enthusia.staff.domain.application.SanctionChangeService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.DefaultAuthorizationPolicy;
-import net.enthusia.staff.domain.moderation.CurrentLinkedMinecraftAccount;
 import net.enthusia.staff.domain.migration.CutoverAssessment;
 import net.enthusia.staff.domain.migration.CutoverEvidence;
 import net.enthusia.staff.domain.migration.DecisionComparison;
 import net.enthusia.staff.domain.migration.FounderOverride;
 import net.enthusia.staff.domain.migration.MigrationMode;
+import net.enthusia.staff.domain.moderation.CurrentLinkedMinecraftAccount;
+import net.enthusia.staff.domain.player.PlayerNames;
 import net.enthusia.staff.domain.player.PlayerPlatform;
 import net.enthusia.staff.domain.ports.AccountLinkingStore;
 import net.enthusia.staff.domain.ports.DiscordOutboxStore;
@@ -88,6 +89,7 @@ import net.enthusia.staff.persistence.migration.MigrationExecutionReport;
 import net.enthusia.staff.protocol.PersistentChannelServer;
 import net.enthusia.staff.protocol.ProtocolEnvelope;
 import net.enthusia.staff.protocol.TlsContextLoader;
+import net.enthusia.staff.protocol.TransferSnapshotMessages;
 import net.kyori.adventure.text.Component;
 import org.slf4j.Logger;
 
@@ -146,6 +148,8 @@ public final class EnthusiaStaffVelocityPlugin {
             new java.util.concurrent.ConcurrentHashMap<>();
     private final StaffModeReconnectCoordinator staffReconnects = new StaffModeReconnectCoordinator();
     private final StaffModeHandoffTracker staffHandoffs = new StaffModeHandoffTracker();
+    private final StaffTransferSnapshotCache transferSnapshots =
+            new StaffTransferSnapshotCache(Clock.systemUTC());
 
     private volatile ExecutorService workers;
     private volatile VelocityConfiguration configuration;
@@ -153,6 +157,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private VelocitabStaffBridge staffTabBridge;
     private volatile SanctionLookup sanctionLookup;
     private volatile PlayerDirectory playerDirectory;
+    private final VelocityPlayerSuggestions playerSuggestions;
     private volatile FreezeStore freezeStore;
     private volatile StaffSessionStore staffSessionStore;
     private volatile InventoryJournalStore inventoryJournalStore;
@@ -177,6 +182,8 @@ public final class EnthusiaStaffVelocityPlugin {
     @Inject
     public EnthusiaStaffVelocityPlugin(ProxyServer proxy, Logger logger, @DataDirectory Path dataDirectory) {
         this.proxy = proxy;
+        this.playerSuggestions = new VelocityPlayerSuggestions(proxy, () -> playerDirectory,
+                () -> databaseRuntime == null ? null : databaseRuntime.vanishStore(), () -> workers);
         this.logger = logger;
         this.dataDirectory = dataDirectory;
         this.securityEventDispatcher = new VelocitySecurityEventDispatcher(() -> workers, shuttingDown::get);
@@ -367,6 +374,9 @@ public final class EnthusiaStaffVelocityPlugin {
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
         staffReconnects.disconnected(event.getPlayer().getUniqueId());
+        // Drop any cached transfer snapshot: a disconnect mid-transfer must not leak state
+        // into a later, unrelated transfer.
+        transferSnapshots.evict(event.getPlayer().getUniqueId());
         PlayerDirectory directory = playerDirectory;
         VelocityConfiguration loaded = configuration;
         if (directory == null || loaded == null) {
@@ -748,6 +758,9 @@ public final class EnthusiaStaffVelocityPlugin {
                 ),
                 Clock.systemUTC(),
                 envelope -> {
+                    if (acceptTransferSnapshot(envelope)) {
+                        return true;
+                    }
                     if (networkVerifier.acceptReport(envelope) || acceptStaffModeReady(envelope)) {
                         return true;
                     }
@@ -1091,10 +1104,6 @@ public final class EnthusiaStaffVelocityPlugin {
     }
 
     private void enforceSafeServerSwitch(ServerPreConnectEvent event) {
-        if (staffHandoffs.inProgress(event.getPlayer().getUniqueId())) {
-            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
-            return;
-        }
         InventoryJournalStore inventories = inventoryJournalStore;
         EconomyJournalStore economies = economyJournalStore;
         if (inventories == null || economies == null) {
@@ -1105,7 +1114,7 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         if (event.getPreviousServer() == null) {
-            enforceStaffReconnectOwnership(event);
+            // Initial asset routing already applies Staff reconnect only when no asset owns admission.
             return;
         }
         enforceModerationSwitchSafety(event);
@@ -1114,7 +1123,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private void enforceStaffReconnectOwnership(ServerPreConnectEvent event) {
         StaffSessionStore sessions = staffSessionStore;
         if (sessions == null) {
-            denyServerSwitchWhenActive(event, "Staff recovery status is temporarily unavailable. Please retry shortly.");
+            // Do not make the proxy unavailable solely because Staff lifecycle storage is
+            // temporarily missing. Paper will reconcile once storage is reachable.
             return;
         }
         try {
@@ -1123,23 +1133,54 @@ public final class EnthusiaStaffVelocityPlugin {
                 staffReconnects.disconnected(event.getPlayer().getUniqueId());
                 return;
             }
+
             var snapshot = session.orElseThrow();
             String requested = event.getOriginalServer().getServerInfo().getName();
-            staffReconnects.remember(
-                    event.getPlayer().getUniqueId(),
-                    snapshot,
-                    requested,
-                    Clock.systemUTC().instant()
-            );
-            var backend = proxy.getServer(snapshot.serverId());
-            if (backend.isEmpty()) {
-                denyServerSwitch(event, "Your staff snapshot belongs to an unavailable backend. Contact an administrator for recovery.");
+
+            if (snapshot.state() == net.enthusia.staff.domain.staff.StaffSessionState.ACTIVE) {
+                if (net.enthusia.staff.domain.staff.StaffSessionOwnership.detached(snapshot.serverId())
+                        || snapshot.serverId().equalsIgnoreCase(requested)) {
+                    staffReconnects.disconnected(event.getPlayer().getUniqueId());
+                    return;
+                }
+
+                // An ACTIVE lease on another backend means that backend still has an
+                // unrecovered local player-state snapshot (typically an extremely fast
+                // reconnect or a backend restart). Recover there first, then STAFF_MODE_READY
+                // automatically continues to the backend the player originally selected.
+                staffReconnects.remember(
+                        event.getPlayer().getUniqueId(),
+                        snapshot,
+                        requested,
+                        Clock.systemUTC().instant()
+                );
+                var backend = proxy.getServer(snapshot.serverId());
+                if (backend.isPresent()) {
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+                } else if (logger.isWarnEnabled()) {
+                    logger.warn(
+                            "Staff snapshot owner {} is unavailable for {}; allowing requested backend {} without blocking login",
+                            snapshot.serverId(),
+                            event.getPlayer().getUniqueId(),
+                            requested
+                    );
+                }
                 return;
             }
-            event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+
+            // EXITING/RECOVERY_REQUIRED owns an exact restoration. Route to the owner when
+            // available, but never turn an unavailable Staff backend into a network login ban.
+            if (!snapshot.serverId().equalsIgnoreCase(requested)) {
+                proxy.getServer(snapshot.serverId()).ifPresent(owner ->
+                        event.setResult(ServerPreConnectEvent.ServerResult.allowed(owner)));
+            }
         } catch (RuntimeException exception) {
-            logger.error("Staff snapshot ownership lookup failed during reconnect", exception);
-            denyServerSwitch(event, "Staff recovery status could not be verified. Please retry shortly.");
+            if (logger.isWarnEnabled()) {
+                logger.warn(
+                        "Staff snapshot ownership lookup failed during reconnect; allowing requested backend",
+                        exception
+                );
+            }
         }
     }
 
@@ -1150,17 +1191,18 @@ public final class EnthusiaStaffVelocityPlugin {
     ) {
         String requested = event.getOriginalServer().getServerInfo().getName();
         try {
-            Optional<String> owningServer = inventories.lockedOwningServer(
-                    event.getPlayer().getUniqueId(),
-                    Clock.systemUTC().instant()
-            );
-            if (denyOwnerMismatch(event, owningServer, requested, "inventory")) {
+            UUID playerId = event.getPlayer().getUniqueId();
+            Instant now = Clock.systemUTC().instant();
+            Optional<String> inventoryOwner = inventories.lockedOwningServer(playerId, now);
+            if (event.getPreviousServer() == null) {
+                return initialAssetFencesAllowSwitch(
+                        event, inventoryOwner, economies.lockedOwningServer(playerId), requested
+                );
+            }
+            if (denyOwnerMismatch(event, inventoryOwner, requested, "inventory")) {
                 return false;
             }
-            Optional<String> economyOwner = economies.lockedOwningServer(
-                    event.getPlayer().getUniqueId()
-            );
-            return !denyOwnerMismatch(event, economyOwner, requested, "economy");
+            return !denyOwnerMismatch(event, economies.lockedOwningServer(playerId), requested, "economy");
         } catch (RuntimeException exception) {
             logger.error("Asset fence lookup failed during server connection", exception);
             denyServerSwitchWhenActive(event, "Asset safety status could not be verified.");
@@ -1168,7 +1210,68 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private static boolean denyOwnerMismatch(
+    private boolean initialAssetFencesAllowSwitch(
+            ServerPreConnectEvent event,
+            Optional<String> inventoryOwner,
+            Optional<String> economyOwner,
+            String requested
+    ) {
+        if (inventoryOwner.isPresent() && economyOwner.isPresent()
+                && !inventoryOwner.orElseThrow().equalsIgnoreCase(economyOwner.orElseThrow())) {
+            logger.error(
+                    "Conflicting asset recovery owners for {} ({}): inventory={}, economy={}",
+                    event.getPlayer().getUsername(),
+                    event.getPlayer().getUniqueId(),
+                    inventoryOwner.orElseThrow(),
+                    economyOwner.orElseThrow()
+            );
+            denyServerSwitch(event, "Your protected inventory and economy recovery states disagree. Please contact staff.");
+            return false;
+        }
+
+        Optional<String> owner = inventoryOwner.isPresent() ? inventoryOwner : economyOwner;
+        if (owner.isEmpty()) {
+            enforceStaffReconnectOwnership(event);
+            return true;
+        }
+        // Even when the requested backend already owns the asset, Staff reconnect
+        // must not override that backend with a different snapshot owner.
+        if (owner.orElseThrow().equalsIgnoreCase(requested)) {
+            return true;
+        }
+
+        String required = owner.orElseThrow();
+        Optional<com.velocitypowered.api.proxy.server.RegisteredServer> recoveryBackend = proxy.getServer(required);
+        if (recoveryBackend.isPresent()) {
+            event.setResult(ServerPreConnectEvent.ServerResult.allowed(recoveryBackend.orElseThrow()));
+            logger.info(
+                    "Routing initial backend connection for {} ({}) from {} to recovery owner {}",
+                    event.getPlayer().getUsername(),
+                    event.getPlayer().getUniqueId(),
+                    requested,
+                    required
+            );
+            return true;
+        }
+
+        String assetType = inventoryOwner.isPresent() ? "inventory" : "economy";
+        logger.warn(
+                "Blocking initial backend connection for {} ({}): pending {} owner {} is unavailable; requested {}",
+                event.getPlayer().getUsername(),
+                event.getPlayer().getUniqueId(),
+                assetType,
+                required,
+                requested
+        );
+        denyServerSwitch(
+                event,
+                "A protected " + assetType + " recovery is assigned to unavailable backend "
+                        + required + ". Please contact staff."
+        );
+        return false;
+    }
+
+    private boolean denyOwnerMismatch(
             ServerPreConnectEvent event,
             Optional<String> owner,
             String requested,
@@ -1177,30 +1280,48 @@ public final class EnthusiaStaffVelocityPlugin {
         if (owner.isEmpty() || owner.orElseThrow().equalsIgnoreCase(requested)) {
             return false;
         }
-        denyServerSwitch(event, "A pending " + assetType + " operation must finish on " + owner.orElseThrow() + '.');
+        String required = owner.orElseThrow();
+        logger.warn(
+                "Blocking backend switch for {} ({}): pending {} owner {}; requested {}",
+                event.getPlayer().getUsername(),
+                event.getPlayer().getUniqueId(),
+                assetType,
+                required,
+                requested
+        );
+        denyServerSwitch(event, "A pending " + assetType + " operation must finish on " + required + '.');
         return true;
     }
 
     private void enforceModerationSwitchSafety(ServerPreConnectEvent event) {
         FreezeStore freezes = freezeStore;
-        StaffSessionStore sessions = staffSessionStore;
-        if (freezes == null || sessions == null) {
-            denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
+        if (freezes == null) {
+            denyServerSwitchWhenActive(event, "Server switching is unavailable while freeze status is verified.");
             return;
         }
+        UUID playerId = event.getPlayer().getUniqueId();
         try {
-            UUID playerId = event.getPlayer().getUniqueId();
             if (freezes.active(playerId, Clock.systemUTC().instant()).isPresent()) {
                 denyServerSwitch(event, "You cannot switch servers while frozen by staff.");
                 return;
             }
-            var session = sessions.active(playerId);
-            if (session.isPresent()) {
-                enforceStaffSessionSwitch(event, sessions, session.orElseThrow());
-            }
         } catch (RuntimeException exception) {
-            logger.error("Moderation safety lookup failed during server switch", exception);
-            denyServerSwitchWhenActive(event, "Server switching is unavailable while moderation status is verified.");
+            logger.error("Freeze safety lookup failed during server switch", exception);
+            denyServerSwitchWhenActive(event, "Server switching is unavailable while freeze status is verified.");
+            return;
+        }
+
+        StaffSessionStore sessions = staffSessionStore;
+        if (sessions == null) {
+            return;
+        }
+        try {
+            sessions.active(playerId).ifPresent(session ->
+                    enforceStaffSessionSwitch(event, sessions, session));
+        } catch (RuntimeException exception) {
+            // Staff Mode lifecycle must not trap a player on one backend. Paper restores/detaches
+            // on disconnect and the destination retries durable rebind on join.
+            logger.warn("Staff Mode handoff lookup failed; allowing backend switch for {}", playerId, exception);
         }
     }
 
@@ -1212,33 +1333,70 @@ public final class EnthusiaStaffVelocityPlugin {
         String current = event.getPreviousServer().getServerInfo().getName();
         String requested = event.getResult().getServer()
                 .orElse(event.getOriginalServer()).getServerInfo().getName();
-        if (StaffSessionTransferPolicy.recoveryReturnAllowed(
-                session.serverId(), session.state(), current, requested)) {
-            return;
-        }
         if (!StaffSessionTransferPolicy.activeHandoffAllowed(
                 session.serverId(), session.state(), current, requested)) {
-            denyServerSwitch(event, "You cannot switch backends while this Staff Mode snapshot requires recovery.");
             return;
         }
+
         UUID playerId = event.getPlayer().getUniqueId();
         UUID transferId = UUID.randomUUID();
         if (!staffHandoffs.begin(playerId, current, requested, transferId, Clock.systemUTC().instant())) {
-            denyServerSwitch(event, "A Staff Mode backend handoff is already in progress.");
             return;
         }
-        StaffModeBackendHandoffCoordinator coordinator = handoffCoordinator(sessions);
-        var decision = coordinator.transfer(playerId, session, current, requested, transferId);
-        if (!decision.allowed()) {
-            if (decision.reconcile()) {
-                scheduleStaffHandoffTimeout(playerId, transferId);
-            } else {
-                staffHandoffs.clear(playerId, transferId);
+
+        try {
+            handoffCoordinator(sessions).transfer(
+                    playerId,
+                    session,
+                    current,
+                    requested,
+                    transferId,
+                    transferSnapshots::take
+            );
+            scheduleStaffHandoffTimeout(playerId, transferId);
+        } catch (RuntimeException exception) {
+            staffHandoffs.clear(playerId, transferId);
+            logger.warn(
+                    "Staff Mode optimized handoff failed; allowing {} to switch {} -> {} and using lifecycle recovery",
+                    playerId,
+                    current,
+                    requested,
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Caches a cross-server transfer snapshot uploaded by a source backend
+     * (overnight/cross-server). The upload arrives before any database write on the source;
+     * the proxy holds it just long enough to forward it to the destination backend inside
+     * the handoff prepare message, so transfers never wait on persistence.
+     */
+    private boolean acceptTransferSnapshot(ProtocolEnvelope envelope) {
+        if (!TransferSnapshotMessages.UPLOAD.equals(envelope.messageType())) {
+            return false;
+        }
+        try {
+            net.enthusia.staff.domain.staff.StaffTransferSnapshot snapshot =
+                    TransferSnapshotMessages.decode(envelope.payloadJson());
+            if (snapshot == null) {
+                if (logger.isWarnEnabled()) {
+                    logger.warn("Rejected empty staff transfer snapshot from {}", envelope.serverId());
+                }
+                return true;
             }
-            denyServerSwitch(event, decision.message());
-            return;
+            transferSnapshots.put(snapshot);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Cached staff transfer snapshot for {} (transfer {})",
+                        snapshot.playerId(), snapshot.transferId());
+            }
+            return true;
+        } catch (IllegalArgumentException exception) {
+            if (logger.isWarnEnabled()) {
+                logger.warn("Rejected malformed staff transfer snapshot from {}", envelope.serverId());
+            }
+            return true;
         }
-        scheduleStaffHandoffTimeout(playerId, transferId);
     }
 
     private boolean acceptStaffModeReady(ProtocolEnvelope envelope) {
@@ -1448,9 +1606,14 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
-    private static void denyServerSwitch(ServerPreConnectEvent event, String message) {
+    private void denyServerSwitch(ServerPreConnectEvent event, String message) {
         event.setResult(ServerPreConnectEvent.ServerResult.denied());
-        event.getPlayer().sendMessage(VelocityMessageStyle.style(Component.text(message)));
+        Component styled = VelocityMessageStyle.style(Component.text(message));
+        if (event.getPreviousServer() == null) {
+            event.getPlayer().disconnect(styled);
+            return;
+        }
+        event.getPlayer().sendMessage(styled);
     }
 
     @SuppressWarnings("PMD.CloseResource") // Borrows the plugin-owned worker pool; shutdown owns its lifecycle.
@@ -1613,6 +1776,15 @@ public final class EnthusiaStaffVelocityPlugin {
 
     private final class AltsCommand implements SimpleCommand {
         @Override
+        public CompletableFuture<List<String>> suggestAsync(Invocation invocation) {
+            String[] args = invocation.arguments();
+            return args.length <= 1
+                    ? playerSuggestions.suggest(invocation.source(), args.length == 0 ? "" : args[0],
+                            "enthusiastaff.alts.view")
+                    : CompletableFuture.completedFuture(List.of());
+        }
+
+        @Override
         public void execute(Invocation invocation) {
             CommandSource source = invocation.source();
             String[] arguments = invocation.arguments();
@@ -1638,7 +1810,8 @@ public final class EnthusiaStaffVelocityPlugin {
                         target,
                         linkedAccounts.orElseGet(List::of),
                         linkedAccounts.isPresent(),
-                        relationships
+                        relationships,
+                        new PlayerNames(directory)
                 ).forEach(source::sendMessage);
             });
         }
@@ -1693,9 +1866,22 @@ public final class EnthusiaStaffVelocityPlugin {
 
         @Override
         public List<String> suggest(Invocation invocation) {
-            return invocation.arguments().length <= 1
-                    ? List.of("link", "approve", "household", "notrelated", "unlink", "reopen")
-                    : List.of();
+            String[] args = invocation.arguments();
+            return hasPermission(invocation) && args.length <= 1
+                    ? VelocityPlayerSuggestions.operations(args.length == 0 ? "" : args[0],
+                            invocation.source().hasPermission("enthusiastaff.alts.reopen")) : List.of();
+        }
+
+        @Override
+        public CompletableFuture<List<String>> suggestAsync(Invocation invocation) {
+            String[] args = invocation.arguments();
+            if (!hasPermission(invocation) || (args.length > 0 && args[0].equalsIgnoreCase("reopen")
+                    && !invocation.source().hasPermission("enthusiastaff.alts.reopen"))) {
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return VelocityPlayerSuggestions.targetPosition(args)
+                    ? playerSuggestions.suggest(invocation.source(), args[args.length - 1], "enthusiastaff.alts.manage")
+                    : CompletableFuture.completedFuture(suggest(invocation));
         }
 
         @Override

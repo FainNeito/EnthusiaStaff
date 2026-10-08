@@ -4,6 +4,8 @@ Alt accounts are allowed on the Enthusia Network. Staff investigate related acco
 
 This page explains the protected network-identity model, staff judgment, and privacy boundaries. Production deployment/cutover is separate from repository implementation status.
 
+Pending investigation-tools PR: `/alts <player>` and both player arguments in `/alt <operation> <player1> <player2> <reason>` support case-insensitive known-player completion, including offline accounts. Completion runs asynchronously, rechecks permissions and hides identities outside the viewer's vanish visibility. Reopen suggestions require the separate reopen permission. Names are not offered in reason arguments, and storage/queue failures return no suggestions.
+
 ## Quick navigation
 
 - General privacy: [[Privacy and Data Handling]]
@@ -149,3 +151,10 @@ Canonical Java/Floodgate platform identity is owned by ES-P03 and consumed here;
 - [[Privacy and Data Handling]]
 - [[Commands and Permissions]]
 - [[Staff Tools, Investigations, and Player-State Safety]]
+## Player names
+
+Alt reviews show current known player names for network relationships and verified
+linked accounts, including known offline players and Bedrock name prefixes. An
+unresolved identity is explicitly labeled `Unknown player (UUID)` so unrelated
+unknown accounts remain distinguishable. Names describe players; relationship
+states, confidence, and verified-link evidence retain their existing meaning.

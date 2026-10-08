@@ -35,6 +35,11 @@ public final class InventoryCommand implements CommandExecutor, TabCompleter {
     private final InventoryCoordinator inventories;
     private final ExecutorService workers;
     private final Map<String, CachedSuggestions> suggestions = new ConcurrentHashMap<>();
+    private volatile Supplier<List<String>> onlineNames;
+
+    public void setOnlineNames(Supplier<List<String>> onlineNames) {
+        this.onlineNames = java.util.Objects.requireNonNull(onlineNames, "onlineNames");
+    }
 
     public InventoryCommand(
             JavaPlugin plugin,
@@ -57,6 +62,10 @@ public final class InventoryCommand implements CommandExecutor, TabCompleter {
         }
         if (!(sender instanceof Player viewer)) {
             sender.sendMessage(StaffMessageStyle.style("This inventory viewer requires an in-game staff viewer."));
+            return true;
+        }
+        if (!net.enthusia.staff.paper.auth.StaffInspectionAuthority.allows(viewer::hasPermission, PERMISSION)) {
+            viewer.sendMessage(StaffMessageStyle.error("An explicit staff identity is required to inspect inventories."));
             return true;
         }
         if (arguments.length != TARGET_ARGUMENT_COUNT) {
@@ -96,7 +105,7 @@ public final class InventoryCommand implements CommandExecutor, TabCompleter {
             String alias,
             String[] arguments
     ) {
-        if (!CommandPermissionGate.allows(sender::hasPermission, PERMISSION)
+        if (!net.enthusia.staff.paper.auth.StaffInspectionAuthority.allows(sender::hasPermission, PERMISSION)
                 || arguments.length != TARGET_ARGUMENT_COUNT) {
             return List.of();
         }
@@ -142,6 +151,11 @@ public final class InventoryCommand implements CommandExecutor, TabCompleter {
     }
 
     private List<String> onlineSuggestions(String prefix) {
+        Supplier<List<String>> cached = onlineNames;
+        if (cached != null) {
+            return cached.get().stream().filter(name -> name.toLowerCase(Locale.ROOT).startsWith(prefix))
+                    .sorted(String.CASE_INSENSITIVE_ORDER).limit(50).toList();
+        }
         return plugin.getServer().getOnlinePlayers().stream()
                 .map(Player::getName)
                 .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(prefix))

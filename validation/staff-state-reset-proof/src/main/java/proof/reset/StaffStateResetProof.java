@@ -144,12 +144,16 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void vanishOn(Player player) {
         try {
             setVanish(player, true);
-            state(player, "VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
+            state(player, "VANISH_ON_CREATIVE", true, GameMode.CREATIVE);
             selectWhileVanished(
                     player,
                     GameMode.SURVIVAL,
                     "VANISHED_SELECT_SURVIVAL",
-                    () -> geometryMatrix(player, "VANISHED", () -> vanishOffToSurvival(player))
+                    () -> transition(player, GameMode.SPECTATOR, "VANISHED_SELECT_SPECTATOR", true,
+                            () -> geometryMatrix(player, "VANISHED",
+                                    () -> transition(player, GameMode.SURVIVAL,
+                                            "VANISHED_RETURN_SURVIVAL", true,
+                                            () -> vanishOffToSurvival(player))))
             );
         } catch (Exception exception) {
             fail("VANISH_ON", exception);
@@ -169,7 +173,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void secondAdminVanish(Player player) {
         try {
             setVanish(player, true);
-            state(player, "VANISH_ON_SPECTATOR_2", true, GameMode.SPECTATOR);
+            state(player, "VANISH_ON_CREATIVE_2", true, GameMode.CREATIVE);
             selectWhileVanished(
                     player,
                     GameMode.CREATIVE,
@@ -184,7 +188,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void rejectAdventure(Player player) {
         player.setGameMode(GameMode.ADVENTURE);
         later(2L, () -> {
-            state(player, "ADVENTURE_REJECTED", true, GameMode.SPECTATOR);
+            state(player, "ADVENTURE_REJECTED", true, GameMode.CREATIVE);
             vanishOffToCreative(player);
         });
     }
@@ -225,12 +229,15 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void founderVanishOn(Player player) {
         try {
             setVanish(player, true);
-            state(player, "FOUNDER_VANISH_ON_SPECTATOR", true, GameMode.SPECTATOR);
+            state(player, "FOUNDER_VANISH_ON_CREATIVE", true, GameMode.CREATIVE);
             selectWhileVanished(
                     player,
                     GameMode.SURVIVAL,
                     "FOUNDER_VANISHED_SELECT_SURVIVAL",
-                    () -> founderVanishOffToSurvival(player)
+                    () -> transition(player, GameMode.SPECTATOR, "FOUNDER_VANISHED_SELECT_SPECTATOR", true,
+                            () -> transition(player, GameMode.SURVIVAL,
+                                    "FOUNDER_VANISHED_RETURN_SURVIVAL", true,
+                                    () -> founderVanishOffToSurvival(player)))
             );
         } catch (Exception exception) {
             fail("FOUNDER_VANISH_ON", exception);
@@ -256,7 +263,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     private void founderSecondVanish(Player player) {
         try {
             setVanish(player, true);
-            state(player, "FOUNDER_VANISH_ON_SPECTATOR_2", true, GameMode.SPECTATOR);
+            state(player, "FOUNDER_VANISH_ON_CREATIVE_2", true, GameMode.CREATIVE);
             selectWhileVanished(
                     player,
                     GameMode.CREATIVE,
@@ -286,7 +293,7 @@ public final class StaffStateResetProof extends JavaPlugin implements Listener {
     ) {
         player.setGameMode(selected);
         later(2L, () -> {
-            state(player, label, true, GameMode.SPECTATOR);
+            state(player, label, true, selected);
             marker(player, "STATE:" + label);
             later(2L, next);
         });

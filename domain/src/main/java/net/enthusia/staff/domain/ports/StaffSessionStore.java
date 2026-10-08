@@ -17,7 +17,27 @@ public interface StaffSessionStore {
 
     Optional<StaffSessionSnapshot> active(UUID staffId);
 
+    /**
+     * Releases the backend-local saved-state lease after that exact state has been restored,
+     * while keeping network Staff Mode intent active for reconnect/transfer.
+     */
+    default Optional<StaffSessionSnapshot> detach(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    ) {
+        throw new UnsupportedOperationException("backend Staff Mode detach is not supported");
+    }
+
     Optional<StaffSessionSnapshot> beginExit(UUID staffId, Instant now);
+
+    /** Begins terminal recovery only for the exact already-restored detached lease. */
+    default Optional<StaffSessionSnapshot> beginDetachedExit(StaffSessionSnapshot expected, Instant now) {
+        throw new UnsupportedOperationException("fenced detached Staff Mode exit is not supported");
+    }
 
     boolean completeExit(UUID sessionId, String restoredChecksum, Instant now);
 

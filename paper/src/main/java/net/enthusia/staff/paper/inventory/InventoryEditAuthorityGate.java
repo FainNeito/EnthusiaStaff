@@ -55,6 +55,13 @@ final class InventoryEditAuthorityGate {
         }
     }
 
+    static boolean allows(java.util.function.Predicate<String> permissions, boolean activeSession) {
+        return permissions.test(EDIT_PERMISSION)
+                && net.enthusia.staff.paper.auth.StaffInspectionAuthority.allows(
+                        permissions, "enthusiastaff.inventory.view")
+                && activeSession;
+    }
+
     interface AuthorityQuery {
         void execute(Runnable query, Runnable retired);
 
@@ -82,9 +89,8 @@ final class InventoryEditAuthorityGate {
         @Override
         public boolean hasEditPermission() {
             StaffSessionService session = plugin.getServer().getServicesManager().load(StaffSessionService.class);
-            return viewer.hasPermission(EDIT_PERMISSION)
-                    && session != null
-                    && session.hasActiveSession(viewer.getUniqueId());
+            return allows(viewer::hasPermission,
+                    session != null && session.hasActiveSession(viewer.getUniqueId()));
         }
     }
 }

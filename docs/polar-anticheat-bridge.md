@@ -1,0 +1,91 @@
+# Polar Anticheat → EnthusiaStaff Punishment Bridge
+
+## Overview
+
+Polar's `ban_commands` and `soft_ban_commands` now route through EnthusiaStaff's central
+punishment system via the `/staffapi` console command. Every Polar punishment gets:
+- Database logging (cases, sanctions, audit trail)
+- Discord webhook to `#in-game-punishments` with rich details
+- Automatic escalation via the `cheating.polar.template` reason ladder
+- Commit effects (kick/ban enforcement)
+
+## The Command
+
+```
+/staffapi punish <player> <ban|kick|mute|warn> [reason...] [--checks=<detail>]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<player>` | Player name (resolved via PlayerDirectory) |
+| `<ban\|kick\|mute\|warn>` | Punishment type |
+| `[reason...]` | Free-text reason (default: "Cheating") |
+| `[--checks=<detail>]` | Optional anticheat check details (e.g. "KillAura vl=45") |
+
+**Actor:** All punishments are issued as `Polar Anticheat` (StaffRank.SYSTEM).
+
+**Security:** Console-only. The command hardcodes a `sender instanceof ConsoleCommandSender`
+check — no permission node exists, so it cannot be granted to players. This prevents
+fake "Polar" punishments from player-executed commands.
+
+## Punishment Mapping
+
+| Type | Behavior |
+|------|----------|
+| `ban` | Uses `cheating.polar.template` reason ladder: 30d → 30d → 60d → 90d NETWORK_BAN (escalates automatically) |
+| `kick` | Instant KICK sanction |
+| `mute` | 1-day MUTE sanction |
+| `warn` | Instant WARNING sanction |
+
+## Polar Configuration
+
+In `plugins/Polar/polar.yml`:
+
+```yaml
+ban_commands:
+  - "staffapi punish {player} ban Cheating detected by Polar"
+soft_ban_commands:
+  - "staffapi punish {player} kick Cheating detected by Polar"
+```
+
+### Confirmed Placeholders
+
+| Placeholder | Description | Status |
+|-------------|-------------|--------|
+| `{player}` | Player name | ✅ Confirmed from live polar.yml |
+| `{server}` | Server name | ✅ Confirmed from live polar.yml |
+| `{check}` | Anticheat check name | ❌ NOT supported by Polar |
+
+> **Limitation:** Polar only supports `{player}` and `{server}` placeholders in punishment
+> commands (confirmed from the live `polar.yml`). There is no `{check}` or `{flags}`
+> placeholder. The `--checks` parameter will usually be empty unless Polar adds
+> check-detail placeholders in a future version. Punishments still work correctly —
+> they just won't include specific flag details.
+
+## Examples
+
+```
+# Polar is certain — escalating ban
+staffapi punish Notch ban Cheating --checks=KillAura
+
+# Polar suspects — kick with details
+staffapi punish Notch kick Suspicious movement --checks=Fly vl=12
+
+# Simple (no check details)
+staffapi punish Notch ban Cheating
+```
+
+## Discord Output
+
+Each punishment posts to `#in-game-punishments` with:
+- Player name and UUID
+- Punishment type and duration
+- Actor: "Polar Anticheat"
+- Reason and anticheat check details
+- Case ID for staff reference
+
+## Idempotency
+
+Each command generates a unique idempotency key (`staffapi:<uuid>:<type>:<timestamp>`).
+If Polar retries a command, it will create a new case (not deduplicated). This is intentional —
+each Polar trigger represents a separate detection event.

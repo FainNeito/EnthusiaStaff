@@ -314,13 +314,15 @@ class PunishmentRequestIntegrationTest extends PunishmentRequestMariaDbSupport {
                     StaffRank.MOD,
                     SanctionLength.temporary(Duration.ofHours(6))
             );
-            assertEquals("APPROVAL_NOT_REQUIRED", assertInstanceOf(
-                    PunishmentRequestResult.Rejected.class,
+            // Helpers may only request punishments: every Helper proposal routes to
+            // Mod-or-above approval regardless of sanction severity.
+            assertInstanceOf(
+                    PunishmentRequestResult.Submitted.class,
                     temporary.requests().submit(
                             serviceRequest("helper-temporary", HELPER, "test.authority.service.temporary"),
                             OperationalMode.ACTIVE
                     )
-            ).code());
+            );
         }
     }
 

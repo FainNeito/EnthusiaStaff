@@ -46,6 +46,7 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
     private final CheatTesterControlState controls;
     private final CheatTesterConfigurationMenu configurationMenu;
     private final CheatTesterRuntimeSupport runtime;
+    private final FoliaPlayerHandoff handoff;
 
     public CheatTesterManager(
             JavaPlugin plugin,
@@ -64,6 +65,7 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
         this.store = java.util.Objects.requireNonNull(store, "store");
         this.settings = java.util.Objects.requireNonNull(settings, "settings");
         this.runtime = new CheatTesterRuntimeSupport(plugin, workers, settings, closed);
+        this.handoff = new FoliaPlayerHandoff(plugin);
         this.snapshots = new CheatTesterSnapshotCodec(plugin);
         this.evidence = new CheatTesterEvidence(clock, settings);
         this.completion = new CheatTesterJournalCompletion(clock);
@@ -188,7 +190,7 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
         }
         try {
             List<CheatTesterJournalRecord> records = loaded.activeForServer(serverId, MAX_RECOVERY_ROWS);
-            plugin.getServer().getGlobalRegionScheduler().execute(plugin, () -> scheduleRecoverableSessions(records));
+            scheduleRecoverableSessions(records);
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.SEVERE, "Cheat tester recovery scan failed", exception);
         }
@@ -196,10 +198,7 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
 
     private void scheduleRecoverableSessions(List<CheatTesterJournalRecord> records) {
         for (CheatTesterJournalRecord record : records) {
-            Player target = plugin.getServer().getPlayer(record.targetId());
-            if (target != null && target.isOnline()) {
-                scheduleRecovery(target, record);
-            }
+            scheduleRecovery(record);
         }
     }
 
@@ -298,22 +297,11 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
     }
 
     private void scheduleBegin(CheatTesterSession session) {
-        plugin.getServer().getGlobalRegionScheduler().execute(plugin, () -> {
-            Player target = plugin.getServer().getPlayer(session.targetId);
-            if (target == null || !target.isOnline()) {
-                retireForRecovery(session, "Target disconnected after journal commit");
-                return;
-            }
-            boolean scheduled = target.getScheduler().execute(
-                    plugin,
-                    () -> beginProbe(target, session),
-                    () -> retireForRecovery(session, "Target retired after journal commit"),
-                    1L
-            );
-            if (!scheduled) {
-                retireForRecovery(session, "Target probe could not be scheduled after journal commit");
-            }
-        });
+        handoff.execute(
+                session.targetId,
+                target -> beginProbe(target, session),
+                () -> retireForRecovery(session, "Target unavailable after journal commit")
+        );
     }
 
     private void beginProbe(Player target, CheatTesterSession session) {
@@ -370,10 +358,7 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
         if (disposition == CheatTesterSession.FinishDisposition.WAIT_FOR_JOURNAL) {
             return;
         }
-        plugin.getServer().getGlobalRegionScheduler().execute(
-                plugin,
-                () -> scheduleFinishOnTarget(session, terminalState, reason)
-        );
+        scheduleFinishOnTarget(session, terminalState, reason);
     }
 
     private void scheduleFinishOnTarget(
@@ -381,20 +366,11 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
             CheatTesterSessionState terminalState,
             String reason
     ) {
-        Player target = plugin.getServer().getPlayer(session.targetId);
-        if (target == null || !target.isOnline()) {
-            finishWithoutOnlineTarget(session, terminalState, reason);
-            return;
-        }
-        boolean scheduled = target.getScheduler().execute(
-                plugin,
-                () -> finishOnTarget(target, session, terminalState, reason),
-                () -> retireForRecovery(session, "Target retired before tester restoration"),
-                1L
+        handoff.execute(
+                session.targetId,
+                target -> finishOnTarget(target, session, terminalState, reason),
+                () -> finishWithoutOnlineTarget(session, terminalState, reason)
         );
-        if (!scheduled) {
-            retireForRecovery(session, "Target restoration could not be scheduled");
-        }
     }
 
     private void finishWithoutOnlineTarget(
@@ -415,7 +391,8 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
             CheatTesterSessionState terminalState,
             String reason
     ) {
-        String captured = evidence.capture(target, session, reason);
+        String captured = captureForRestoration(() -> evidence.capture(target, session, reason), exception ->
+                plugin.getLogger().log(Level.WARNING, "Tester evidence capture failed; restoring saved state", exception));
         if (session.type == CheatTesterType.FAKE_ENTITY) {
             probes.hideFake(target, session);
             persistCompletion(session, terminalState, reason, captured, true);
@@ -431,22 +408,45 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
             String reason,
             String captured
     ) {
-        Runnable restore = () -> restoreTarget(target, session, terminalState, reason, captured);
-        if (!runtime.submit(() -> checkpointThenScheduleRestore(session, captured, restore))) {
-            restore.run();
+        if (!runtime.submit(() -> checkpointThenScheduleRestore(
+                session, terminalState, reason, captured))) {
+            restoreTarget(target, session, terminalState, reason, captured);
         }
     }
 
-    private void checkpointThenScheduleRestore(CheatTesterSession session, String captured, Runnable restore) {
-        CheatTesterJournalStore loaded = store.get();
-        if (loaded != null) {
-            checkpointEvidence(loaded, session, captured);
+    private void checkpointThenScheduleRestore(
+            CheatTesterSession session, CheatTesterSessionState terminalState, String reason, String captured) {
+        checkpointThenRestore(() -> {
+            CheatTesterJournalStore loaded = store.get();
+            if (loaded != null) {
+                checkpointEvidence(loaded, session, captured);
+            }
+        }, () -> runtime.scheduleTarget(
+                session.targetId, target -> restoreTarget(target, session, terminalState, reason, captured),
+                () -> retireForRecovery(session, "Target retired before exact restoration")),
+                exception -> plugin.getLogger().log(Level.WARNING,
+                        "Tester checkpoint unavailable; restoration still takes priority", exception));
+    }
+
+    static String captureForRestoration(java.util.function.Supplier<String> capture,
+            java.util.function.Consumer<RuntimeException> failure) {
+        try {
+            return capture.get();
+        } catch (RuntimeException exception) {
+            failure.accept(exception);
+            return "{\"evidenceCaptureFailed\":true}";
         }
-        runtime.scheduleTarget(
-                session.targetId,
-                restore,
-                () -> retireForRecovery(session, "Target retired before exact restoration")
-        );
+    }
+
+    static void checkpointThenRestore(Runnable checkpoint, Runnable restore,
+            java.util.function.Consumer<RuntimeException> failure) {
+        try {
+            checkpoint.run();
+        } catch (RuntimeException exception) {
+            failure.accept(exception);
+        } finally {
+            restore.run();
+        }
     }
 
     private void checkpointEvidence(
@@ -562,23 +562,20 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
         }
     }
 
-    private void scheduleRecovery(Player target, CheatTesterJournalRecord record) {
+    private void scheduleRecovery(CheatTesterJournalRecord record) {
+        handoff.execute(record.targetId(), target -> recoverScheduledTarget(target, record), () -> { });
+    }
+
+    private void recoverScheduledTarget(Player target, CheatTesterJournalRecord record) {
         if (closed.get()) {
             return;
         }
         CheatTesterSession recovered = CheatTesterSession.recovered(record);
-        if (activeByTarget.putIfAbsent(record.targetId(), recovered) != null || !acquireRecoveryLock(record, recovered)) {
+        if (activeByTarget.putIfAbsent(record.targetId(), recovered) != null
+                || !acquireRecoveryLock(record, recovered)) {
             return;
         }
-        boolean scheduled = target.getScheduler().execute(
-                plugin,
-                () -> recoverOnTarget(target, recovered, record),
-                () -> retireForRecovery(recovered, "Target retired during tester recovery"),
-                1L
-        );
-        if (!scheduled) {
-            retireForRecovery(recovered, "Tester recovery could not be scheduled");
-        }
+        recoverOnTarget(target, recovered, record);
     }
 
     private boolean acquireRecoveryLock(CheatTesterJournalRecord record, CheatTesterSession recovered) {
@@ -662,12 +659,7 @@ public final class CheatTesterManager implements Listener, AutoCloseable {
     }
 
     private void scheduleRecoveredRecord(CheatTesterJournalRecord record) {
-        plugin.getServer().getGlobalRegionScheduler().execute(plugin, () -> {
-            Player current = plugin.getServer().getPlayer(record.targetId());
-            if (current != null && current.isOnline()) {
-                scheduleRecovery(current, record);
-            }
-        });
+        scheduleRecovery(record);
     }
 
     private void failBeforeMutation(CheatTesterSession session, String failureMessage) {

@@ -11,9 +11,12 @@ import com.comphenix.protocol.events.PacketListener;
 import com.comphenix.protocol.wrappers.WrappedEnumEntityUseAction;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
@@ -72,7 +75,8 @@ final class ProtocolLibFakeEntityAdapter implements FakeEntityAdapter {
             Runnable failureHandler,
             AtomicBoolean healthy
     ) {
-        return new PacketAdapter(ownerPlugin, ListenerPriority.HIGHEST, PacketType.Play.Client.USE_ENTITY) {
+        Optional<PacketType> attackPacket = dedicatedAttackPacket();
+        return new PacketAdapter(ownerPlugin, ListenerPriority.HIGHEST, receivingPacketTypes(attackPacket)) {
             @Override
             public void onPacketReceiving(PacketEvent event) {
                 if (!healthy.get()) {
@@ -80,12 +84,14 @@ final class ProtocolLibFakeEntityAdapter implements FakeEntityAdapter {
                 }
                 try {
                     PacketContainer packet = event.getPacket();
-                    if (packet.getIntegers().size() == 0 || packet.getEnumEntityUseActions().size() == 0) {
+                    if (packet.getIntegers().size() == 0) {
+                        return;
+                    }
+                    String actionName = actionName(event, packet, attackPacket);
+                    if (actionName == null) {
                         return;
                     }
                     int entityId = packet.getIntegers().read(0);
-                    WrappedEnumEntityUseAction action = packet.getEnumEntityUseActions().read(0);
-                    String actionName = action == null ? "UNKNOWN" : action.getAction().name();
                     if (interactionHandler.handle(event.getPlayer().getUniqueId(), entityId, actionName)) {
                         event.setCancelled(true);
                     }
@@ -94,6 +100,64 @@ final class ProtocolLibFakeEntityAdapter implements FakeEntityAdapter {
                 }
             }
         };
+    }
+
+    private static PacketType[] receivingPacketTypes(Optional<PacketType> attackPacket) {
+        return attackPacket
+                .map(type -> new PacketType[] {PacketType.Play.Client.USE_ENTITY, type})
+                .orElseGet(() -> new PacketType[] {PacketType.Play.Client.USE_ENTITY});
+    }
+
+    private static Optional<PacketType> dedicatedAttackPacket() {
+        try {
+            Object value = PacketType.Play.Client.class.getField("ATTACK").get(null);
+            return supportedValue(value, PacketType.class, PacketType::isSupported);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            return Optional.empty();
+        }
+    }
+
+    static <T> Optional<T> supportedValue(
+            Object value,
+            Class<T> type,
+            Predicate<T> supported
+    ) {
+        Objects.requireNonNull(type, "type");
+        Objects.requireNonNull(supported, "supported");
+        if (!type.isInstance(value)) {
+            return Optional.empty();
+        }
+        T typedValue = type.cast(value);
+        return supported.test(typedValue) ? Optional.of(typedValue) : Optional.empty();
+    }
+
+    private static String actionName(
+            PacketEvent event,
+            PacketContainer packet,
+            Optional<PacketType> attackPacket
+    ) {
+        boolean attack = attackPacket.filter(type -> type.equals(event.getPacketType())).isPresent();
+        return actionNameForPacket(attackPacket.isPresent(), attack, () -> legacyActionName(packet));
+    }
+
+    static String actionNameForPacket(
+            boolean dedicatedAttackAvailable,
+            boolean attackPacket,
+            Supplier<String> legacyAction
+    ) {
+        Objects.requireNonNull(legacyAction, "legacyAction");
+        if (dedicatedAttackAvailable) {
+            return attackPacket ? "ATTACK" : "INTERACT";
+        }
+        return legacyAction.get();
+    }
+
+    private static String legacyActionName(PacketContainer packet) {
+        if (packet.getEnumEntityUseActions().size() == 0) {
+            return null;
+        }
+        WrappedEnumEntityUseAction action = packet.getEnumEntityUseActions().read(0);
+        return action == null ? "UNKNOWN" : action.getAction().name();
     }
 
     @Override

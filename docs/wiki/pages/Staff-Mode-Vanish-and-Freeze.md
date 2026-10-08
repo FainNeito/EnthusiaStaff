@@ -21,6 +21,7 @@ For implementation status and source files, use [[Staff Tools, Investigations, a
 /freeze list
 /unfreeze <player> <reason> CONFIRM
 /stafftools
+/stafftools help
 /stafftools random
 /stafftools spectate <player>
 /cheattester ...
@@ -39,6 +40,8 @@ Enter or leave with:
 Staff mode durably records the normal player state **before** applying the temporary staff profile. That saved state is the recovery authority for inventory, armor, offhand, XP, health/hunger, effects, location/server, game mode, flight and other owned state.
 
 Entry should fail closed when combat safety, storage, worker capacity, or durable snapshot creation cannot be proved. A reconnect or restart recovers the existing durable session rather than creating a new “normal” snapshot from temporary staff state.
+
+The pending investigation-tools PR makes fresh Staff Mode entry enable vanish automatically. An already vanished staff member stays vanished. If vanish cannot be saved, the same fresh session leaves Staff Mode through normal snapshot restoration; failed restoration retains the existing recovery protections. Recovery and cross-server resumes preserve their prior visibility choice. This proposal does not change the existing rank-specific vanish behavior on exit.
 
 ### Before entering
 
@@ -60,6 +63,18 @@ The selected mode is the real Bukkit/Paper game mode. Spectator block phasing co
 from actual Spectator mode; vanish does not provide block no-clip in Survival or
 Creative. When Staff Mode exits, the exact pre-Staff game mode from the durable
 snapshot is restored with the rest of the saved state.
+
+Vanish now honors that same rank-authorized mode selection. Admin and Founder keep
+their real Survival or Creative mode and its normal hotbar when enabling vanish;
+they can switch into or out of real Spectator without disabling vanish. Lower
+staff retain the Spectator-only restriction. Spectator itself uses Minecraft's
+spectator controls instead of the normal inventory hotbar.
+
+Java F3+N/F3+F4 shortcuts receive a client capability hint for Admin/Founder who
+already have `minecraft.command.gamemode`. No operator status or server command
+permission is granted. Real operators keep their existing status; loss of the
+rank or command permission clears the hint. The server still authorizes the
+requested mode, and vanilla keyboard shortcuts do not apply to Bedrock clients.
 
 ## Staff hotbar
 
@@ -194,3 +209,9 @@ A permission node is an entry gate, not a replacement for central rank/action po
 - [[Commands and Permissions]] — command and node reference.
 - [[Recovery and Troubleshooting]] — failure handling.
 - [[Code Review Guide]] — developer/reviewer invariants.
+
+## Owner fork staff privacy and restoration
+
+Active staff mode uses the staff visibility matrix even with its separate vanish toggle off. Ordinary players cannot see on-duty staff through the Staff visibility service or Velocity tab bridge. Public player counts, samples, deaths, and advancements exclude these sessions. Staff tools use the EnthusiaStaff command namespace to prevent command collisions.
+
+Explicit staff exit disables its vanish state for every rank and preserves the restored game mode. Delayed durable vanish reads cannot reapply Creative during restoration. Guild invite commands reject hidden and unavailable targets identically; GUI and provider integration require client acceptance.

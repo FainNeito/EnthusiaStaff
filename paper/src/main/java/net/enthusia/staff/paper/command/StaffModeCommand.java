@@ -6,6 +6,7 @@ import net.enthusia.staff.domain.auth.StaffRank;
 import net.enthusia.staff.paper.auth.PaperStaffRankResolver;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.enthusia.staff.paper.staff.StaffModeManager;
+import net.enthusia.staff.paper.visibility.VanishManager;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -20,10 +21,20 @@ public final class StaffModeCommand implements CommandExecutor {
 
     private final Supplier<OperationalMode> mode;
     private final StaffModeManager manager;
+    private final CommandExecutor visibilityCommand;
 
     public StaffModeCommand(Supplier<OperationalMode> mode, StaffModeManager manager) {
+        this(mode, manager, (CommandExecutor) null);
+    }
+
+    public StaffModeCommand(Supplier<OperationalMode> mode, StaffModeManager manager, VanishManager vanish) {
+        this(mode, manager, new VanishCommand(mode, java.util.Objects.requireNonNull(vanish, "vanish")));
+    }
+
+    StaffModeCommand(Supplier<OperationalMode> mode, StaffModeManager manager, CommandExecutor visibilityCommand) {
         this.mode = mode;
         this.manager = manager;
+        this.visibilityCommand = visibilityCommand;
     }
 
     @Override
@@ -31,11 +42,19 @@ public final class StaffModeCommand implements CommandExecutor {
         if (!allowed(sender)) {
             return true;
         }
+        if (visibilityControlRequested(arguments)) {
+            if (visibilityCommand == null) {
+                sender.sendMessage(StaffMessageStyle.error("Visibility controls are unavailable."));
+                return true;
+            }
+            String[] visibilityArguments = arguments.length == 1 ? new String[0] : arguments;
+            return visibilityCommand.onCommand(sender, command, "vanish", visibilityArguments);
+        }
         if (targetedRecovery(arguments)) {
             return recoverTarget(sender, arguments[1]);
         }
         if (invalidArguments(arguments)) {
-            sender.sendMessage(StaffMessageStyle.usage("Usage: /staff [recover]"));
+            sender.sendMessage(StaffMessageStyle.usage("Usage: /staff [recover|tab <show|hide>|togglevanish]"));
             return true;
         }
         if (!(sender instanceof Player player)) {
@@ -101,6 +120,11 @@ public final class StaffModeCommand implements CommandExecutor {
         }
         manager.enter(player, rank);
         return true;
+    }
+
+    private static boolean visibilityControlRequested(String[] arguments) {
+        return (arguments.length == 1 && "togglevanish".equalsIgnoreCase(arguments[0]))
+                || (arguments.length == 2 && "tab".equalsIgnoreCase(arguments[0]));
     }
 
     private static boolean targetedRecovery(String[] arguments) {
