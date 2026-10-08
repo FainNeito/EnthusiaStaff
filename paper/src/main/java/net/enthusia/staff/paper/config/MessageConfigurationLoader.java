@@ -77,20 +77,22 @@ public final class MessageConfigurationLoader {
 
         return new MessageConfigurationSnapshot(
                 schemaVersion,
-                new MessageCatalog(parseTemplates(messages))
+                new MessageCatalog(parseTemplates(messages, schemaVersion))
         );
     }
 
     private static int requiredSchemaVersion(JsonNode root) {
         int schemaVersion = integer(root, "schema-version", ROOT_PATH);
-        if (schemaVersion != MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION) {
-            throw invalid(ROOT_PATH + ".schema-version must be "
-                    + MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION);
+        if (schemaVersion < MessageConfigurationSnapshot.EARLIEST_SUPPORTED_SCHEMA_VERSION
+                || schemaVersion > MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION) {
+            throw invalid(ROOT_PATH + ".schema-version must be between "
+                    + MessageConfigurationSnapshot.EARLIEST_SUPPORTED_SCHEMA_VERSION
+                    + " and " + MessageConfigurationSnapshot.CURRENT_SCHEMA_VERSION);
         }
         return schemaVersion;
     }
 
-    private static EnumMap<MessageKey, String> parseTemplates(JsonNode messages) {
+    private static EnumMap<MessageKey, String> parseTemplates(JsonNode messages, int schemaVersion) {
         Map<String, String> flattened = new LinkedHashMap<>();
         flatten(messages, "", flattened, ROOT_PATH + ".messages");
 
@@ -100,15 +102,24 @@ public final class MessageConfigurationLoader {
             if (key == null) {
                 throw invalid(ROOT_PATH + ".messages contains unknown key " + entry.getKey());
             }
+            if (key.introducedSchemaVersion() > schemaVersion) {
+                throw invalid(ROOT_PATH + ".messages." + key.path()
+                        + " requires schema-version " + key.introducedSchemaVersion());
+            }
             templates.put(key, entry.getValue());
         }
-        requireAllMessageKeys(templates);
+        completeTemplates(templates, schemaVersion);
         return templates;
     }
 
-    private static void requireAllMessageKeys(Map<MessageKey, String> templates) {
+    private static void completeTemplates(EnumMap<MessageKey, String> templates, int schemaVersion) {
         for (MessageKey key : MessageKey.values()) {
-            if (!templates.containsKey(key)) {
+            if (templates.containsKey(key)) {
+                continue;
+            }
+            if (key.introducedSchemaVersion() > schemaVersion) {
+                templates.put(key, key.defaultText());
+            } else {
                 throw invalid(ROOT_PATH + ".messages." + key.path() + " is required");
             }
         }

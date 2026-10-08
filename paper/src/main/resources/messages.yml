@@ -1,4 +1,4 @@
-schema-version: 1
+schema-version: 2
 
 messages:
   estaff:
@@ -35,3 +35,9 @@ messages:
       full-failed: "Full verification failed; see the sanitized server log."
 
     usage: "<gray>Usage: <aqua>/{label} {operations}</aqua></gray>"
+
+  vanish:
+    permission-denied: "You do not have permission to change vanish or spectator tab visibility."
+    player-only: "Only a player can change vanish or spectator tab visibility."
+    usage: "<gray>Usage: </gray><aqua>/{label} | /{label} tab {choices}</aqua>"
+    mode-disabled: "Vanish enable is disabled while moderation is {mode}."

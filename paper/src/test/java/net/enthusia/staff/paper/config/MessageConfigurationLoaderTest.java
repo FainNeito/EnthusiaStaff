@@ -140,6 +140,94 @@ class MessageConfigurationLoaderTest {
         assertThrows(ConfigurationValidationException.class, () -> load(yaml));
     }
 
+    @Test
+    void existingV1CatalogKeepsCustomValuesAndUsesV2Defaults() throws IOException {
+        String legacy = v1Yaml().replace(
+                "      validation-passed: \"Configuration validation passed; no runtime state was changed.\"",
+                "      validation-passed: \"Custom owner wording\""
+        );
+
+        MessageConfigurationSnapshot loaded = load(legacy);
+
+        assertEquals(1, loaded.schemaVersion());
+        assertEquals("Custom owner wording", loaded.catalog().text(MessageKey.ESTAFF_CONFIG_VALIDATION_PASSED));
+        assertEquals(
+                "You do not have permission to change vanish or spectator tab visibility.",
+                loaded.catalog().text(MessageKey.VANISH_PERMISSION_DENIED)
+        );
+        assertEquals(
+                "Usage: /vanish | /vanish tab <show|hide>",
+                text(loaded.catalog().component(
+                        MessageKey.VANISH_USAGE,
+                        Map.of("label", "vanish", "choices", "<show|hide>")
+                ))
+        );
+    }
+
+    @Test
+    void v2CatalogRequiresEveryNewKey() throws IOException {
+        String yaml = shippedYaml().replace(
+                "    player-only: \"Only a player can change vanish or spectator tab visibility.\"\n",
+                ""
+        );
+
+        ConfigurationValidationException failure = assertThrows(
+                ConfigurationValidationException.class,
+                () -> load(yaml)
+        );
+
+        assertTrue(failure.getMessage().contains("vanish.player-only"));
+    }
+
+    @Test
+    void v1CatalogRejectsNewerKeysAndUnknownFutureSchemas() throws IOException {
+        ConfigurationValidationException undeclared = assertThrows(
+                ConfigurationValidationException.class,
+                () -> load(shippedYaml().replace("schema-version: 2", "schema-version: 1"))
+        );
+        assertTrue(undeclared.getMessage().contains("requires schema-version 2"));
+
+        ConfigurationValidationException future = assertThrows(
+                ConfigurationValidationException.class,
+                () -> load(shippedYaml().replace("schema-version: 2", "schema-version: 3"))
+        );
+        assertTrue(future.getMessage().contains("schema-version must be between"));
+    }
+
+    @Test
+    void legacyCatalogStillRejectsMissingExistingKeys() throws IOException {
+        String yaml = v1Yaml().replace(
+                "      status: \"You do not have permission to view EnthusiaStaff status.\"\n",
+                ""
+        );
+        assertThrows(ConfigurationValidationException.class, () -> load(yaml));
+    }
+
+    @Test
+    void vanishPlaceholdersCannotInjectMiniMessageCommands() throws IOException {
+        MessageConfigurationSnapshot snapshot = load(shippedYaml());
+        String maliciousLabel = "<click:run_command:'/op @s'>vanish</click>";
+        Component rendered = snapshot.catalog().component(
+                MessageKey.VANISH_USAGE,
+                Map.of("label", maliciousLabel, "choices", "<show|hide>")
+        );
+        assertFalse(hasClickEvent(rendered));
+        assertEquals(
+                "Usage: /" + maliciousLabel + " | /" + maliciousLabel + " tab <show|hide>",
+                text(rendered)
+        );
+    }
+
+    private String v1Yaml() throws IOException {
+        String current = shippedYaml();
+        int vanishBlock = current.indexOf("\n  vanish:\n");
+        if (vanishBlock < 0) {
+            throw new IOException("Shipped messages.yml is missing the v2 vanish family");
+        }
+        return current.substring(0, vanishBlock)
+                .replace("schema-version: 2", "schema-version: 1") + "\n";
+    }
+
     private MessageConfigurationSnapshot load(String yaml) {
         return loader.load(new StringReader(yaml), "messages.yml");
     }
