@@ -4,6 +4,7 @@ import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,9 +52,10 @@ public final class VanishManager implements Listener {
     private final Map<UUID, Instant> staffSessionCheckRetryAfter = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> pendingStaffSessionChecks = new ConcurrentHashMap<>();
     private final Map<UUID, GameMode> selectedGameModes = new ConcurrentHashMap<>();
+    private final Set<UUID> publishedDuty = ConcurrentHashMap.newKeySet();
     private final Set<UUID> hiddenSpectators = ConcurrentHashMap.newKeySet();
     private final Set<UUID> pendingRankChecks = ConcurrentHashMap.newKeySet();
-    private final Set<UUID> pendingDurableLoads = ConcurrentHashMap.newKeySet();
+    private final VanishRecoveryFence recoveryFence = new VanishRecoveryFence();
     private final Set<UUID> stateWrites = ConcurrentHashMap.newKeySet();
     private final Set<UUID> selectedModeWrites = ConcurrentHashMap.newKeySet();
     private final Set<UUID> vanishGameModeApplications = ConcurrentHashMap.newKeySet();
@@ -61,9 +63,12 @@ public final class VanishManager implements Listener {
     private final Set<UUID> staffSessionCheckFailureNotified = ConcurrentHashMap.newKeySet();
     private final Set<UUID> pendingStaffModeExitDisables = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean rankReconciliationStarted = new AtomicBoolean();
+    private final AtomicBoolean durableVanishLoaded = new AtomicBoolean();
     private final AtomicInteger rankReconciliationPass = new AtomicInteger();
     private final VanishAudienceCoordinator<Player> audiences;
     private final SpectatorTabPacketAdapter spectatorTabPackets;
+    private volatile PresenceTransitionSink presenceTransitionSink = (subjectId, viewerId, vanished) -> {
+    };
 
     public VanishManager(
             JavaPlugin plugin,
@@ -80,12 +85,15 @@ public final class VanishManager implements Listener {
         this.store = store;
         this.sessions = sessions;
         this.staffMode = staffMode;
+        visibility.setStaffModeVisibility(staffMode::active, staffMode::activeRank);
         this.workers = workers;
         this.audiences = new VanishAudienceCoordinator<>(this::onEntity, this::refreshPair);
+        staffMode.setPresenceListener(audiences::refreshTarget);
         this.spectatorTabPackets = installSpectatorTabPackets();
     }
 
     public void initialize() {
+        durableVanishLoaded.set(false);
         submit(() -> {
             VanishStore loaded = store.get();
             if (loaded == null) {
@@ -97,6 +105,7 @@ public final class VanishManager implements Listener {
                     rememberPersistedGameMode(record);
                     visibility.setVanished(record.staffId(), record.rank(), true);
                 }
+                durableVanishLoaded.set(true);
                 recoverOnlinePlayers();
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.SEVERE, "Vanish-state initialization failed", exception);
@@ -119,6 +128,11 @@ public final class VanishManager implements Listener {
                         player -> {
                             try {
                                 reconcileLiveRank(player);
+                                boolean dutyChanged = staffMode.active(playerId)
+                                        ? publishedDuty.add(playerId) : publishedDuty.remove(playerId);
+                                if (dutyChanged) {
+                                    audiences.refreshTarget(playerId);
+                                }
                             } finally {
                                 pendingRankChecks.remove(playerId);
                             }
@@ -163,13 +177,101 @@ public final class VanishManager implements Listener {
         return visibility.isVanished(playerId);
     }
 
+    /**
+     * Returns whether RoseChat may safely decide a real login/logout presence message for this player.
+     * A currently vanished player is always known immediately; otherwise the initial durable vanish
+     * scan must have completed so a cold-start login cannot leak a persisted vanish state.
+     */
+    public boolean presenceStateReady(UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return visibility.isVanished(playerId) || durableVanishLoaded.get();
+    }
+
+    public void setPresenceTransitionSink(PresenceTransitionSink sink) {
+        presenceTransitionSink = Objects.requireNonNull(sink, "sink");
+    }
+
+    public void clearPresenceTransitionSink() {
+        presenceTransitionSink = (subjectId, viewerId, vanished) -> {
+        };
+    }
+
+    /**
+     * Cross-server transfer hook (overnight/cross-server). Read-only: returns the staff
+     * member's selected vanish game mode, if known, for inclusion in a transfer snapshot.
+     * Does not change any vanish state.
+     */
+    public java.util.Optional<GameMode> transferSelectedGameMode(UUID playerId) {
+        if (playerId == null) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.ofNullable(selectedGameModes.get(playerId));
+    }
+
+    /**
+     * Cross-server transfer hook (overnight/cross-server). Applies a vanish state snapshot
+     * carried from the source backend, before the join-message logic runs on arrival.
+     *
+     * <p>The transferred snapshot is authoritative for this session: it is applied
+     * synchronously from in-memory state with no database write. The existing asynchronous
+     * durable-vanish load remains the fallback and reconciles with the database afterwards.
+     * When the snapshot says the player was not vanished this is a no-op.</p>
+     */
+    public void applyTransferSnapshot(
+            Player player,
+            net.enthusia.staff.domain.staff.StaffTransferSnapshot snapshot
+    ) {
+        java.util.Objects.requireNonNull(player, "player");
+        java.util.Objects.requireNonNull(snapshot, "snapshot");
+        if (!snapshot.vanished()) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        if (!snapshot.playerId().equals(playerId)) {
+            throw new IllegalArgumentException("transfer snapshot belongs to a different player");
+        }
+        StaffRank rank = snapshot.rank() != null
+                ? snapshot.rank()
+                : PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
+        if (rank == null) {
+            plugin.getLogger().warning(
+                    "Ignoring cross-server vanish snapshot for " + playerId
+                            + ": no staff rank available on this backend");
+            return;
+        }
+        recoveryFence.invalidate(playerId);
+        durableVanishedRanks.put(playerId, rank);
+        if (snapshot.selectedGameMode() != null) {
+            try {
+                selectedGameModes.put(playerId, GameMode.valueOf(snapshot.selectedGameMode()));
+            } catch (IllegalArgumentException exception) {
+                plugin.getLogger().warning(
+                        "Ignoring invalid transferred vanish selected game mode for " + playerId);
+            }
+        }
+        visibility.setVanished(playerId, rank, true);
+        if (!staffMode.transitioning(playerId)) {
+            applyVanishGameMode(player);
+        }
+        audiences.updateGameMode(playerId, player.getGameMode());
+        audiences.refreshViewer(playerId);
+        audiences.refreshTarget(playerId);
+        plugin.getLogger().info(
+                "Applied cross-server vanish snapshot for " + player.getName()
+                        + " from backend " + snapshot.sourceServer());
+    }
+
     public boolean canSee(UUID viewerId, UUID targetId) {
         return visibility.canSee(viewerId, targetId);
     }
 
+    public boolean hiddenFromPublic(UUID playerId) {
+        return isVanished(playerId) || staffMode.active(playerId);
+    }
+
     int vanishedOnlineCount() {
         return (int) audiences.playerIds().stream()
-                .filter(this::isVanished)
+                .filter(this::hiddenFromPublic)
                 .count();
     }
 
@@ -185,6 +287,35 @@ public final class VanishManager implements Listener {
         }
         boolean next = !visibility.isVanished(player.getUniqueId());
         set(player, rank, next, true);
+    }
+
+    /** Enables rather than toggles: entering while already vanished must never reveal staff. */
+    public void staffModeEntered(Player player) {
+        UUID playerId = player.getUniqueId();
+        UUID sessionId = staffMode.activeSessionId(playerId);
+        StaffRank rank = resolveAndPublishRank(player);
+        if (rank == null && sessionId != null) {
+            player.sendMessage(StaffMessageStyle.error("Your staff rank is unavailable; leaving Staff Mode."));
+            staffMode.exit(player);
+            return;
+        }
+        if (rank != null && staffMode.active(player.getUniqueId()) && !isVanished(player.getUniqueId())) {
+            set(player, rank, true, true).thenAccept(enabled -> {
+                if (!enabled) {
+                    exitAfterEntryVanishFailure(playerId, sessionId);
+                }
+            });
+        }
+    }
+
+    private void exitAfterEntryVanishFailure(UUID playerId, UUID sessionId) {
+                    audiences.onOwner(playerId, current -> {
+                        if (sessionId != null && sessionId.equals(staffMode.activeSessionId(playerId))) {
+                            current.sendMessage(StaffMessageStyle.error(
+                                    "Automatic vanish could not be saved; leaving Staff Mode and restoring your snapshot."));
+                            staffMode.exit(current);
+                        }
+                    });
     }
 
     public void configureSpectatorTab(Player player, boolean appearNormally) {
@@ -218,7 +349,7 @@ public final class VanishManager implements Listener {
             player.sendMessage(StaffMessageStyle.style(Component.text("You now appear normally on tab while remaining in spectator. ",
                             NamedTextColor.GREEN)
                     .append(Component.text("[Hide again]", NamedTextColor.YELLOW)
-                            .clickEvent(ClickEvent.runCommand("/vanish tab hide"))
+                            .clickEvent(ClickEvent.runCommand("/staff tab hide"))
                             .hoverEvent(HoverEvent.showText(Component.text("Remove yourself from tab"))))));
             return;
         }
@@ -228,13 +359,29 @@ public final class VanishManager implements Listener {
     }
 
     public void staffModeExited(UUID playerId) {
+        recoveryFence.invalidate(playerId);
         audiences.onOwner(playerId, player -> disableAfterStaffModeExit(playerId, player));
     }
 
+    /**
+     * Marks a game-mode change as plugin-initiated so {@link #onGameModeChange} does not cancel
+     * it for vanished staff (C1: staff-mode profile transitions, e.g. forcing a vanished Mod to
+     * Survival on duty-enter, must not be mistaken for the player leaving vanish-spectator).
+     */
+    public void beginPluginGameModeApplication(UUID playerId) {
+        vanishGameModeApplications.add(Objects.requireNonNull(playerId, "playerId"));
+    }
+
+    /** Clears the plugin-initiated game-mode marker installed by {@link #beginPluginGameModeApplication}. */
+    public void endPluginGameModeApplication(UUID playerId) {
+        vanishGameModeApplications.remove(playerId);
+    }
+
     private void disableAfterStaffModeExit(UUID playerId, Player player) {
+        audiences.refreshTarget(playerId);
         durableStaffSessionPresence.put(playerId, false);
         StaffRank rank = resolveAndPublishRank(player);
-        if (rank == null || !requiresStaffMode(rank)) {
+        if (rank == null) {
             pendingStaffModeExitDisables.remove(playerId);
             return;
         }
@@ -250,22 +397,62 @@ public final class VanishManager implements Listener {
         return VanishRankReconciliationPolicy.requiresStaffMode(rank);
     }
 
-    private void set(Player player, StaffRank rank, boolean vanished, boolean restoreSelectedMode) {
+    private java.util.concurrent.CompletableFuture<Boolean> set(
+            Player player, StaffRank rank, boolean vanished, boolean restoreSelectedMode) {
         UUID playerId = player.getUniqueId();
         GameMode selectedGameMode = vanished
                 ? selectedGameModeForEnable(player, rank)
                 : selectedGameModes.get(playerId);
         if (!stateWrites.add(playerId)) {
             player.sendMessage(StaffMessageStyle.style(Component.text("A vanish state change is already being saved.")));
-            return;
+            return java.util.concurrent.CompletableFuture.completedFuture(false);
         }
-        if (!submit(() -> persistSet(playerId, rank, vanished, restoreSelectedMode, selectedGameMode))) {
-            stateWrites.remove(playerId);
-            player.sendMessage(StaffMessageStyle.style(Component.text("The bounded work queue is full; vanish was not changed.")));
+        recoveryFence.invalidate(playerId);
+        java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
+        UUID expectedSession = staffMode.activeSessionId(playerId);
+        Runnable enqueue = () -> {
+            if (!submit(() -> {
+                if (expectedSession != null && !expectedSession.equals(staffMode.activeSessionId(playerId))) {
+                    stateWrites.remove(playerId);
+                    result.complete(false);
+                    return;
+                }
+                result.complete(persistSet(playerId, rank, vanished, restoreSelectedMode, selectedGameMode));
+            })) {
+                stateWrites.remove(playerId);
+                message(playerId, "The bounded work queue is full; vanish was not changed.");
+                result.complete(false);
+            }
+        };
+        if (vanished) {
+            validatePendingEnable(playerId, rank, expectedSession, enqueue, result);
+        } else {
+            enqueue.run();
         }
+        return result;
     }
 
-    private void persistSet(
+    private void validatePendingEnable(
+            UUID playerId, StaffRank expectedRank, UUID expectedSession, Runnable enqueue,
+            java.util.concurrent.CompletableFuture<Boolean> result) {
+        audiences.onOwner(playerId, current -> {
+            StaffRank liveRank = resolveAndPublishRank(current);
+            if (!VanishEnableAuthorityFence.eligible(expectedRank, liveRank)
+                    || (expectedSession != null
+                    && !expectedSession.equals(staffMode.activeSessionId(playerId)))) {
+                stateWrites.remove(playerId);
+                result.complete(false);
+                message(playerId, "Vanish enable was cancelled because your staff rank or session changed.");
+                return;
+            }
+            enqueue.run();
+        }, () -> {
+            stateWrites.remove(playerId);
+            result.complete(false);
+        });
+    }
+
+    private boolean persistSet(
             UUID playerId,
             StaffRank rank,
             boolean vanished,
@@ -276,12 +463,27 @@ public final class VanishManager implements Listener {
             VanishStore loaded = store.get();
             if (loaded == null) {
                 message(playerId, "Vanish storage is not ready; no visibility change was made.");
-                return;
+                return false;
             }
-            persistState(loaded, playerId, rank, vanished, selectedGameMode);
+            if (vanished) {
+                boolean committed = VanishEnableAuthorityFence.commitIfEligible(
+                        rank,
+                        () -> onlineStaffRanks.get(playerId),
+                        () -> persistState(loaded, playerId, rank, true, selectedGameMode),
+                        () -> persistState(loaded, playerId, rank, false, selectedGameMode)
+                );
+                if (!committed) {
+                    message(playerId, "Vanish enable was cancelled because your staff rank changed while saving.");
+                    return false;
+                }
+            } else {
+                persistState(loaded, playerId, rank, false, selectedGameMode);
+            }
             rememberCommittedState(playerId, rank, vanished, restoreSelectedMode, selectedGameMode);
             boolean viewerChanged = publishViewerRank(playerId, rank);
+            Set<UUID> hiddenBefore = vanished ? Set.of() : hiddenPresenceViewers(playerId);
             visibility.setVanished(playerId, rank, vanished);
+            Set<UUID> presenceViewers = vanished ? hiddenPresenceViewers(playerId) : hiddenBefore;
             if (vanished) {
                 hiddenSpectators.remove(playerId);
             }
@@ -289,11 +491,19 @@ public final class VanishManager implements Listener {
             reconciliationFailureNotified.remove(playerId);
             audiences.onOwner(
                     playerId,
-                    current -> finishSet(current, vanished, viewerChanged, restoreSelectedMode)
+                    current -> finishSet(
+                            current,
+                            vanished,
+                            viewerChanged,
+                            restoreSelectedMode,
+                            presenceViewers
+                    )
             );
+            return true;
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.SEVERE, "Vanish state change failed", exception);
             message(playerId, "Vanish change failed; inspect the sanitized server log.");
+            return false;
         } finally {
             stateWrites.remove(playerId);
         }
@@ -306,6 +516,7 @@ public final class VanishManager implements Listener {
             boolean restoreSelectedMode,
             GameMode selectedGameMode
     ) {
+        recoveryFence.invalidate(playerId);
         if (vanished) {
             durableVanishedRanks.put(playerId, rank);
             selectedGameModes.put(playerId, selectedGameMode);
@@ -344,11 +555,14 @@ public final class VanishManager implements Listener {
             Player player,
             boolean vanished,
             boolean viewerChanged,
-            boolean restoreSelectedMode
+            boolean restoreSelectedMode,
+            Set<UUID> presenceViewers
     ) {
         UUID playerId = player.getUniqueId();
         if (vanished) {
-            enforceVanishSpectator(player);
+            if (!staffMode.transitioning(playerId)) {
+                applyVanishGameMode(player);
+            }
         } else if (restoreSelectedMode) {
             restoreSelectedGameMode(player);
         } else {
@@ -360,7 +574,32 @@ public final class VanishManager implements Listener {
             audiences.refreshViewer(playerId);
         }
         audiences.refreshTarget(playerId);
+        publishPresenceTransition(playerId, vanished, presenceViewers);
         player.sendMessage(StaffMessageStyle.style(Component.text(vanished ? "Vanish enabled." : "Vanish disabled.")));
+    }
+
+    private Set<UUID> hiddenPresenceViewers(UUID subjectId) {
+        return Set.copyOf(audiences.playerIds().stream()
+                .filter(viewerId -> !viewerId.equals(subjectId))
+                .filter(viewerId -> !visibility.canSee(viewerId, subjectId))
+                .toList());
+    }
+
+    private void publishPresenceTransition(UUID subjectId, boolean vanished, Set<UUID> viewerIds) {
+        PresenceTransitionSink sink = presenceTransitionSink;
+        for (UUID viewerId : viewerIds) {
+            audiences.onOwner(viewerId, ignored -> {
+                try {
+                    sink.publish(subjectId, viewerId, vanished);
+                } catch (RuntimeException | LinkageError exception) {
+                    plugin.getLogger().log(
+                            Level.WARNING,
+                            "RoseChat vanish presence transition failed for viewer " + viewerId,
+                            exception
+                    );
+                }
+            });
+        }
     }
 
     private void reconcileLiveRank(Player player) {
@@ -468,13 +707,12 @@ public final class VanishManager implements Listener {
     }
 
     private VanishRankReconciliationPolicy.StaffModeState staffModeState(UUID playerId) {
-        if (staffMode.active(playerId)) {
-            durableStaffSessionPresence.put(playerId, true);
-            pendingStaffModeExitDisables.remove(playerId);
-            return VanishRankReconciliationPolicy.StaffModeState.ACTIVE;
-        }
         if (pendingStaffModeExitDisables.contains(playerId)) {
             return VanishRankReconciliationPolicy.StaffModeState.EXITED;
+        }
+        if (staffMode.active(playerId)) {
+            durableStaffSessionPresence.put(playerId, true);
+            return VanishRankReconciliationPolicy.StaffModeState.ACTIVE;
         }
         Boolean durablePresence = durableStaffSessionPresence.get(playerId);
         if (durablePresence == null) {
@@ -568,11 +806,12 @@ public final class VanishManager implements Listener {
 
     private void applyReconciledMemoryState(Player player, StaffRank rank, boolean vanished) {
         UUID playerId = player.getUniqueId();
+        recoveryFence.invalidate(playerId);
         visibility.setVanished(playerId, rank, vanished);
         if (vanished) {
             selectedGameModes.computeIfAbsent(playerId, ignored -> selectedGameModeForEnable(player, rank));
             hiddenSpectators.remove(playerId);
-            enforceVanishSpectator(player);
+            applyVanishGameMode(player);
         } else {
             if (pendingStaffModeExitDisables.contains(playerId)) {
                 selectedGameModes.remove(playerId);
@@ -593,6 +832,7 @@ public final class VanishManager implements Listener {
         if (!stateWrites.add(playerId)) {
             return;
         }
+        recoveryFence.invalidate(playerId);
         if (!submit(() -> {
             try {
                 VanishStore loaded = store.get();
@@ -647,18 +887,15 @@ public final class VanishManager implements Listener {
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
-        if (visibility.isVanished(playerId) && staffMode.restoringSavedState(playerId)) {
-            visibility.setVanished(playerId, onlineStaffRanks.get(playerId), false);
-            selectedGameModes.remove(playerId);
-            hiddenSpectators.remove(playerId);
+        boolean restoringStaffState = staffMode.restoringSavedState(playerId);
+        if (restoringStaffState) {
+            recoveryFence.invalidate(playerId);
         }
-        if (visibility.isVanished(playerId) && !vanishGameModeApplications.contains(playerId)) {
+        if (visibility.isVanished(playerId)
+                && !restoringStaffState
+                && !vanishGameModeApplications.contains(playerId)) {
             StaffRank rank = resolveLiveRank(player);
-            if (isSelectableGameMode(rank, event.getNewGameMode())) {
-                selectedGameModes.put(playerId, event.getNewGameMode());
-                persistSelectedGameMode(playerId, rank, event.getNewGameMode());
-            }
-            if (event.getNewGameMode() != GameMode.SPECTATOR) {
+            if (!isSelectableGameMode(playerId, rank, event.getNewGameMode())) {
                 event.setCancelled(true);
                 return;
             }
@@ -676,6 +913,7 @@ public final class VanishManager implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
+        recoveryFence.invalidate(playerId);
         audiences.register(playerId, player, player.getGameMode());
         recordViewerRank(player);
         applySpectatorPolicy(player, player.getGameMode(), true);
@@ -697,6 +935,7 @@ public final class VanishManager implements Listener {
         }
         UUID playerId = player.getUniqueId();
         audiences.remove(playerId);
+        publishedDuty.remove(playerId);
         visibility.removeViewer(playerId);
         onlineStaffRanks.remove(playerId);
         durableStaffSessionPresence.remove(playerId);
@@ -705,7 +944,7 @@ public final class VanishManager implements Listener {
         staffSessionCheckFailureNotified.remove(playerId);
         hiddenSpectators.remove(playerId);
         pendingRankChecks.remove(playerId);
-        pendingDurableLoads.remove(playerId);
+        recoveryFence.invalidate(playerId);
         pendingStaffModeExitDisables.remove(playerId);
         reconciliationRetryAfter.remove(playerId);
         reconciliationFailureNotified.remove(playerId);
@@ -716,6 +955,9 @@ public final class VanishManager implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPluginDisable(PluginDisableEvent event) {
         if (event.getPlugin().equals(plugin) || event.getPlugin().getName().equals("ProtocolLib")) {
+            if (event.getPlugin().equals(plugin)) {
+                recoveryFence.clear();
+            }
             spectatorTabPackets.close();
             if (!event.getPlugin().equals(plugin)) {
                 packetMaskFailed();
@@ -752,6 +994,14 @@ public final class VanishManager implements Listener {
             VanishAudienceCoordinator.OnlineEntity<Player> targetEntry,
             boolean canSee
     ) {
+        if (viewer.getUniqueId().equals(target.getUniqueId())) {
+            try {
+                viewer.listPlayer(target);
+            } catch (IllegalStateException exception) {
+                plugin.getLogger().log(Level.FINE, "Self tab listing raced with disconnect", exception);
+            }
+            return;
+        }
         if (!shouldList(targetEntry, canSee)) {
             unlistSafely(viewer, target);
             return;
@@ -820,12 +1070,12 @@ public final class VanishManager implements Listener {
                         NamedTextColor.GRAY
                 )
                 .append(Component.text("[Vanish]", NamedTextColor.RED)
-                        .clickEvent(ClickEvent.runCommand("/vanish"))
+                        .clickEvent(ClickEvent.runCommand("/staff togglevanish"))
                         .hoverEvent(HoverEvent.showText(Component.text("Enter full vanish"))));
         if (spectatorTabPackets.available()) {
             prompt = prompt.append(Component.space())
                     .append(Component.text("[Appear normally]", NamedTextColor.GREEN)
-                            .clickEvent(ClickEvent.runCommand("/vanish tab show"))
+                            .clickEvent(ClickEvent.runCommand("/staff tab show"))
                             .hoverEvent(HoverEvent.showText(Component.text(
                                     "Appear on tab as a normal non-spectator entry"
                             ))));
@@ -908,13 +1158,18 @@ public final class VanishManager implements Listener {
     }
 
     private void refreshDurableVanish(UUID playerId) {
-        if (!pendingDurableLoads.add(playerId)) {
+        if (stateWrites.contains(playerId) || selectedModeWrites.contains(playerId)) {
+            return;
+        }
+        VanishRecoveryFence.Ticket read = recoveryFence.begin(playerId).orElse(null);
+        if (read == null) {
             return;
         }
         if (!submit(() -> {
             try {
                 VanishStore loaded = store.get();
                 if (loaded == null) {
+                    recoveryFence.finish(read);
                     return;
                 }
                 java.util.Optional<VanishRecord> record = loaded.active(playerId);
@@ -922,24 +1177,30 @@ public final class VanishManager implements Listener {
                         playerId,
                         player -> {
                             try {
-                                applyDurableVanishRecovery(player, record.orElse(null));
+                                if (recoveryFence.current(read)) {
+                                    applyDurableVanishRecovery(player, record.orElse(null));
+                                }
                             } finally {
-                                pendingDurableLoads.remove(playerId);
+                                recoveryFence.finish(read);
                             }
                         },
-                        () -> pendingDurableLoads.remove(playerId)
+                        () -> recoveryFence.finish(read)
                 );
             } catch (RuntimeException exception) {
-                pendingDurableLoads.remove(playerId);
+                recoveryFence.finish(read);
                 plugin.getLogger().log(Level.WARNING, "Durable vanish recovery failed", exception);
             }
         })) {
-            pendingDurableLoads.remove(playerId);
+            recoveryFence.finish(read);
         }
     }
 
     private void applyDurableVanishRecovery(Player player, VanishRecord record) {
         UUID playerId = player.getUniqueId();
+        if (pendingStaffModeExitDisables.contains(playerId) || staffMode.restoringSavedState(playerId)) {
+            // The operation ticket rejects pre-exit reads even after these transient flags clear.
+            return;
+        }
         if (record == null) {
             boolean wasVanished = visibility.isVanished(playerId);
             durableVanishedRanks.remove(playerId);
@@ -957,7 +1218,9 @@ public final class VanishManager implements Listener {
         durableVanishedRanks.put(playerId, record.rank());
         rememberPersistedGameMode(record);
         visibility.setVanished(playerId, record.rank(), true);
-        enforceVanishSpectator(player);
+        if (!staffMode.transitioning(playerId)) {
+            applyVanishGameMode(player);
+        }
         audiences.updateGameMode(playerId, player.getGameMode());
         audiences.refreshViewer(playerId);
         audiences.refreshTarget(playerId);
@@ -977,7 +1240,8 @@ public final class VanishManager implements Listener {
 
     private void reconcileVanishGameMode(Player player) {
         UUID playerId = player.getUniqueId();
-        if (!visibility.isVanished(playerId)) {
+        if (!visibility.isVanished(playerId) || pendingStaffModeExitDisables.contains(playerId)
+                || staffMode.transitioning(playerId) || staffMode.restoringSavedState(playerId)) {
             return;
         }
         StaffRank rank = onlineStaffRanks.get(playerId);
@@ -986,50 +1250,87 @@ public final class VanishManager implements Listener {
             selectedGameModes.put(playerId, selected);
             persistSelectedGameMode(playerId, rank, selected);
         }
-        enforceVanishSpectator(player);
+        applyVanishGameMode(player);
     }
 
     private GameMode selectedGameModeForEnable(Player player, StaffRank rank) {
         GameMode current = player.getGameMode();
-        return isSelectableGameMode(rank, current) ? current : defaultSelectedGameMode(rank);
+        UUID playerId = player.getUniqueId();
+        return isSelectableGameMode(playerId, rank, current)
+                ? current : defaultSelectedGameMode(playerId, rank);
     }
 
-    private static GameMode defaultSelectedGameMode(StaffRank rank) {
-        return rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER
-                ? GameMode.CREATIVE
-                : GameMode.SPECTATOR;
+    private GameMode defaultSelectedGameMode(UUID playerId, StaffRank rank) {
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        return VanishGameModePolicy.defaultMode(authority.rank(), authority.onDuty());
     }
 
-    private static boolean isSelectableGameMode(StaffRank rank, GameMode mode) {
-        if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
-            return mode == GameMode.SURVIVAL || mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR;
-        }
-        return rank != null && rank != StaffRank.SYSTEM && mode == GameMode.SPECTATOR;
+    private boolean isSelectableGameMode(UUID playerId, StaffRank rank, GameMode mode) {
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        return VanishGameModePolicy.allows(authority.rank(), mode, authority.onDuty());
     }
 
-    private void enforceVanishSpectator(Player player) {
-        if (player.getGameMode() == GameMode.SPECTATOR) {
+    private ModeAuthority modeAuthority(UUID playerId, StaffRank liveRank) {
+        // Duty profiles own their applied rank; visibility and permission refreshes
+        // must not temporarily widen or replace that profile's mode authority.
+        boolean onDuty = staffMode.active(playerId);
+        return new ModeAuthority(onDuty ? staffMode.activeRank(playerId) : liveRank, onDuty);
+    }
+
+    private record ModeAuthority(StaffRank rank, boolean onDuty) {
+    }
+
+    private void applyVanishGameMode(Player player) {
+        UUID playerId = player.getUniqueId();
+        if (staffMode.transitioning(playerId)) {
             return;
         }
-        UUID playerId = player.getUniqueId();
+        StaffRank rank = resolveLiveRank(player);
+        ModeAuthority authority = modeAuthority(playerId, rank);
+        GameMode selected = VanishGameModePolicy.reconcile(authority.rank(),
+                selectedGameModes.getOrDefault(playerId, player.getGameMode()), authority.onDuty());
+        if (player.getGameMode() == selected) {
+            return;
+        }
         vanishGameModeApplications.add(playerId);
         try {
-            player.setGameMode(GameMode.SPECTATOR);
-            if (player.getGameMode() != GameMode.SPECTATOR) {
-                throw new IllegalStateException("server-side spectator transition was rejected");
+            if (player.getGameMode() == GameMode.SPECTATOR) {
+                player.setSpectatorTarget(null);
             }
-            player.setSpectatorTarget(null);
+            player.setGameMode(selected);
+            if (player.getGameMode() != selected) {
+                throw new IllegalStateException("rank-authorized vanish game mode was rejected");
+            }
         } finally {
             vanishGameModeApplications.remove(playerId);
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSelectedGameModeCommitted(PlayerGameModeChangeEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        if (!visibility.isVanished(playerId) || vanishGameModeApplications.contains(playerId)
+                || staffMode.transitioning(playerId) || staffMode.restoringSavedState(playerId)) {
+            return;
+        }
+        GameMode selected = event.getNewGameMode();
+        player.getScheduler().execute(plugin, () -> {
+            StaffRank rank = resolveLiveRank(player);
+            if (visibility.isVanished(playerId) && player.getGameMode() == selected
+                    && isSelectableGameMode(playerId, rank, selected)) {
+                selectedGameModes.put(playerId, selected);
+                persistSelectedGameMode(playerId, rank, selected);
+            }
+        }, null, 1L);
+    }
+
     private void restoreSelectedGameMode(Player player) {
         UUID playerId = player.getUniqueId();
         StaffRank rank = resolveLiveRank(player);
-        GameMode selected = selectedGameModes.getOrDefault(playerId, defaultSelectedGameMode(rank));
-        if (!isSelectableGameMode(rank, selected)) {
-            selected = defaultSelectedGameMode(rank);
+        GameMode selected = selectedGameModes.getOrDefault(playerId, defaultSelectedGameMode(playerId, rank));
+        if (!isSelectableGameMode(playerId, rank, selected)) {
+            selected = defaultSelectedGameMode(playerId, rank);
         }
         vanishGameModeApplications.add(playerId);
         try {
@@ -1050,7 +1351,9 @@ public final class VanishManager implements Listener {
         if (rank == null || !selectedModeWrites.add(playerId)) {
             return;
         }
+        recoveryFence.invalidate(playerId);
         if (!submit(() -> {
+            boolean committed = false;
             try {
                 VanishStore loaded = store.get();
                 if (loaded == null || !visibility.isVanished(playerId)) {
@@ -1068,14 +1371,30 @@ public final class VanishManager implements Listener {
                 if (result == VanishStore.WriteResult.STAFF_SESSION_NOT_ACTIVE) {
                     throw new IllegalStateException("active staff session ended before selected mode commit");
                 }
+                committed = true;
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.SEVERE, "Vanish selected game mode persistence failed", exception);
             } finally {
                 selectedModeWrites.remove(playerId);
+                if (committed && visibility.isVanished(playerId)
+                        && selectedGameModes.get(playerId) != selected) {
+                    audiences.onOwner(playerId, player -> {
+                        GameMode latest = selectedGameModes.get(playerId);
+                        StaffRank liveRank = resolveLiveRank(player);
+                        if (visibility.isVanished(playerId) && isSelectableGameMode(playerId, liveRank, latest)) {
+                            persistSelectedGameMode(playerId, liveRank, latest);
+                        }
+                    });
+                }
             }
         })) {
             selectedModeWrites.remove(playerId);
         }
+    }
+
+    @FunctionalInterface
+    public interface PresenceTransitionSink {
+        void publish(UUID subjectId, UUID viewerId, boolean vanished);
     }
 
     private boolean submit(Runnable operation) {

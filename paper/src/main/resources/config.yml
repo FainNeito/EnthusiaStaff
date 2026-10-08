@@ -25,7 +25,23 @@ workers:
 # Staff-mode direct movement and tester tools read these values when the Paper runtime is
 # created. Changes are intentionally restart-only and are not applied by /estaff reload.
 staff-tools:
+  # Restart-only permutation of slots 0..8; duplicate/unknown slots fail startup.
+  slots:
+    random-teleport: 0
+    player-inspector: 1
+    freeze: 2
+    reports: 3
+    cheat-tester: 4
+    spectate: 5
+    vanish: 6
+    staff-chat: 7
+    staff-tools: 8
   random-teleport:
+    # Successful recent targets per staff actor, 0 disables preference; range 0..1000.
+    recent-targets: 20
+    # Optional heuristic using local observed movement/actions, not an external AFK verdict.
+    skip-idle: false
+    idle-seconds: 300
     disabled-servers: []
     disabled-worlds: []
   cheat-tester:
@@ -45,6 +61,13 @@ staff-tools:
     target-tool-millis: 750
     toggle-tool-millis: 500
     menu-millis: 500
+
+# Restart-only investigation settings; all new permissions require explicit grants.
+investigation:
+  flags:
+    categories: [watch, suspected-cheating, behavior, follow-up]
+  join-alerts:
+    enabled: false
 
 # Reloadable history presentation and event inclusion settings.
 history:
@@ -147,3 +170,9 @@ visibility:
     DEVELOPER: [HELPER, MOD, DEVELOPER, ADMIN]
     ADMIN: [HELPER, MOD, DEVELOPER, ADMIN]
     FOUNDER: [HELPER, MOD, DEVELOPER, ADMIN, FOUNDER]
+
+discord:
+  # Outside the current /estaff reload scope; restart to apply changes.
+  # The Discord bot forwards staff-action audit lines (destination "staff-action-log") to this
+  # channel. Empty disables forwarding; the per-server file log always keeps recording.
+  log-forward-channel: ""

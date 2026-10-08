@@ -15,6 +15,10 @@ final class StaffModeSourceHandoffRegistry {
         return active.putIfAbsent(playerId, created) == null;
     }
 
+    boolean active(UUID playerId) {
+        return playerId != null && active.containsKey(playerId);
+    }
+
     boolean abort(UUID playerId, UUID transferId) {
         java.util.Objects.requireNonNull(playerId, "playerId");
         java.util.Objects.requireNonNull(transferId, "transferId");

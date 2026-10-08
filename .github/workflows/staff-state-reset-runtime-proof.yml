@@ -68,6 +68,9 @@ jobs:
           cp validation/staff-state-reset-proof/target/staff-state-reset-proof-1.0.0.jar "$RUNNER_TEMP/StaffStateResetProof.jar"
           printf 'source=%s\n' "$(git rev-parse HEAD)" | tee "$RUNNER_TEMP/evidence/source.txt"
 
+      - name: Verify packet trace fixtures
+        run: node --test validation/staff-state-reset-proof/player-info-trace.test.js
+
       - name: Install protocol clients
         shell: bash
         run: |
@@ -221,25 +224,33 @@ jobs:
               return 1
             }
           }
+          # Physics is disabled and position packets are injected by the client harness.
+          # Geometry establishes server movement acceptance, not vanilla collision/no-clip.
           for name in leaf115 paper128 paper129 paper134; do
             evidence="$root/$name/server/staff-state-reset-proof.txt"
             client="$root/$name/client.log"
             require "$evidence" '^HARNESS_READY=true$'
-            for state in VISIBLE_CREATIVE VISIBLE_SURVIVAL VISIBLE_SPECTATOR VISIBLE_CREATIVE_2 VANISH_ON_SPECTATOR VANISHED_SELECT_SURVIVAL VANISH_OFF_SURVIVAL VISIBLE_CREATIVE_3 VANISH_ON_SPECTATOR_2 VANISHED_SELECT_CREATIVE ADVENTURE_REJECTED VANISH_OFF_CREATIVE VISIBLE_SPECTATOR_FINAL FOUNDER_VISIBLE_CREATIVE FOUNDER_VISIBLE_SURVIVAL FOUNDER_VISIBLE_SPECTATOR FOUNDER_VISIBLE_CREATIVE_2 FOUNDER_VANISH_ON_SPECTATOR FOUNDER_VANISHED_SELECT_SURVIVAL FOUNDER_VANISH_OFF_SURVIVAL FOUNDER_VISIBLE_CREATIVE_3 FOUNDER_VANISH_ON_SPECTATOR_2 FOUNDER_VANISHED_SELECT_CREATIVE FOUNDER_VANISH_OFF_CREATIVE; do
+            for state in VISIBLE_CREATIVE VISIBLE_SURVIVAL VISIBLE_SPECTATOR VISIBLE_CREATIVE_2 VANISH_ON_CREATIVE VANISHED_SELECT_SURVIVAL VANISHED_SELECT_SPECTATOR VANISHED_RETURN_SURVIVAL VANISH_OFF_SURVIVAL VISIBLE_CREATIVE_3 VANISH_ON_CREATIVE_2 VANISHED_SELECT_CREATIVE ADVENTURE_REJECTED VANISH_OFF_CREATIVE VISIBLE_SPECTATOR_FINAL FOUNDER_VISIBLE_CREATIVE FOUNDER_VISIBLE_SURVIVAL FOUNDER_VISIBLE_SPECTATOR FOUNDER_VISIBLE_CREATIVE_2 FOUNDER_VANISH_ON_CREATIVE FOUNDER_VANISHED_SELECT_SURVIVAL FOUNDER_VANISHED_SELECT_SPECTATOR FOUNDER_VANISHED_RETURN_SURVIVAL FOUNDER_VANISH_OFF_SURVIVAL FOUNDER_VISIBLE_CREATIVE_3 FOUNDER_VANISH_ON_CREATIVE_2 FOUNDER_VANISHED_SELECT_CREATIVE FOUNDER_VANISH_OFF_CREATIVE; do
               require "$evidence" "^STATE\\|$state\\|pass=true"
             done
             for phase in VISIBLE_WALL VISIBLE_FLOOR VISIBLE_CEILING VANISHED_WALL VANISHED_FLOOR VANISHED_CEILING VISIBLE_FINAL_TELEPORT_WALL; do
               require "$evidence" "^GEOMETRY\\|$phase\\|pass=true\\|mode=SPECTATOR"
             done
-            require "$client" '^MARKER\\|STATE\\|VISIBLE_SURVIVAL\\|mode=survival$'
-            require "$client" '^MARKER\\|STATE\\|VISIBLE_SPECTATOR\\|mode=spectator$'
-            require "$client" '^MARKER\\|STATE\\|VANISHED_SELECT_SURVIVAL\\|mode=spectator$'
-            require "$client" '^MARKER\\|STATE\\|VANISHED_SELECT_CREATIVE\\|mode=spectator$'
-            require "$client" '^MARKER\\|STATE\\|FOUNDER_VISIBLE_SURVIVAL\\|mode=survival$'
-            require "$client" '^MARKER\\|STATE\\|FOUNDER_VISIBLE_SPECTATOR\\|mode=spectator$'
-            require "$client" '^MARKER\\|STATE\\|FOUNDER_VANISHED_SELECT_SURVIVAL\\|mode=spectator$'
-            require "$client" '^MARKER\\|STATE\\|FOUNDER_VANISHED_SELECT_CREATIVE\\|mode=spectator$'
-            require "$client" '^DONE=true\\|mode=creative$'
+            require "$client" '^CLIENT_PHYSICS[|]enabled=false[|]purpose=server-movement-acceptance-not-vanilla-collision-proof$'
+            require "$client" '^SELF_PLAYER_INFO[|]packet=player_info[|]gameMode=3[|]'
+            require "$client" '^MARKER\|STATE\|VISIBLE_SURVIVAL\|mode=survival$'
+            require "$client" '^MARKER\|STATE\|VISIBLE_SPECTATOR\|mode=spectator$'
+            require "$client" '^MARKER\|STATE\|VANISHED_SELECT_SURVIVAL\|mode=survival$'
+            require "$client" '^MARKER\|STATE\|VANISHED_SELECT_CREATIVE\|mode=creative$'
+            require "$client" '^MARKER\|STATE\|FOUNDER_VISIBLE_SURVIVAL\|mode=survival$'
+            require "$client" '^MARKER\|STATE\|FOUNDER_VISIBLE_SPECTATOR\|mode=spectator$'
+            require "$client" '^MARKER\|STATE\|FOUNDER_VANISHED_SELECT_SURVIVAL\|mode=survival$'
+            require "$client" '^MARKER\|STATE\|FOUNDER_VANISHED_SELECT_CREATIVE\|mode=creative$'
+            require "$client" '^MARKER\|STATE\|VANISHED_SELECT_SPECTATOR\|mode=spectator$'
+            require "$client" '^MARKER\|STATE\|VANISHED_RETURN_SURVIVAL\|mode=survival$'
+            require "$client" '^MARKER\|STATE\|FOUNDER_VANISHED_SELECT_SPECTATOR\|mode=spectator$'
+            require "$client" '^MARKER\|STATE\|FOUNDER_VANISHED_RETURN_SURVIVAL\|mode=survival$'
+            require "$client" '^DONE=true\|mode=creative$'
             require "$evidence" '^DONE=true$'
             if grep -q '^FAIL|' "$evidence"; then
               grep '^FAIL|' "$evidence"

@@ -35,7 +35,7 @@ class PunishmentHierarchyWiringTest {
         String source = Files.readString(GUI_SOURCE);
 
         assertTrue(occurrences(source, "!targetAllowed(viewer, actor, state.target().playerId())") >= 3);
-        assertTrue(source.contains("LuckPermsStaffTargetGuard.discover(plugin)"));
+        assertTrue(source.contains("LuckPermsStaffTargetGuard.discover("));
     }
 
     private static int occurrences(String source, String value) {

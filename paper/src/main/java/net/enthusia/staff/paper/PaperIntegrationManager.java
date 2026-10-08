@@ -38,6 +38,7 @@ import net.enthusia.staff.paper.inventory.InventoryCoordinator;
 import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.enthusia.staff.paper.visibility.DefaultStaffVisibilityService;
+import net.enthusia.staff.paper.visibility.VanishManager;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
@@ -263,6 +264,7 @@ final class PaperIntegrationManager implements Listener {
                     dependencies.evidence().muteEnforcement(),
                     dependencies.players().freeze(),
                     dependencies.players().visibility(),
+                    dependencies.players().vanish()::presenceStateReady,
                     dependencies.evidence().chatContext().get(),
                     plugin(),
                     dependencies.stores().punishmentService(),
@@ -275,6 +277,9 @@ final class PaperIntegrationManager implements Listener {
             }
             closeRoseChatIntegration();
             roseChat = discovery.integration().orElseThrow();
+            dependencies.players().vanish().setPresenceTransitionSink(
+                    roseChat::renderPresenceTransition
+            );
             deactivateMuteFallback();
             clearIssue(ROSECHAT);
         } catch (IllegalArgumentException exception) {
@@ -299,6 +304,7 @@ final class PaperIntegrationManager implements Listener {
     // Null is the explicit inactive state for this optional hot-reloadable provider slot.
     @SuppressWarnings("PMD.NullAssignment")
     private void closeRoseChatIntegration() {
+        dependencies.players().vanish().clearPresenceTransitionSink();
         resources.close("RoseChat bridge", roseChat);
         roseChat = null;
     }
@@ -460,6 +466,7 @@ final class PaperIntegrationManager implements Listener {
     record PlayerComponents(
             FreezeManager freeze,
             DefaultStaffVisibilityService visibility,
+            VanishManager vanish,
             InventoryOperationContext inventoryContext,
             InventoryCoordinator inventory
     ) {

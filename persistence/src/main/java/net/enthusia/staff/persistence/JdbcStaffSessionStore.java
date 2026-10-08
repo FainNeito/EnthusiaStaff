@@ -12,10 +12,13 @@ import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
+import net.enthusia.staff.domain.staff.StaffSessionOwnership;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 
 public final class JdbcStaffSessionStore implements StaffSessionStore {
+    private static final int SINGLE_ROW_UPDATE = 1;
+
     private final DataSource dataSource;
 
     public JdbcStaffSessionStore(DataSource dataSource) {
@@ -57,7 +60,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             } catch (SQLException exception) {
                 rollback(connection, exception);
                 StaffSessionSnapshot existing = activeAfterConflict(staffId);
-                if (existing != null) {
+                if (existing != null && existing.serverId().equals(serverId)) {
                     return existing;
                 }
                 throw new ModerationPersistenceException("Staff session entry transaction failed", exception);
@@ -80,7 +83,26 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
     ) throws SQLException {
         StaffSessionSnapshot existing = active(connection, staffId, true);
         if (existing != null) {
+            if (StaffSessionOwnership.detached(existing.serverId())
+                    && existing.state() == StaffSessionState.ACTIVE) {
+                StaffSessionSnapshot rebound = rebindDetached(
+                        connection,
+                        existing,
+                        serverId,
+                        schemaVersion,
+                        checksum,
+                        snapshot,
+                        now
+                );
+                connection.commit();
+                return rebound;
+            }
             connection.rollback();
+            if (!existing.serverId().equalsIgnoreCase(serverId)) {
+                throw new SQLException(
+                        "active staff session is still owned by backend " + existing.serverId()
+                );
+            }
             return existing;
         }
         UUID sessionId = UUID.randomUUID();
@@ -114,10 +136,192 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
     }
 
     @Override
+    public Optional<StaffSessionSnapshot> detach(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    ) {
+        validateDetachRequest(
+                staffId, expectedSessionId, expectedRevision, expectedServerId, restoredChecksum, now);
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                return detachTransaction(
+                        connection, staffId, expectedSessionId, expectedServerId, restoredChecksum, now);
+            } catch (SQLException exception) {
+                rollback(connection, exception);
+                throw exception;
+            } finally {
+                restoreAutoCommit(connection);
+            }
+        } catch (SQLException exception) {
+            throw new ModerationPersistenceException("Unable to detach Staff Mode backend ownership", exception);
+        }
+    }
+
+    private static void validateDetachRequest(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    ) {
+        if (!validDetachIdentity(staffId, expectedSessionId, expectedRevision, expectedServerId)
+                || !validDetachVerification(restoredChecksum, now)) {
+            throw new IllegalArgumentException("valid staff backend detach fields are required");
+        }
+    }
+
+    private static boolean validDetachIdentity(
+            UUID staffId,
+            UUID expectedSessionId,
+            long expectedRevision,
+            String expectedServerId
+    ) {
+        return staffId != null
+                && expectedSessionId != null
+                && expectedRevision >= 0
+                && expectedServerId != null
+                && !expectedServerId.isBlank();
+    }
+
+    private static boolean validDetachVerification(String restoredChecksum, Instant now) {
+        return restoredChecksum != null
+                && restoredChecksum.matches("[0-9a-f]{64}")
+                && now != null;
+    }
+
+    private static Optional<StaffSessionSnapshot> detachTransaction(
+            Connection connection,
+            UUID staffId,
+            UUID expectedSessionId,
+            String expectedServerId,
+            String restoredChecksum,
+            Instant now
+    ) throws SQLException {
+        StaffSessionSnapshot current = active(connection, staffId, true);
+        if (!ownedActiveSession(current, expectedSessionId, expectedServerId)) {
+            connection.rollback();
+            return Optional.empty();
+        }
+        if (!current.checksum().equals(restoredChecksum)) {
+            connection.rollback();
+            throw new SQLException("backend detach restoration checksum did not match the saved snapshot");
+        }
+        if (!markDetached(connection, expectedSessionId, current.serverId())) {
+            connection.rollback();
+            return Optional.empty();
+        }
+        insertAudit(
+                connection,
+                staffId,
+                expectedSessionId,
+                "STAFF_MODE_BACKEND_DETACHED",
+                "Restored backend " + expectedServerId + " and retained network Staff Mode",
+                now
+        );
+        StaffSessionSnapshot detached = active(connection, staffId, true);
+        connection.commit();
+        return Optional.ofNullable(detached);
+    }
+
+    private static boolean ownedActiveSession(
+            StaffSessionSnapshot current,
+            UUID expectedSessionId,
+            String expectedServerId
+    ) {
+        return current != null
+                && current.sessionId().equals(expectedSessionId)
+                && current.state() == StaffSessionState.ACTIVE
+                && current.serverId().equalsIgnoreCase(expectedServerId);
+    }
+
+    private static boolean markDetached(
+            Connection connection,
+            UUID sessionId,
+            String currentServerId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE staff_sessions
+                SET server_id = ?, revision = revision + 1
+                WHERE session_id = ? AND state = 'ACTIVE' AND server_id = ?
+                """)) {
+            statement.setString(1, StaffSessionOwnership.DETACHED_SERVER_ID);
+            statement.setBytes(2, UuidBytes.toBytes(sessionId));
+            statement.setString(3, currentServerId);
+            return statement.executeUpdate() == SINGLE_ROW_UPDATE;
+        }
+    }
+
+    private static StaffSessionSnapshot rebindDetached(
+            Connection connection,
+            StaffSessionSnapshot existing,
+            String serverId,
+            int schemaVersion,
+            String checksum,
+            byte[] snapshot,
+            Instant now
+    ) throws SQLException {
+        try (PreparedStatement session = connection.prepareStatement("""
+                UPDATE staff_sessions
+                SET server_id = ?, started_at = ?, revision = revision + 1
+                WHERE session_id = ? AND state = 'ACTIVE' AND server_id = ? AND revision = ?
+                """);
+             PreparedStatement state = connection.prepareStatement("""
+                UPDATE staff_state_snapshots
+                SET schema_version = ?, checksum = ?, snapshot_blob = ?, created_at = ?
+                WHERE session_id = ?
+                """)) {
+            session.setString(1, serverId);
+            session.setTimestamp(2, Timestamp.from(now));
+            session.setBytes(3, UuidBytes.toBytes(existing.sessionId()));
+            session.setString(4, StaffSessionOwnership.DETACHED_SERVER_ID);
+            session.setLong(5, existing.revision());
+            if (session.executeUpdate() != SINGLE_ROW_UPDATE) {
+                throw new SQLException("detached Staff Mode session lost its rebind fence");
+            }
+
+            state.setInt(1, schemaVersion);
+            state.setString(2, checksum);
+            state.setBytes(3, snapshot);
+            state.setTimestamp(4, Timestamp.from(now));
+            state.setBytes(5, UuidBytes.toBytes(existing.sessionId()));
+            if (state.executeUpdate() != SINGLE_ROW_UPDATE) {
+                throw new SQLException("detached Staff Mode snapshot is missing during rebind");
+            }
+        }
+        insertAudit(
+                connection,
+                existing.staffId(),
+                existing.sessionId(),
+                "STAFF_MODE_BACKEND_ATTACHED",
+                "Captured backend " + serverId + " while retaining network Staff Mode",
+                now
+        );
+        StaffSessionSnapshot rebound = active(connection, existing.staffId(), true);
+        if (rebound == null || !rebound.serverId().equalsIgnoreCase(serverId)) {
+            throw new SQLException("Staff Mode backend rebind did not become authoritative");
+        }
+        return rebound;
+    }
+
+    @Override
     public Optional<StaffSessionSnapshot> beginExit(UUID staffId, Instant now) {
         if (staffId == null || now == null) {
             throw new IllegalArgumentException("staff and current time are required");
         }
+        // M4: exit serializes on the same staff row as entry; apply the deadlock retry here too.
+        return new JdbcDeadlockRetry().execute(
+                "Staff session exit was interrupted during deadlock retry",
+                () -> beginExitOnce(staffId)
+        );
+    }
+
+    private Optional<StaffSessionSnapshot> beginExitOnce(UUID staffId) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -147,6 +351,60 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
             }
         } catch (SQLException exception) {
             throw new ModerationPersistenceException("Unable to begin staff session exit", exception);
+        }
+    }
+
+    @Override
+    public Optional<StaffSessionSnapshot> beginDetachedExit(StaffSessionSnapshot expected, Instant now) {
+        if (expected == null || now == null || !StaffSessionOwnership.detached(expected.serverId())
+                || (expected.state() != StaffSessionState.EXITING
+                    && expected.state() != StaffSessionState.RECOVERY_REQUIRED)) {
+            throw new IllegalArgumentException("valid detached terminal recovery fields are required");
+        }
+        return new JdbcDeadlockRetry().execute(
+                "Detached Staff session exit was interrupted during deadlock retry",
+                () -> beginDetachedExitOnce(expected)
+        );
+    }
+
+    private Optional<StaffSessionSnapshot> beginDetachedExitOnce(StaffSessionSnapshot expected) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                StaffSessionSnapshot current = active(connection, expected.staffId(), true);
+                if (current == null || !current.sessionId().equals(expected.sessionId())
+                        || current.revision() != expected.revision()
+                        || !StaffSessionOwnership.detached(current.serverId())
+                        || current.state() != expected.state()
+                        || !current.checksum().equals(expected.checksum())) {
+                    connection.rollback();
+                    return Optional.empty();
+                }
+                if (current.state() == StaffSessionState.RECOVERY_REQUIRED) {
+                    try (PreparedStatement statement = connection.prepareStatement("""
+                            UPDATE staff_sessions SET state = 'EXITING', revision = revision + 1
+                            WHERE session_id = ? AND state = 'RECOVERY_REQUIRED'
+                                AND server_id = ? AND revision = ?
+                            """)) {
+                        statement.setBytes(1, UuidBytes.toBytes(expected.sessionId()));
+                        statement.setString(2, current.serverId());
+                        statement.setLong(3, expected.revision());
+                        JdbcTransactionSupport.requireSingleUpdate(
+                                statement.executeUpdate(), "Detached Staff exit lost its recovery fence"
+                        );
+                    }
+                    current = active(connection, expected.staffId(), true);
+                }
+                connection.commit();
+                return Optional.of(current);
+            } catch (SQLException exception) {
+                rollback(connection, exception);
+                throw exception;
+            } finally {
+                restoreAutoCommit(connection);
+            }
+        } catch (SQLException exception) {
+            throw new ModerationPersistenceException("Unable to begin fenced detached Staff exit", exception);
         }
     }
 
@@ -362,7 +620,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT session_id, staff_id
                 FROM staff_sessions
-                WHERE server_id = ? AND state IN ('ACTIVE', 'EXITING')
+                WHERE server_id = ? AND state = 'EXITING'
                 ORDER BY session_id
                 FOR UPDATE
                 """)) {
@@ -383,7 +641,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         try (PreparedStatement statement = connection.prepareStatement("""
                 UPDATE staff_sessions
                 SET state = 'RECOVERY_REQUIRED', revision = revision + 1
-                WHERE server_id = ? AND state IN ('ACTIVE', 'EXITING')
+                WHERE server_id = ? AND state = 'EXITING'
                 """)) {
             statement.setString(1, serverId);
             return statement.executeUpdate();

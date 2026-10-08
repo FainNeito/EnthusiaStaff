@@ -11,14 +11,17 @@ import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.application.ActivePlaytimeProvider;
 import net.enthusia.staff.domain.application.PunishmentDraftWorkflow;
 import net.enthusia.staff.domain.application.PunishmentRequestService;
+import net.enthusia.staff.domain.application.PunishmentService;
 import net.enthusia.staff.domain.application.SanctionChangeService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.ports.AtomicReasonPolicyRepository;
 import net.enthusia.staff.domain.ports.CaseLookup;
+import net.enthusia.staff.domain.ports.CaseReviewStore;
 import net.enthusia.staff.domain.ports.FreezeStore;
 import net.enthusia.staff.domain.ports.ModerationHistoryStore;
 import net.enthusia.staff.domain.ports.PlayerDirectory;
 import net.enthusia.staff.domain.ports.ReportStore;
+import net.enthusia.staff.domain.ports.SanctionLookup;
 import net.enthusia.staff.paper.account.PaperOnlinePlayerVerifier;
 import net.enthusia.staff.paper.auth.ActiveDutyAuthorizationPolicy;
 import net.enthusia.staff.paper.client.ClientEvidenceCollector;
@@ -37,6 +40,7 @@ import net.enthusia.staff.paper.command.ReportCommand;
 import net.enthusia.staff.paper.command.ReportsCommand;
 import net.enthusia.staff.paper.command.SanctionChangeCommand;
 import net.enthusia.staff.paper.command.SanctionLifecycleCommand;
+import net.enthusia.staff.paper.command.StaffApiCommand;
 import net.enthusia.staff.paper.command.StaffChatCommand;
 import net.enthusia.staff.paper.command.StaffModeCommand;
 import net.enthusia.staff.paper.command.StaffWhoCommand;
@@ -117,11 +121,14 @@ final class PaperCommandRegistrar {
         configureEstaff();
         registerAccountLinkCommands();
         registerPunishmentCommands();
+        registerStaffApiCommands();
         registerSanctionChangeCommands();
         registerReportCommands();
         registerStaffCommands();
         registerInventoryCommands();
         registerInspectionCommands();
+        new net.enthusia.staff.paper.command.PlayerNameCompletion(
+                dependencies.players().vanish()::canSee, dependencies.players().staffMode()).install(plugin());
     }
 
     private void configureEstaff() {
@@ -162,9 +169,27 @@ final class PaperCommandRegistrar {
         Supplier<PunishmentDraftWorkflow> drafts = storage(PaperStorageBindings::punishmentDraftWorkflow);
         Supplier<PunishmentRequestService> requests = storage(PaperStorageBindings::punishmentRequestService);
         Supplier<PlayerDirectory> players = storage(PaperStorageBindings::playerDirectory);
+        Supplier<ModerationHistoryStore> histories = storage(PaperStorageBindings::moderationHistoryStore);
+        Supplier<CaseReviewStore> cases = storage(PaperStorageBindings::caseReviewStore);
+        Supplier<SanctionLookup> sanctions = storage(PaperStorageBindings::sanctionLookup);
+        Supplier<ReportStore> reports = storage(PaperStorageBindings::reportStore);
         AuthorizationPolicy activeAuthorization = activeAuthorization();
         PunishmentGuiController punishmentGui = new PunishmentGuiController(
-                plugin(), writeMode(), drafts, players, activeAuthorization, reasons(), workers()
+                new PunishmentGuiController.Dependencies(
+                        plugin(),
+                        clock(),
+                        writeMode(),
+                        drafts,
+                        players,
+                        activeAuthorization,
+                        reasons(),
+                        histories,
+                        cases,
+                        sanctions,
+                        reports,
+                        moderationSettings::current,
+                        workers()
+                )
         );
         plugin().getServer().getPluginManager().registerEvents(punishmentGui, plugin());
         PunishmentRequestGuiController requestGui = new PunishmentRequestGuiController(
@@ -178,6 +203,18 @@ final class PaperCommandRegistrar {
                 plugin(), writeMode(), drafts, players, activeAuthorization, punishmentGui, requestHandler, workers()
         );
         PUNISHMENT_COMMANDS.forEach(name -> bindCompleting(name, command, command));
+    }
+
+    private void registerStaffApiCommands() {
+        Supplier<PunishmentService> punishments = storage(PaperStorageBindings::punishmentService);
+        Supplier<PlayerDirectory> players = storage(PaperStorageBindings::playerDirectory);
+        StaffApiCommand command = new StaffApiCommand(
+                punishments,
+                players,
+                authoritativeMode(),
+                clock()
+        );
+        bindCompleting("staffapi", command, command);
     }
 
     private void registerSanctionChangeCommands() {
@@ -226,10 +263,12 @@ final class PaperCommandRegistrar {
                 clock(),
                 activeReportStore,
                 dependencies.environment().reportConfiguration(),
-                workers()
+                workers(),
+                storage(PaperStorageBindings::playerDirectory)
         );
         plugin().getServer().getPluginManager().registerEvents(reportGui, plugin());
-        ReportsCommand reports = new ReportsCommand(plugin(), clock(), activeReportStore, workers(), reportGui);
+        ReportsCommand reports = new ReportsCommand(plugin(), clock(), activeReportStore, workers(), reportGui,
+                new net.enthusia.staff.paper.report.ReportEvidenceFormatter(), storage(PaperStorageBindings::playerDirectory));
         bindCompleting("reports", reports, reports);
     }
 
@@ -241,7 +280,8 @@ final class PaperCommandRegistrar {
         );
         bindCompleting("freeze", freezes, freezes);
         bindCompleting("unfreeze", freezes, freezes);
-        bind("staff", new StaffModeCommand(writeMode(), dependencies.players().staffMode()));
+        bind("staff", new StaffModeCommand(writeMode(), dependencies.players().staffMode(),
+                dependencies.players().vanish()));
         bind("vanish", new VanishCommand(writeMode(), dependencies.players().vanish()));
         bind("staffchat", new StaffChatCommand(dependencies.integrations().roseChat()));
         bind("staffwho", new StaffWhoCommand(
@@ -262,6 +302,11 @@ final class PaperCommandRegistrar {
     }
 
     private void registerInspectionCommands() {
+        var activity = new net.enthusia.staff.paper.staff.PlayerActivityListener(clock());
+        plugin().getServer().getPluginManager().registerEvents(activity, plugin());
+        plugin().getServer().getServicesManager().register(
+                net.enthusia.staff.paper.staff.PlayerActivityListener.class, activity, plugin(),
+                org.bukkit.plugin.ServicePriority.Normal);
         Supplier<PlayerDirectory> players = storage(PaperStorageBindings::playerDirectory);
         Supplier<CaseLookup> cases = storage(PaperStorageBindings::caseLookup);
         Supplier<FreezeStore> freezes = storage(PaperStorageBindings::freezeStore);
@@ -275,13 +320,30 @@ final class PaperCommandRegistrar {
                 dependencies.integrations().reputation(), workers()
         );
         bindCompleting("inspect", inspect, inspect);
+        Supplier<net.enthusia.staff.domain.ports.InvestigationFlagStore> flags = storage(
+                bindings -> new net.enthusia.staff.persistence.JdbcInvestigationFlagStore(bindings.runtime().dataSource()));
+        var flagCommand = new net.enthusia.staff.paper.command.InvestigationCommand(
+                plugin(), clock(), flags, players, cases, writeMode(), workers(), storage(
+                        bindings -> new net.enthusia.staff.persistence.JdbcStaffNoteStore(bindings.runtime().dataSource())));
+        bind("staffflags", flagCommand);
+        plugin().getServer().getServicesManager().register(
+                net.enthusia.staff.paper.command.InvestigationCommand.class, flagCommand, plugin(),
+                org.bukkit.plugin.ServicePriority.Normal);
+        var joinAlerts = new net.enthusia.staff.paper.staff.InvestigationJoinListener(
+                plugin(), clock(), workers(), flags, storage(
+                        bindings -> new net.enthusia.staff.persistence.JdbcStaffNoteStore(bindings.runtime().dataSource())));
+        plugin().getServer().getPluginManager().registerEvents(joinAlerts, plugin());
+        plugin().getServer().getServicesManager().register(
+                net.enthusia.staff.paper.staff.InvestigationJoinListener.class, joinAlerts, plugin(),
+                org.bukkit.plugin.ServicePriority.Normal);
+
         HistoryCommand history = new HistoryCommand(
                 plugin(), players, histories, moderationSettings::current, workers()
         );
         bindCompleting("history", history, history);
         CaseCommand caseCommand = new CaseCommand(
                 plugin(), cases, dependencies.integrations().confiscation(), histories,
-                moderationSettings::current, activeAuthorization, workers()
+                moderationSettings::current, activeAuthorization, workers(), players
         );
         InventoryRecoveryCoordinator recovery = new InventoryRecoveryCoordinator(
                 clock(), storage(PaperStorageBindings::inventoryRecoveryStore), activeAuthorization

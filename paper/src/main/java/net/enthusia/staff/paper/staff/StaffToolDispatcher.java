@@ -168,6 +168,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
+        randomTeleport.forget(event.getPlayer().getUniqueId());
         cooldowns.clear(event.getPlayer().getUniqueId());
     }
 
@@ -254,6 +255,38 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
 
     void exitStaffMode(Player player) {
         runCommand(player, "staff");
+    }
+
+    void dispatchInvestigationAction(Player player, InvestigationMenuAction action, String target) {
+        if (!menuAuthorized(player) || !menuToolAvailable(player, StaffToolDefinition.PLAYER_INSPECTOR)
+                || !player.hasPermission(action.permission())) {
+            player.closeInventory();
+            return;
+        }
+        player.closeInventory();
+        runCommand(player, action.command(target));
+    }
+
+    void showMenuHelp(Player player) {
+        if (!menuAuthorized(player)) {
+            return;
+        }
+        player.sendMessage(StaffMessageStyle.style("Staff Dashboard — /stafftools opens the menu; /staff leaves Staff Mode."));
+        for (StaffToolDefinition tool : availableMenuTools(player)) {
+            player.sendMessage(StaffMessageStyle.style(tool.displayName() + ": " + tool.description()));
+        }
+        if (menuToolAvailable(player, StaffToolDefinition.PLAYER_INSPECTOR)) {
+            showInvestigationHelp(player, "<player>");
+        }
+    }
+
+    void showInvestigationHelp(Player player, String target) {
+        if (!menuAuthorized(player) || !menuToolAvailable(player, StaffToolDefinition.PLAYER_INSPECTOR)) {
+            return;
+        }
+        for (InvestigationMenuAction action : InvestigationMenuAction.available(player::hasPermission)) {
+            player.sendMessage(StaffMessageStyle.style('/' + action.command(target) + " — " + action.description()));
+        }
     }
 
     private void dispatchCheatConfiguration(Player player, StaffToolDefinition tool) {
@@ -345,12 +378,16 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
     }
 
     private void runCommand(Player player, String commandLine) {
-        if (!player.performCommand(commandLine)) {
+        if (!player.performCommand(ownedCommand(commandLine))) {
             player.sendMessage(StaffMessageStyle.style(Component.text(
                     "That staff action is unavailable on this backend. Use /estaff verify and the command fallback.",
                     NamedTextColor.RED
             )));
         }
+    }
+
+    static String ownedCommand(String commandLine) {
+        return "enthusiastaff:" + commandLine;
     }
 
     private void beginNamedFollowOrSpectate(UUID actorId, String targetName) {
@@ -395,6 +432,10 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             dispatch(player, StaffToolDefinition.STAFF_TOOLS, null);
             return;
         }
+        if (arguments.length == ACTION_ARGUMENTS && arguments[0].equalsIgnoreCase("help")) {
+            showMenuHelp(player);
+            return;
+        }
         if (isRandomCommand(arguments)) {
             dispatch(player, StaffToolDefinition.RANDOM_TELEPORT, null);
             return;
@@ -404,7 +445,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             return;
         }
         player.sendMessage(StaffMessageStyle.style(Component.text(
-                "Usage: /" + label + " | /" + label + " random | /" + label + " spectate <player>"
+                "Usage: /" + label + " | /" + label + " help | /" + label + " random | /" + label + " spectate <player>"
         )));
     }
 
@@ -434,7 +475,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             return List.of();
         }
         String prefix = arguments[0].toLowerCase(Locale.ROOT);
-        return List.of("random", "spectate", "follow").stream()
+        return List.of("help", "random", "spectate", "follow").stream()
                 .filter(value -> value.startsWith(prefix))
                 .toList();
     }

@@ -29,6 +29,9 @@ final class VanishRankReconciliationPolicy {
             StaffRank liveRank,
             StaffModeState staffModeState
     ) {
+        if (staffModeState == StaffModeState.EXITED) {
+            return vanished || durableRank != null ? VanishAction.DISABLE : VanishAction.NONE;
+        }
         if (!vanished) {
             return durableRank == null ? VanishAction.NONE : VanishAction.DISABLE;
         }
