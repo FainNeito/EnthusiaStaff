@@ -410,7 +410,12 @@ public final class InventoryCoordinator implements Listener, InventoryLockServic
         }
         if (!inspectionAllowed(viewer)) {
             event.setCancelled(true);
-            viewer.closeInventory();
+            Inventory revokedView = event.getView().getTopInventory();
+            viewer.getScheduler().runDelayed(plugin, ignored -> {
+                if (viewer.getOpenInventory().getTopInventory() == revokedView) {
+                    viewer.closeInventory();
+                }
+            }, () -> { }, 1L);
             return;
         }
         int topSize = event.getView().getTopInventory().getSize();

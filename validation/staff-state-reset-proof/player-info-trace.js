@@ -7,9 +7,7 @@ function normalizeUuid (value) {
 }
 
 function ownUuid (bot) {
-  const entity = bot.player || bot.entity || {}
-  const client = bot._client || {}
-  return normalizeUuid(entity.uuid || client.uuid)
+  return normalizeUuid(bot.player?.uuid || bot.entity?.uuid || bot._client?.uuid)
 }
 
 function traceOwnPlayerInfo (bot, packet, log) {

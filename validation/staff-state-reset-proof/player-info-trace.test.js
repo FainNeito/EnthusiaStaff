@@ -30,3 +30,9 @@ test('partial own update reports missing fields instead of inventing spectator s
   assert.deepEqual(trace({entity:{uuid:self}}, {entries:[{profileId:self}]}),
     ['SELF_PLAYER_INFO|packet=player_info|gameMode=unknown|listed=unknown'])
 })
+
+test('partial player identity falls back to the entity UUID before the client', () => {
+  assert.deepEqual(trace({player:{}, entity:{uuid:self}, _client:{uuid:'other'}},
+    {entries:[{uuid:self, gamemode:3}]}),
+    ['SELF_PLAYER_INFO|packet=player_info|gameMode=3|listed=unknown'])
+})

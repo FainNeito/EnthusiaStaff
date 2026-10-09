@@ -61,4 +61,20 @@ class PunishmentConfirmationTargetTest {
         assertTrue(PunishmentCommand.confirmationDraftId(DRAFT.toString(), id -> false,
                 input -> Optional.empty()).isEmpty());
     }
+    @Test
+    void confirmationHintRejectsBlankAmbiguousAndDifferentTargetNames() {
+        UUID player = UUID.randomUUID();
+        var named = identity(player, "SharedName");
+        assertEquals(DRAFT.toString(), PunishmentCommand.confirmationTarget(named, DRAFT, input -> Optional.empty()));
+        assertEquals(DRAFT.toString(), PunishmentCommand.confirmationTarget(named, DRAFT,
+                input -> Optional.of(identity(UUID.randomUUID(), "SharedName"))));
+        assertEquals(DRAFT.toString(), PunishmentCommand.confirmationTarget(identity(player, " "), DRAFT,
+                input -> { fail("blank names must not be resolved"); return Optional.empty(); }));
+        assertEquals("SharedName", PunishmentCommand.confirmationTarget(named, DRAFT, input -> Optional.of(named)));
+    }
+
+    private static net.enthusia.staff.domain.player.PlayerIdentity identity(UUID id, String name) {
+        return new net.enthusia.staff.domain.player.PlayerIdentity(id, Optional.of(name),
+                net.enthusia.staff.domain.player.PlayerPlatform.UNKNOWN, java.time.Instant.EPOCH, java.time.Instant.EPOCH);
+    }
 }

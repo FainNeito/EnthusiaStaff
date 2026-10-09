@@ -182,7 +182,7 @@ public final class HistoryCommand implements CommandExecutor, TabCompleter {
         return List.copyOf(lines);
     }
 
-    private static List<Component> render(
+    static List<Component> render(
             PlayerIdentity identity,
             PlayerResolution.MatchKind matchKind,
             ModerationHistoryPage page,
@@ -205,7 +205,7 @@ public final class HistoryCommand implements CommandExecutor, TabCompleter {
         if (page.page() < page.totalPages()) {
             lines.add(Component.text("Next page  ", NamedTextColor.DARK_GRAY)
                     .append(StaffMessageStyle.command(
-                            "/history " + identity.currentUsername().orElse(identity.playerId().toString()) + " " + (page.page() + 1)
+                            "/history " + identity.playerId() + " " + (page.page() + 1)
                     )));
         }
         return List.copyOf(lines);

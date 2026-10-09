@@ -627,8 +627,19 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
         return target.currentUsername().orElse("offline target");
     }
 
-    private static String confirmationTarget(PlayerIdentity target, PunishmentDraft draft) {
-        return target.currentUsername().orElseGet(() -> draft.draftId().toString());
+    private String confirmationTarget(PlayerIdentity target, PunishmentDraft draft) {
+        PlayerDirectory directory = players.get();
+        return confirmationTarget(target, draft.draftId(),
+                input -> directory == null ? Optional.empty() : directory.find(input));
+    }
+
+    static String confirmationTarget(
+            PlayerIdentity target, UUID draftId, Function<String, Optional<PlayerIdentity>> resolve
+    ) {
+        return target.currentUsername().filter(name -> !name.isBlank())
+                .filter(name -> resolve.apply(name)
+                        .map(match -> match.playerId().equals(target.playerId())).orElse(false))
+                .orElseGet(draftId::toString);
     }
 
     private static void usage(CommandSender sender, String label, String route) {

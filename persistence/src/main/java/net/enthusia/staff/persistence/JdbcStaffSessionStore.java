@@ -343,6 +343,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
                     current = active(connection, staffId, true);
                 }
                 connection.commit();
+                restoreAutoCommit(connection);
                 return Optional.of(current);
             } catch (SQLException exception) {
                 rollback(connection, exception);
@@ -379,6 +380,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
                         || current.state() != expected.state()
                         || !current.checksum().equals(expected.checksum())) {
                     connection.rollback();
+                    restoreAutoCommit(connection);
                     return Optional.empty();
                 }
                 if (current.state() == StaffSessionState.RECOVERY_REQUIRED) {
@@ -397,6 +399,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
                     current = active(connection, expected.staffId(), true);
                 }
                 connection.commit();
+                restoreAutoCommit(connection);
                 return Optional.of(current);
             } catch (SQLException | RuntimeException | Error exception) {
                 try {
