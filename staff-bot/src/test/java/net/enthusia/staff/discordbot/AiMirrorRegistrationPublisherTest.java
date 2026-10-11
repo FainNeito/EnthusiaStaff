@@ -26,12 +26,13 @@ class AiMirrorRegistrationPublisherTest {
     private static final long GUILD = 1234567890123456789L;
     private static final long CHANNEL = 1234567890123456788L;
     private static final String SNOWFLAKE = "1234567890123456787";
+    private static final String DISCORD_GENERAL = "discord_general";
 
     private static AiMirrorPublicationConfig config() {
         return new AiMirrorPublicationConfig(
                 URI.create("http://127.0.0.1:23819/v1/mirror-aliases"),
                 "staffbot-bridge", "example-private-token", GUILD, Set.of(CHANNEL),
-                "discord_general");
+                DISCORD_GENERAL);
     }
 
     private static DiscordChatPublication receipt(long guild, long channel) {
@@ -80,7 +81,7 @@ class AiMirrorRegistrationPublisherTest {
             assertEquals("rosechat:canonical:1", body.get("canonical_message_id").asText());
             assertEquals("hello original", body.get("canonical_text").asText());
             assertEquals("discord", body.get("platform").asText());
-            assertEquals("discord_general", body.get("channel_profile").asText());
+            assertEquals(DISCORD_GENERAL, body.get("channel_profile").asText());
             assertEquals(Long.toString(GUILD), body.get("scope_id").asText());
             assertEquals(Long.toString(CHANNEL), body.get("channel_id").asText());
             assertEquals(SNOWFLAKE, body.get("external_message_id").asText());
@@ -160,10 +161,10 @@ class AiMirrorRegistrationPublisherTest {
     void rejectsUnsafeOrUnexpectedEndpointAndProfiles() {
         assertThrows(IllegalArgumentException.class, () -> new AiMirrorPublicationConfig(
                 URI.create("http://example.com:1234/v1/mirror-aliases"),
-                "bridge", "token", GUILD, Set.of(CHANNEL), "discord_general"));
+                "bridge", "token", GUILD, Set.of(CHANNEL), DISCORD_GENERAL));
         assertThrows(IllegalArgumentException.class, () -> new AiMirrorPublicationConfig(
                 URI.create("https://example.com:1234/v1/moderate"),
-                "bridge", "token", GUILD, Set.of(CHANNEL), "discord_general"));
+                "bridge", "token", GUILD, Set.of(CHANNEL), DISCORD_GENERAL));
         assertThrows(IllegalArgumentException.class, () -> new AiMirrorPublicationConfig(
                 URI.create("http://127.0.0.1:1234/v1/mirror-aliases"),
                 "bridge", "token", GUILD, Set.of(CHANNEL), "discord_staff_exempt"));
