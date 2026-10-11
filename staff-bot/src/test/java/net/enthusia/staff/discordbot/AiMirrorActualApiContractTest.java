@@ -30,7 +30,7 @@ class AiMirrorActualApiContractTest {
     private static final long CHANNEL = 1234567890123456788L;
     private static final String ID = "1234567890123456787";
     private static final String CANONICAL = "rosechat:canonical:network-test";
-    private static final String TEXT = "original undecorated text";
+    private static final String TEXT = "Minecraft PvP café 💎";
 
     @Test
     void realPythonApiRegistersAndReplaysActualJavaPublisherRequest() throws Exception {
