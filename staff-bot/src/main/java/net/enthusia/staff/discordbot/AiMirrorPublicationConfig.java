@@ -89,17 +89,24 @@ record AiMirrorPublicationConfig(
     }
 
     private static boolean validEndpoint(URI uri) {
-        if (!"/v1/mirror-aliases".equals(uri.getRawPath()) || uri.getHost() == null
-                || uri.getUserInfo() != null || uri.getRawQuery() != null
-                || uri.getRawFragment() != null || uri.getPort() < 1) {
+        if (!validUriShape(uri)) {
             return false;
         }
         if ("https".equalsIgnoreCase(uri.getScheme())) {
             return true;
         }
-        String host = uri.getHost();
-        return "http".equalsIgnoreCase(uri.getScheme())
-                && ("127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host)
-                    || "::1".equals(host) || "[::1]".equals(host));
+        return "http".equalsIgnoreCase(uri.getScheme()) && isLoopback(uri.getHost());
+    }
+
+    private static boolean validUriShape(URI uri) {
+        return "/v1/mirror-aliases".equals(uri.getRawPath())
+                && uri.getHost() != null && uri.getUserInfo() == null
+                && uri.getRawQuery() == null && uri.getRawFragment() == null
+                && uri.getPort() > 0;
+    }
+
+    private static boolean isLoopback(String host) {
+        return "127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host)
+                || "::1".equals(host) || "[::1]".equals(host);
     }
 }
