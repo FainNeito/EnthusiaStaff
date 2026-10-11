@@ -168,5 +168,6 @@ class AiMirrorRegistrationPublisherTest {
                 URI.create("http://127.0.0.1:1234/v1/mirror-aliases"),
                 "bridge", "token", GUILD, Set.of(CHANNEL), "discord_staff_exempt"));
         assertFalse(config().token().isBlank());
+        assertFalse(config().toString().contains("example-private-token"));
     }
 }
