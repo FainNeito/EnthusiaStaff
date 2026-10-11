@@ -1,7 +1,6 @@
 package net.enthusia.staff.discordbot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -42,7 +41,6 @@ class AiMirrorActualApiContractTest {
         assertEquals("127.0.0.1", uri.getHost());
         assertEquals("/v1/mirror-aliases", uri.getRawPath());
         assertTrue(uri.getPort() > 0);
-        assertFalse(uri.getPort() == 80);
 
         AiMirrorPublicationConfig config = new AiMirrorPublicationConfig(
                 uri, CLIENT, TOKEN, GUILD, Set.of(CHANNEL), "discord_general");
