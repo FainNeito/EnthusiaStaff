@@ -25,6 +25,7 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
             System.getLogger(AiMirrorRegistrationPublisher.class.getName());
     private static final Duration TIMEOUT = Duration.ofSeconds(2);
     private static final int QUEUE_CAPACITY = 64;
+    private static final int HTTP_OK = 200;
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @FunctionalInterface
@@ -94,7 +95,7 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
         }
         try {
             int status = poster.post(request(publication));
-            if (status != 200) {
+            if (status != HTTP_OK) {
                 LOGGER.log(System.Logger.Level.WARNING, "ai_mirror_registration_not_confirmed");
             }
         } catch (IOException | RuntimeException failure) {
