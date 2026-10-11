@@ -40,6 +40,12 @@ record AiMirrorPublicationConfig(
         allowedChannels = Set.copyOf(allowedChannels);
     }
 
+    @Override
+    public String toString() {
+        // Never expose bearer secrets through a generated Java-record toString.
+        return "AiMirrorPublicationConfig[credential=REDACTED]";
+    }
+
     static Optional<AiMirrorPublicationConfig> fromEnvironment(
             StaffBotEnvironment environment,
             StaffBotChatBridgeConfiguration chatBridge,
