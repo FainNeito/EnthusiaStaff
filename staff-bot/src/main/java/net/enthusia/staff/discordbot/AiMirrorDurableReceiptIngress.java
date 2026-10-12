@@ -10,6 +10,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 /**
  * Inert nonblocking post-send receipt journal ingress. Not constructed or
@@ -42,12 +43,24 @@ final class AiMirrorDurableReceiptIngress implements DiscordChatPostObserver, Au
 
     static AiMirrorDurableReceiptIngress withStore(
             AiMirrorPublicationConfig config, AiMirrorEncryptedOutbox store) {
+        return withStore(config, store, saved -> { });
+    }
+
+    /**
+     * The handoff runs only on the existing bounded ingress disk worker, after
+     * encrypted fsync. A declined fast offer leaves the receipt on disk.
+     */
+    static AiMirrorDurableReceiptIngress withStore(
+            AiMirrorPublicationConfig config, AiMirrorEncryptedOutbox store,
+            Consumer<AiMirrorEncryptedOutbox.Saved> committed) {
         Objects.requireNonNull(store, "store");
+        Objects.requireNonNull(committed, "committed");
         if (!store.accepts(config)) {
             throw new IllegalArgumentException("durable receipt journal scope mismatch");
         }
         return new AiMirrorDurableReceiptIngress(config, publication -> {
-            store.save(publication);
+            AiMirrorEncryptedOutbox.Saved saved = store.save(publication);
+            committed.accept(saved);
         });
     }
 
