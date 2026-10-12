@@ -2,9 +2,11 @@ package net.enthusia.staff.discordbot;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /** Privacy-safe process health state; no user, message, punishment, or credential data is stored here. */
 public final class StaffBotHealth {
@@ -23,6 +25,7 @@ public final class StaffBotHealth {
     private final AtomicBoolean failedEver = new AtomicBoolean();
     private volatile BooleanSupplier criticalReadiness = () -> true;
     private final AtomicBoolean criticalUnavailable = new AtomicBoolean();
+    private volatile Supplier<AiMirrorRecoveryMetrics> stagingMirrorMetrics;
 
     public StaffBotHealth(StaffBotEnvironment environment) {
         this.environment = Objects.requireNonNull(environment, "environment");
@@ -54,6 +57,31 @@ public final class StaffBotHealth {
      */
     void requireCriticalReadiness(BooleanSupplier check) {
         criticalReadiness = Objects.requireNonNull(check, "check");
+    }
+
+    /**
+     * A strictly opt-in, loopback-only aggregate telemetry supplier for
+     * durable mirror STAGING. The absence of the supplier preserves the
+     * existing health response shape, including on PRODUCTION.
+     */
+    void requireStagingMirrorMetrics(Supplier<AiMirrorRecoveryMetrics> supplier) {
+        if (environment != StaffBotEnvironment.STAGING) {
+            throw new IllegalStateException("mirror metrics require staging");
+        }
+        stagingMirrorMetrics = Objects.requireNonNull(supplier, "mirror metrics");
+    }
+
+    Optional<AiMirrorRecoveryMetrics> stagingMirrorMetrics() {
+        Supplier<AiMirrorRecoveryMetrics> current = stagingMirrorMetrics;
+        if (environment != StaffBotEnvironment.STAGING || current == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(current.get());
+        } catch (RuntimeException unavailable) {
+            // This path must not expose receipt data or diagnostics.
+            return Optional.empty();
+        }
     }
 
     public Snapshot snapshot() {
