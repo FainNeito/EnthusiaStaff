@@ -17,6 +17,7 @@ public final class AiMirrorOutboxCrashProbe {
     private static final Clock CLOCK = Clock.fixed(
             Instant.parse("2026-10-12T01:00:00Z"), ZoneOffset.UTC);
     private static final String CANONICAL_ID = "rosechat:synthetic:jvm-crash";
+    private static final int EXPECTED_ARGUMENTS = 2;
     private static final String SAVE_PHASE = "save-and-crash";
     private static final String RECOVER_PHASE = "reopen-and-ack";
 
@@ -42,7 +43,7 @@ public final class AiMirrorOutboxCrashProbe {
     }
 
     private static void validateArguments(String[] args) {
-        if (args.length != 2) {
+        if (args.length != EXPECTED_ARGUMENTS) {
             throw new IllegalArgumentException("invalid synthetic phase argument count");
         }
         if (!SAVE_PHASE.equals(args[0]) && !RECOVER_PHASE.equals(args[0])) {
