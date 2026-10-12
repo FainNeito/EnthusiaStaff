@@ -219,10 +219,12 @@ old ciphertext.
 
 Exactly **one** JDA post-send observer is installed: either the volatile
 publisher, or the durable session which persists receipts off the JDA
-callback thread and uses a slow, nonpunitive HTTP replay worker. Gateway
+callback thread, attempts prompt first registration through a separate
+bounded HTTP worker, and uses a one-per-minute slow, nonpunitive HTTP
+replay worker only for retained receipts. Gateway
 identity readiness gates `resume()`; disconnect pauses admission/retries,
-and shutdown cancels queued work and only releases the store lock after both
-workers terminate. An early identity callback before `chat.start()` is
+and shutdown cancels queued work and only releases the store lock after all
+three ingress/fast/recovery workers terminate. An early identity callback before `chat.start()` is
 deferred safely. Settings are *not provisioned* in any Bloom environment
 by this change: the live server, staff bot, Discord, punishment/deletion,
 moderation policy and production runtime remain untouched.
@@ -248,24 +250,36 @@ receipt monopolize the full retry budget. Deterministic synthetic
 three-receipt tests verify the order survives journal reopenings.
 No retrospective deletion or automatic sanctions are authorized.
 
-**Not yet integrated: immediate registration throughput fix.**
-A separate inert `AiMirrorImmediateRegistration` prototype can accept a
-*previously fsynced and validated* receipt from an off-JDA disk worker
-and issue one prompt, bounded registration HTTP attempt through its
-own single daemon with 64 queued requests. HTTP 200 acknowledges that
-exact receipt; an explicitly typed PENDING/temporary unavailable or
-transport error leaves it encrypted for slow retry, while terminal
-404/conflict/auth/unknown statuses discard it. Queue saturation,
-pause and shutdown likewise leave already persisted receipts for
-slow recovery, with aggregate-only counts and no chat identifiers in
-logs. Synthetic tests verify normal throughput above one registration
-per minute, typed failure retention and queue saturation without
-losing committed records. This component **is not constructed or
-used by StaffBotRuntime** and does not change the deployed staging
-mode's current one-per-minute delivery. Issue #541 **blocks**
-staging enablement until the fast path is safely integrated,
-concurrency-stale ACKs are resolved and the actual disposable Python
-API throughput/outage matrix passes. No deletion or sanctions.
+**Immediate post-persistence registration (code only; no staging activation).**
+The opted-in STAGING durable session now constructs one fast HTTP worker
+with 64 waiting tasks, alongside the original one-per-minute slow replay.
+After authenticated encrypted fsync on the bounded ingress disk worker,
+new receipts are offered to the fast worker without blocking JDA. Fast
+admission claims the opaque record name before queueing. The fast and slow
+workers share this single-session claim guard, so both cannot send or
+acknowledge the same receipt concurrently. Before either sends HTTP, the
+outbox authenticates its exact current encrypted revision. Missing
+already-acknowledged snapshots are skipped; an existing mismatched or
+corrupt revision fails closed. The journal (not in-memory claims) remains
+authoritative across JVM restarts.
+
+HTTP 200 acknowledges the exact record. Only typed `409 canonical_pending`,
+typed `503 timeout/storage_unavailable` and transport timeout/IO are
+temporary; they retain ciphertext for bounded slow recovery. Other 404,
+409, auth, schema, redirect or unknown responses are terminal. Saturation,
+pause, shutdown or loss of in-memory claims must never erase a committed
+receipt. Slow recovery alone consumes the persistent global one-minute
+budget and the eight-attempts-per-receipt limit. The fast worker does not.
+All metrics remain aggregate-only; this feature never reposts to Discord
+or issues any deletion or punishment.
+
+Offline verification includes the real Java session against disposable
+FastAPI/SQLite with 70 distinct healthy canonical source events and
+70 actual registrations. The still-open #541 / private API #116 release
+gates require final exact-head CI/review, target staging volume/loss
+measurements, key/backup/retention review and separate owner authorization
+before enabling this setting. No live or production configuration changes
+have been made.
 
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
@@ -276,8 +290,9 @@ also invokes two separate `JavaExec` JVM processes for a synthetic
 receipt, sends the mirror registration to the disposable Python API, then
 exits abnormally without acknowledging it. The second JVM acquires the
 journal lock, reloads that exact receipt, and verifies idempotent HTTP 200.
-The Python fixture also checks that only the same two scoped message aliases
-exist and no sanction is applied. Neither JavaExec phase is part of normal
+The Python fixture checks exactly two scoped message aliases for each
+canonical source and no sanction output, including the optional
+70-message real HTTP throughput exercise. Neither JavaExec phase is part of normal
 build/startup, and the harness strictly allows only 127.0.0.1 loopback.
 
 This is a local test procedure, **not** permission to deploy or enable
