@@ -35,7 +35,7 @@
 
 The encrypted journal holds **128** receipts with a **60-minute** TTL. The redesigned slow worker attempts one request every **60 seconds** until an authenticated API HTTP 200 and durable receipt ACK, and then one every **5 seconds** while confirmations continue. A failed retry or interrupted process returns it to conservative pacing. These are code limits, not live staging observations.
 
-Consequently, a synchronized backlog of **70** retained receipts cannot be guaranteed to drain before expiration even if the API is restored immediately: 70 sequential minute-spaced recovery attempts exceed a one-hour retention window, and failures/restarts reduce capacity further. The healthy 70-registration benchmark does **not** demonstrate 70-message outage recovery. Never assert zero message loss for sustained outages or approve retrospective deletion that assumes this.
+With uninterrupted confirmations after recovery, 70 retained receipts can finish in roughly seven minutes (the first conservative interval plus 69 five-second gaps). An isolated Java-to-real-FastAPI test confirms 70 actual registrations with a virtual clock; it is not a seven-minute wall-clock soak or a live Bloom outage test. A prolonged outage, repeated 409/503, restart delays or receipt expiration can still cause lost aliases. Never assert universal zero loss or rely on unconfirmed links for retrospective deletion.
 
 Before broad staging acceptance, decide and document one of:
 
