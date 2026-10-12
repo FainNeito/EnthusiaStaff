@@ -381,8 +381,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             }
             // Record the budget token before HTTP. If the JVM dies before an
             // authenticated 200+ACK, the fast catch-up grant is revoked.
-            persistGlobalAttemptClock(clock.millis(), false);
-            return persistNextRecoveryAttempt(file, current);
+            long attemptAt = clock.millis();
+            persistGlobalAttemptClock(attemptAt, false);
+            return persistNextRecoveryAttempt(file, current, attemptAt);
         }
     }
 
@@ -495,10 +496,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 && clock.millis() - current.lastAttemptMillis() < SLOW_INTERVAL_MILLIS;
     }
 
-    private AttemptPreparation persistNextRecoveryAttempt(Path file, Saved current)
-            throws IOException {
+    private AttemptPreparation persistNextRecoveryAttempt(
+            Path file, Saved current, long now) throws IOException {
         int nextAttempt = current.recoveryAttempts() + 1;
-        long now = clock.millis();
         Sealed updated = new Sealed(1, current.createdMillis(),
                 current.publication().guildId(), current.publication().channelId(),
                 current.publication().discordMessageId(),
