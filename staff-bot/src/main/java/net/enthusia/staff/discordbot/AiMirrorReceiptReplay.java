@@ -49,8 +49,9 @@ final class AiMirrorReceiptReplay {
         final HttpRequest request;
         try {
             request = AiMirrorRegistrationPublisher.request(config, counted.publication());
-        } catch (RuntimeException failure) {
-            // No HTTP request has been sent, but the attempt was durably charged.
+        } catch (IOException | RuntimeException failure) {
+            // No HTTP request was sent; never expose original chat text in an
+            // exception from JSON body creation or request validation.
             throw new IOException("untrusted recovery request");
         }
         final AiMirrorRegistrationPublisher.PostResult response;

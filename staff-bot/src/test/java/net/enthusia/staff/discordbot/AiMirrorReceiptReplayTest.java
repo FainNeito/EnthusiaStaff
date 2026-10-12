@@ -24,6 +24,7 @@ class AiMirrorReceiptReplayTest {
     private static final long GUILD = 1234567890123456789L;
     private static final long CHANNEL = 1234567890123456788L;
     private static final String DESTINATION = "staging:synthetic-bridge:example.invalid:443";
+    private static final String CANONICAL_TEXT = "synthetic exact original chat";
     private static final Clock FIXED = Clock.fixed(
             Instant.parse("2026-10-12T01:00:00Z"), ZoneOffset.UTC);
     private static final int MAX_RECOVERY_ATTEMPTS = 8;
@@ -56,7 +57,7 @@ class AiMirrorReceiptReplayTest {
                 String body = request.bodyPublisher().orElseThrow()
                         .contentLength() > 0 ? httpBody(request) : "";
                 var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
-                assertEquals("synthetic exact original chat", json.get("canonical_text").asText());
+                assertEquals(CANONICAL_TEXT, json.get("canonical_text").asText());
                 assertEquals("1234567890123456787", json.get("external_message_id").asText());
                 return called.incrementAndGet() == 1
                         ? new AiMirrorRegistrationPublisher.PostResult(
@@ -87,17 +88,7 @@ class AiMirrorReceiptReplayTest {
         }
         AtomicInteger sent = new AtomicInteger();
         for (int index = 0; index < MAX_RECOVERY_ATTEMPTS; index++) {
-            try (AiMirrorEncryptedOutbox restarted = open(key)) {
-                var current = restarted.recover().getFirst();
-                assertEquals(index, current.recoveryAttempts());
-                var replay = new AiMirrorReceiptReplay(restarted, config(), request -> {
-                    sent.incrementAndGet();
-                    return new AiMirrorRegistrationPublisher.PostResult(
-                            HTTP_UNAVAILABLE, "storage_unavailable");
-                });
-                assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT,
-                        replay.attemptOne(current));
-            }
+            verifySingleTransientRestart(key, index, sent);
         }
         try (AiMirrorEncryptedOutbox restarted = open(key)) {
             var exhausted = restarted.recover().getFirst();
@@ -113,24 +104,42 @@ class AiMirrorReceiptReplayTest {
         }
     }
 
+    private void verifySingleTransientRestart(byte[] key, int expectedAttempts,
+            AtomicInteger sent) throws Exception {
+        try (AiMirrorEncryptedOutbox restarted = open(key)) {
+            var current = restarted.recover().getFirst();
+            assertEquals(expectedAttempts, current.recoveryAttempts());
+            var replay = new AiMirrorReceiptReplay(restarted, config(), request -> {
+                sent.incrementAndGet();
+                return new AiMirrorRegistrationPublisher.PostResult(
+                        HTTP_UNAVAILABLE, "storage_unavailable");
+            });
+            assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT,
+                    replay.attemptOne(current));
+        }
+    }
+
     @Test
     void terminalIdentityAuthAndUnknownStatusesAreDurablyForgotten() throws Exception {
         int[] codes = {404, HTTP_CONFLICT, HTTP_CONFLICT, HTTP_UNAVAILABLE, 401, 422, 302};
         String[] errors = {"canonical_missing", "mirror_conflict", "", "", "", "", ""};
         try (AiMirrorEncryptedOutbox store = open(key())) {
             for (int index = 0; index < codes.length; index++) {
-                var saved = store.save(new DiscordChatPublication(GUILD, CHANNEL,
-                        "1234567890123456787", "rosechat:synthetic:" + index,
-                        "synthetic exact original chat"));
-                int status = codes[index];
-                String error = errors[index];
-                var replay = new AiMirrorReceiptReplay(store, config(), request ->
-                        new AiMirrorRegistrationPublisher.PostResult(status, error));
-                assertEquals(AiMirrorReceiptReplay.Outcome.TERMINAL,
-                        replay.attemptOne(saved));
+                verifySingleTerminalResponse(store, index, codes[index], errors[index]);
             }
             assertTrue(store.recover().isEmpty());
         }
+    }
+
+    private static void verifySingleTerminalResponse(
+            AiMirrorEncryptedOutbox store, int index, int status, String error)
+            throws Exception {
+        var saved = store.save(new DiscordChatPublication(
+                GUILD, CHANNEL, "1234567890123456787",
+                "rosechat:synthetic:" + index, CANONICAL_TEXT));
+        var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                new AiMirrorRegistrationPublisher.PostResult(status, error));
+        assertEquals(AiMirrorReceiptReplay.Outcome.TERMINAL, replay.attemptOne(saved));
     }
 
     @Test
@@ -150,7 +159,7 @@ class AiMirrorReceiptReplayTest {
             List<AiMirrorEncryptedOutbox.Saved> recovered = resumed.recover();
             assertEquals(1, recovered.size());
             assertEquals(1, recovered.getFirst().recoveryAttempts());
-            assertFalse(recovered.getFirst().toString().contains("synthetic exact original chat"));
+            assertFalse(recovered.getFirst().toString().contains(CANONICAL_TEXT));
         }
     }
 
@@ -173,11 +182,9 @@ class AiMirrorReceiptReplayTest {
         var publisher = request.bodyPublisher().orElseThrow();
         java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
         publisher.subscribe(new java.util.concurrent.Flow.Subscriber<>() {
-            private java.util.concurrent.Flow.Subscription subscription;
             @Override
             public void onSubscribe(java.util.concurrent.Flow.Subscription handle) {
-                subscription = handle;
-                subscription.request(Long.MAX_VALUE);
+                handle.request(Long.MAX_VALUE);
             }
             @Override
             public void onNext(java.nio.ByteBuffer data) {
@@ -212,7 +219,7 @@ class AiMirrorReceiptReplayTest {
     private static DiscordChatPublication receipt() {
         return new DiscordChatPublication(
                 GUILD, CHANNEL, "1234567890123456787",
-                "rosechat:synthetic:durable", "synthetic exact original chat");
+                "rosechat:synthetic:durable", CANONICAL_TEXT);
     }
 
     private static byte[] key() {
