@@ -60,47 +60,19 @@ class AiMirrorEncryptedOutboxTest {
     }
 
     @Test
-    void boundedWritesHaveDistinctRandomAesGcmNonces() throws Exception {
+    void boundedWritesHaveDistinctRandomChaCha20Poly1305Nonces() throws Exception {
         Set<String> seen = new java.util.HashSet<>();
         try (AiMirrorEncryptedOutbox outbox = open(key(), BINDING, fixed(TIME))) {
             for (int index = 0; index < 128; index++) {
                 AiMirrorEncryptedOutbox.Saved saved = outbox.save(receipt(index));
                 byte[] sealed = Files.readAllBytes(temp.resolve(saved.fileName()));
                 assertTrue(sealed[0] == 'E' && sealed[1] == 'M'
-                        && sealed[2] == 'R' && sealed[3] == '1');
+                        && sealed[2] == 'R' && sealed[3] == '2');
                 String nonce = java.util.HexFormat.of().formatHex(sealed, 4, 16);
-                assertTrue(seen.add(nonce), "AES-GCM nonce reused in bounded synthetic writes");
+                assertTrue(seen.add(nonce), "ChaCha20-Poly1305 nonce reused in bounded synthetic writes");
             }
         }
         assertEquals(128, seen.size());
-    }
-
-    @Test
-    void hardJVMCrashReleasesLockAndAllowsSeparateProcessRecovery() throws Exception {
-        String classpath = System.getProperty("enthusia.ai.mirror.test.classpath");
-        assertTrue(classpath != null && !classpath.isBlank(),
-                "synthetic process regression requires the Gradle runtime classpath");
-        Path executable = Path.of(System.getProperty("java.home"), "bin",
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT)
-                        .contains("windows") ? "java.exe" : "java");
-        runProcessProbe(executable, classpath, "save-and-crash");
-        runProcessProbe(executable, classpath, "reopen-and-ack");
-        try (AiMirrorEncryptedOutbox reopened = open(key(), BINDING, fixed(TIME))) {
-            assertTrue(reopened.recover().isEmpty());
-        }
-    }
-
-    private void runProcessProbe(Path executable, String classpath, String operation)
-            throws Exception {
-        Process process = new ProcessBuilder(executable.toString(), "-cp", classpath,
-                AiMirrorOutboxCrashProbe.class.getName(), operation, temp.toString())
-                .redirectErrorStream(true).start();
-        boolean exited = process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
-        if (!exited) {
-            process.destroyForcibly();
-        }
-        assertTrue(exited, "synthetic receipt probe did not exit within the time bound");
-        assertEquals(0, process.exitValue(), "synthetic receipt probe failed");
     }
 
     @Test

@@ -1,6 +1,8 @@
 package net.enthusia.staff.discordbot;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -26,10 +28,16 @@ public final class AiMirrorOutboxCrashProbe {
                 && !"reopen-and-ack".equals(args[0]))) {
             System.exit(2);
         }
+        Path directory = Path.of(args[1]);
+        Files.createDirectories(directory);
+        if (Files.getFileStore(directory).supportsFileAttributeView("posix")) {
+            Files.setPosixFilePermissions(directory,
+                    PosixFilePermissions.fromString("rwx------"));
+        }
         byte[] key = new byte[32];
         Arrays.fill(key, (byte) 0x48); // Test-only key; no production secret.
         try (AiMirrorEncryptedOutbox journal = new AiMirrorEncryptedOutbox(
-                Path.of(args[1]), key, DESTINATION, GUILD, Set.of(CHANNEL),
+                directory, key, DESTINATION, GUILD, Set.of(CHANNEL),
                 "discord_general", CLOCK)) {
             if ("save-and-crash".equals(args[0])) {
                 journal.save(new DiscordChatPublication(

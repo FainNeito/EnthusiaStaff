@@ -137,7 +137,7 @@ punitive AI actions. Durable privacy-reviewed reconciliation, actual JDA
 staging validation, and separately approved deletion behavior remain release
 gates in wsg138/AI-Moderation-API#116.
 
-An isolated `AiMirrorEncryptedOutbox` encrypted-journal **prototype** has
+An isolated `AiMirrorEncryptedOutbox` **ChaCha20-Poly1305 encrypted-journal prototype** has
 unit tests for persisted synthetic receipt replay, key/endpoint binding,
 tampering, scope rejection, exclusive lock, capacity, expiry and incomplete
 temporary writes. This class is **not instantiated by the running bot**,

@@ -28,7 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
-import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
@@ -40,10 +40,10 @@ import javax.crypto.spec.SecretKeySpec;
  */
 final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final byte[] MAGIC = {'E', 'M', 'R', '1'};
+    private static final byte[] MAGIC = {'E', 'M', 'R', '2'};
     private static final int KEY_BYTES = 32;
     private static final int NONCE_BYTES = 12;
-    private static final int TAG_BITS = 128;
+    private static final int TAG_BYTES = 16;
     private static final int MAX_RECORDS = 128;
     private static final int MAX_TOTAL_BYTES = 1024 * 1024;
     private static final int MAX_FILE_BYTES = 32 * 1024;
@@ -90,7 +90,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         this.clock = clock;
         this.directory = directory.toAbsolutePath().normalize();
         validateDirectory();
-        this.key = new SecretKeySpec(keyMaterial, "AES");
+        this.key = new SecretKeySpec(keyMaterial, "ChaCha20");
         this.binding = destinationBinding.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         this.guildId = guildId;
         this.channels = Set.copyOf(channels);
@@ -130,8 +130,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         validateExistingLockFile(lockPath);
         FileChannel channel = openFile(lockPath, false);
         try {
-            FileLock lock = tryExclusiveLock(channel);
-            return new Ownership(channel, lock);
+            return new Ownership(channel, tryExclusiveLock(channel));
         } catch (IOException | RuntimeException failure) {
             channel.close();
             throw failure;
@@ -264,7 +263,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 continue;
             }
             long bytes = Files.size(file);
-            if (bytes > MAX_FILE_BYTES || bytes < MAGIC.length + NONCE_BYTES + TAG_BITS / 8) {
+            if (bytes > MAX_FILE_BYTES || bytes < MAGIC.length + NONCE_BYTES + TAG_BYTES) {
                 throw new IOException("invalid encrypted receipt size");
             }
             totalBytes += (int) bytes;
@@ -313,7 +312,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         try (FileChannel input = FileChannel.open(
                 file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
             long size = input.size();
-            if (size > MAX_FILE_BYTES || size < MAGIC.length + NONCE_BYTES + TAG_BITS / 8) {
+            if (size > MAX_FILE_BYTES || size < MAGIC.length + NONCE_BYTES + TAG_BYTES) {
                 throw new IOException("invalid encrypted receipt size");
             }
             ByteBuffer buffer = ByteBuffer.allocate((int) size);
@@ -394,13 +393,13 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
 
     private byte[] encrypt(Sealed receipt) throws IOException {
         try {
-            // A fresh 96-bit nonce comes from the CSPRNG for every encryption.
-            // Never reuse a nonce under this journal key. Store it with the
-            // ciphertext; check uniqueness over the full 128-record test bound.
+            // Each record uses a fresh 96-bit nonce from SecureRandom with a
+            // distinct random key supplied per deployment. The 128-record
+            // quota bounds the collision probability; nonce is in the envelope.
             byte[] nonce = new byte[NONCE_BYTES];
             RANDOM.nextBytes(nonce);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, nonce));
+            Cipher cipher = Cipher.getInstance("ChaCha20-Poly1305");
+            cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(nonce));
             cipher.updateAAD(MAGIC);
             cipher.updateAAD(binding);
             byte[] ciphertext = cipher.doFinal(JSON.writeValueAsBytes(receipt));
@@ -424,8 +423,8 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             buffer.get(nonce);
             byte[] ciphertext = new byte[buffer.remaining()];
             buffer.get(ciphertext);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, nonce));
+            Cipher cipher = Cipher.getInstance("ChaCha20-Poly1305");
+            cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(nonce));
             cipher.updateAAD(MAGIC);
             cipher.updateAAD(binding);
             return JSON.readValue(cipher.doFinal(ciphertext), Sealed.class);
