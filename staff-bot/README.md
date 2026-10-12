@@ -231,6 +231,10 @@ discarded during recovery. The rate record contains no chat text or
 Discord identifiers. Synthetic tests cover ACK followed by a second
 receipt, rapid restart, deferred retry and tampered state. Target Linux
 filesystem security and staging load testing remain acceptance gates.
+Recovery selection prioritizes **never-attempted** receipts first, then
+retries by least recent attempt time, instead of letting one stale older
+receipt monopolize the full retry budget. Deterministic synthetic
+three-receipt tests verify the order survives journal reopenings.
 No retrospective deletion or automatic sanctions are authorized.
 
 The opt-in zero-cost cross-language test harness in the private repository

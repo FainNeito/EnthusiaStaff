@@ -299,6 +299,50 @@ class AiMirrorReceiptReplayTest {
         }
     }
 
+    @Test
+    void neverAttemptedReceiptsAreServedBeforeOlderTransientFailuresAcrossRestarts()
+            throws Exception {
+        byte[] key = key();
+        for (int index = 0; index < 3; index++) {
+            try (AiMirrorEncryptedOutbox store = open(key)) {
+                store.save(syntheticReceipt(index));
+            }
+            advanceTime();
+        }
+        for (int index = 0; index < 3; index++) {
+            try (AiMirrorEncryptedOutbox store = open(key)) {
+                var next = store.recover().getFirst();
+                assertEquals("rosechat:synthetic:fair:" + index,
+                        next.publication().canonicalMessageId());
+                assertEquals(0, next.recoveryAttempts());
+                assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT,
+                        attemptTransientOnce(store, next));
+            }
+            advanceTime();
+        }
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            var next = store.recover().getFirst();
+            assertEquals("rosechat:synthetic:fair:0",
+                    next.publication().canonicalMessageId());
+            assertEquals(1, next.recoveryAttempts());
+        }
+    }
+
+    private static AiMirrorReceiptReplay.Outcome attemptTransientOnce(
+            AiMirrorEncryptedOutbox store, AiMirrorEncryptedOutbox.Saved next)
+            throws IOException, InterruptedException {
+        var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                new AiMirrorRegistrationPublisher.PostResult(
+                        HTTP_UNAVAILABLE, "storage_unavailable"));
+        return replay.attemptOne(next);
+    }
+
+    private static DiscordChatPublication syntheticReceipt(int index) {
+        return new DiscordChatPublication(GUILD, CHANNEL,
+                "12345678901234567" + index,
+                "rosechat:synthetic:fair:" + index, CANONICAL_TEXT);
+    }
+
     private AiMirrorEncryptedOutbox open(byte[] key) throws IOException {
         return new AiMirrorEncryptedOutbox(
                 temporary, key, DESTINATION, GUILD, Set.of(CHANNEL),
