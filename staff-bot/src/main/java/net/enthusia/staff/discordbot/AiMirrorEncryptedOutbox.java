@@ -257,7 +257,11 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                     restored.add(candidate);
                 }
             }
-            restored.sort(Comparator.comparingLong(Saved::createdMillis));
+            // Never starve a new receipt behind a repeatedly unavailable older
+            // canonical: first attempt each one, then retry least recently attempted.
+            restored.sort(Comparator.comparingLong(Saved::lastAttemptMillis)
+                    .thenComparingLong(Saved::createdMillis)
+                    .thenComparing(Saved::fileName));
             return List.copyOf(restored);
         }
     }
