@@ -185,6 +185,7 @@ public final class StaffBotRuntime implements AutoCloseable {
                         chatTransport.orElseThrow(), java.time.Clock.systemUTC());
                 durableRecovery = Optional.of(session);
                 health.requireCriticalReadiness(() -> !session.unhealthy());
+                health.requireStagingMirrorMetrics(() -> AiMirrorRecoveryMetrics.capture(session));
                 gateway.installChatPublicationObserver(session);
             } else {
                 mirrorPublisher = mirrorConfig.map(AiMirrorRegistrationPublisher::create);
