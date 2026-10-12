@@ -221,10 +221,17 @@ owner authorization to provision and activate this mode in the staging
 app, target Linux filesystem/key security review and retention/backup
 policy, real JDA post-send proof, loss/overflow monitoring, duplicate
 registration test, and safe non-punitive replay under restart stress.
-The authenticated 60-second cooldown is currently **per receipt**; a
-stronger global throttle across different receipts and rapid restart
-sequences remains necessary before claiming a global one-request-per-minute
-limit. No retrospective deletion or automatic sanctions are authorized.
+This follow-up persists a separate ChaCha20-Poly1305 authenticated
+`.mirror-rate` timestamp on disk. The rate update is fsynced **before**
+any HTTP attempt, and remains after an individual receipt is acknowledged.
+Across JVM restarts, attempts against different receipts therefore share
+the same 60-second cooldown. A corrupted or unauthenticated rate file
+blocks HTTP with no fallback. Interrupted `.mirror-rate.tmp` files are
+discarded during recovery. The rate record contains no chat text or
+Discord identifiers. Synthetic tests cover ACK followed by a second
+receipt, rapid restart, deferred retry and tampered state. Target Linux
+filesystem security and staging load testing remain acceptance gates.
+No retrospective deletion or automatic sanctions are authorized.
 
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
