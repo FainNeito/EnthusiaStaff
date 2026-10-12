@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -23,6 +24,9 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
     private final AiMirrorReceiptReplay replay;
     private final ScheduledThreadPoolExecutor worker;
     private final AtomicBoolean started = new AtomicBoolean();
+    private final AtomicBoolean enabled = new AtomicBoolean();
+    private final AtomicLong generation = new AtomicLong();
+    private volatile ScheduledFuture<?> next;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean failed = new AtomicBoolean();
     private final AtomicLong confirmed = new AtomicLong();
@@ -50,17 +54,40 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
         if (closed.get() || !started.compareAndSet(false, true)) {
             return false;
         }
+        return resume();
+    }
+
+    boolean resume() {
+        if (!started.get() || closed.get() || failed.get()
+                || !enabled.compareAndSet(false, true)) {
+            return false;
+        }
+        long current = generation.get();
         try {
-            worker.execute(this::recoverOne);
+            worker.execute(() -> recoverOne(current));
             return true;
         } catch (RejectedExecutionException closedWorker) {
-            failed.set(true);
+            stopOnFailure();
             return false;
         }
     }
 
-    private void recoverOne() {
-        if (closed.get() || failed.get()) {
+    void pause() {
+        enabled.set(false);
+        generation.incrementAndGet();
+        ScheduledFuture<?> pending = next;
+        if (pending != null) {
+            pending.cancel(false);
+        }
+    }
+
+    private boolean running(long expectedGeneration) {
+        return !closed.get() && !failed.get() && enabled.get()
+                && generation.get() == expectedGeneration;
+    }
+
+    private void recoverOne(long expectedGeneration) {
+        if (!running(expectedGeneration)) {
             return;
         }
         try {
@@ -71,8 +98,8 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
         } catch (IOException | RuntimeException failedReceipt) {
             stopOnFailure();
         } finally {
-            if (!closed.get() && !failed.get()) {
-                scheduleNext();
+            if (running(expectedGeneration)) {
+                scheduleNext(expectedGeneration);
             }
         }
     }
@@ -100,12 +127,18 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
         }
     }
 
-    private void scheduleNext() {
+    private void scheduleNext(long expectedGeneration) {
         try {
-            worker.schedule(this::recoverOne, SLOW_INTERVAL_MINUTES, TimeUnit.MINUTES);
+            ScheduledFuture<?> scheduled = worker.schedule(
+                    () -> recoverOne(expectedGeneration),
+                    SLOW_INTERVAL_MINUTES, TimeUnit.MINUTES);
+            next = scheduled;
+            if (!running(expectedGeneration)) {
+                scheduled.cancel(false);
+            }
         } catch (RejectedExecutionException closedWorker) {
             if (!closed.get()) {
-                failed.set(true);
+                stopOnFailure();
             }
         }
     }
@@ -122,6 +155,7 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
+            pause();
             worker.shutdownNow();
         }
     }
