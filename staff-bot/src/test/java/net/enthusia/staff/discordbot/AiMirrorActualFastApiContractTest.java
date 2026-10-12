@@ -74,6 +74,48 @@ class AiMirrorActualFastApiContractTest {
         }
     }
 
+    @Test
+    void realPending409RetainsReceiptForAuthenticatedSlowFinalRecovery(
+            @TempDir Path journal) throws Exception {
+        String configured = System.getenv(ENDPOINT);
+        assumeTrue(configured != null && !configured.isBlank(),
+                "disposable FastAPI fixture must opt in");
+        URI endpoint = URI.create(configured);
+        assertEquals("127.0.0.1", endpoint.getHost());
+        if (Files.getFileStore(journal).supportsFileAttributeView("posix")) {
+            Files.setPosixFilePermissions(journal,
+                    PosixFilePermissions.fromString("rwx------"));
+        }
+        byte[] key = new byte[32];
+        java.util.Arrays.fill(key, (byte) 0x48);
+        AiMirrorPublicationConfig config = config(endpoint);
+        AiMirrorReceiptClaims claims = new AiMirrorReceiptClaims();
+        try (AiMirrorEncryptedOutbox store = new AiMirrorEncryptedOutbox(
+                    journal, key, "staging:synthetic-fast:pending",
+                    GUILD, Set.of(CHANNEL), "discord_general", Clock.systemUTC());
+                AiMirrorImmediateRegistration fast = new AiMirrorImmediateRegistration(
+                    store, config, realPoster(), claims)) {
+            var saved = store.save(new DiscordChatPublication(
+                    GUILD, CHANNEL, "1234567890123456770",
+                    "rosechat:canonical:fast-pending-network",
+                    "synthetic fast pending message"));
+            fast.resume();
+            assertTrue(fast.offer(saved));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+            while ((fast.stats().transientRetained() < 1 || claims.activeCount() != 0)
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals(1, fast.stats().transientRetained());
+            assertEquals(0, claims.activeCount());
+            assertEquals(1, store.recover().size());
+            var replay = new AiMirrorReceiptReplay(store, config, realPoster(), claims);
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(saved));
+            assertTrue(store.recover().isEmpty());
+            assertTrue(!fast.failed());
+        }
+    }
+
     private static AiMirrorPublicationConfig config(URI endpoint) {
         return new AiMirrorPublicationConfig(
                 endpoint, "synthetic-staffbot-bridge", "synthetic-mirror-only-token",
