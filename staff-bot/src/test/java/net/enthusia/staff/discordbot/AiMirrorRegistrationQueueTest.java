@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 class AiMirrorRegistrationQueueTest {
     private static final int QUEUE_CAPACITY = 64;
     private static final int MAX_ACCEPTED = QUEUE_CAPACITY + 1;
+    private static final int FIRST_POST = 1;
     private static final long GUILD = 1234567890123456789L;
     private static final long CHANNEL = 1234567890123456788L;
 
@@ -26,7 +27,7 @@ class AiMirrorRegistrationQueueTest {
         CountDownLatch allAcceptedFinished = new CountDownLatch(MAX_ACCEPTED);
         try (AiMirrorRegistrationPublisher publisher = new AiMirrorRegistrationPublisher(
                 configuration(), request -> {
-                    if (posts.incrementAndGet() == 1) {
+                    if (posts.incrementAndGet() == FIRST_POST) {
                         firstStarted.countDown();
                         if (!releaseFirst.await(8, TimeUnit.SECONDS)) {
                             throw new IOException("synthetic worker barrier timed out");
@@ -60,7 +61,7 @@ class AiMirrorRegistrationQueueTest {
         try (AiMirrorRegistrationPublisher publisher = new AiMirrorRegistrationPublisher(
                 configuration(), request -> {
                     int call = posts.incrementAndGet();
-                    if (call == 1) {
+                    if (call == FIRST_POST) {
                         firstStarted.countDown();
                         if (!releaseFirst.await(8, TimeUnit.SECONDS)) {
                             throw new IOException("synthetic worker barrier timed out");
