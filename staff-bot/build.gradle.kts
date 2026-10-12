@@ -1,5 +1,7 @@
 import java.io.File
 import java.io.OutputStream
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.util.Properties
 import java.util.zip.ZipEntry
@@ -202,8 +204,37 @@ val verifyStaffBotRuntime by tasks.registering(VerifyStaffBotRuntime::class) {
     reportDirectory.set(rootProject.layout.buildDirectory.dir("reports/runtime-jars"))
 }
 
+// Two Gradle-owned JavaExec tasks prove cross-process crash/restart without
+// passing environment-supplied commands through a test ProcessBuilder.
+val syntheticJournalDir = layout.buildDirectory.dir("ai-mirror-synthetic-crash-probe")
+val prepareAiMirrorCrashProbe by tasks.registering(Delete::class) {
+    delete(syntheticJournalDir)
+}
+
+val aiMirrorSaveThenCrash by tasks.registering(JavaExec::class) {
+    dependsOn(tasks.testClasses, prepareAiMirrorCrashProbe)
+    group = "verification"
+    description = "Persist a synthetic mirror receipt, then end JVM with unhandled exception"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("net.enthusia.staff.discordbot.AiMirrorOutboxCrashProbe")
+    // The save phase intentionally throws after fsync without closing the
+    // journal. The dependent recovery phase fails if no valid file survived.
+    isIgnoreExitValue = true
+    args("save-and-crash", syntheticJournalDir.get().asFile.absolutePath)
+
+}
+
+val aiMirrorRecoverAfterCrash by tasks.registering(JavaExec::class) {
+    dependsOn(aiMirrorSaveThenCrash)
+    group = "verification"
+    description = "Reopen and acknowledge the persisted synthetic mirror receipt in a second JVM"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("net.enthusia.staff.discordbot.AiMirrorOutboxCrashProbe")
+    args("reopen-and-ack", syntheticJournalDir.get().asFile.absolutePath)
+}
+
 tasks.check {
-    dependsOn(verifyStaffBotRuntime)
+    dependsOn(verifyStaffBotRuntime, aiMirrorRecoverAfterCrash)
 }
 
 tasks.assemble {

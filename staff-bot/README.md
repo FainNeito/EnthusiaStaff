@@ -137,6 +137,15 @@ punitive AI actions. Durable privacy-reviewed reconciliation, actual JDA
 staging validation, and separately approved deletion behavior remain release
 gates in wsg138/AI-Moderation-API#116.
 
+An isolated `AiMirrorEncryptedOutbox` **ChaCha20-Poly1305 encrypted-journal prototype** has
+unit tests for persisted synthetic receipt replay, key/endpoint binding,
+tampering, scope rejection, exclusive lock, capacity, expiry and incomplete
+temporary writes. This class is **not instantiated by the running bot**,
+has no environment switch and does not yet provide crash reconciliation.
+Its proposed disk policy, operating-system access control, key provisioning,
+nonblocking I/O pipeline, safe retry orchestration and cross-JVM tests
+remain to be reviewed before any staging activation.
+
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
 including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,
