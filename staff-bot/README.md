@@ -245,7 +245,15 @@ No retrospective deletion or automatic sanctions are authorized.
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
 including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,
-privacy/conflict refusals, and zero punitive actions.
+privacy/conflict refusals, and zero punitive actions. The opt-in harness
+also invokes two separate `JavaExec` JVM processes for a synthetic
+**real-HTTP commit-before-local-ACK crash**: the first writes an authenticated
+receipt, sends the mirror registration to the disposable Python API, then
+exits abnormally without acknowledging it. The second JVM acquires the
+journal lock, reloads that exact receipt, and verifies idempotent HTTP 200.
+The Python fixture also checks that only the same two scoped message aliases
+exist and no sanction is applied. Neither JavaExec phase is part of normal
+build/startup, and the harness strictly allows only 127.0.0.1 loopback.
 
 This is a local test procedure, **not** permission to deploy or enable
 production API clients.

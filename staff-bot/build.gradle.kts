@@ -233,6 +233,32 @@ val aiMirrorRecoverAfterCrash by tasks.registering(JavaExec::class) {
     args("reopen-and-ack", syntheticJournalDir.get().asFile.absolutePath)
 }
 
+// Opt-in ONLY: invoked by the disposable Python FastAPI loopback harness.
+// These are two separate JVM processes. The commit phase deliberately fails
+// after receiving HTTP 200 and BEFORE acknowledging its encrypted receipt.
+val syntheticHttpJournalDir = layout.buildDirectory.dir("ai-mirror-synthetic-http-crash")
+val prepareAiMirrorHttpCrashProbe by tasks.registering(Delete::class) {
+    delete(syntheticHttpJournalDir)
+}
+
+val aiMirrorHttpCrashCommit by tasks.registering(JavaExec::class) {
+    dependsOn(tasks.testClasses, prepareAiMirrorHttpCrashProbe)
+    group = "verification"
+    description = "Send one synthetic mirror alias to loopback API, then fail before local ACK"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("net.enthusia.staff.discordbot.AiMirrorActualHttpCrashProbe")
+    args("commit-then-exit", syntheticHttpJournalDir.get().asFile.absolutePath)
+}
+
+val aiMirrorHttpCrashReplay by tasks.registering(JavaExec::class) {
+    dependsOn(tasks.testClasses)
+    group = "verification"
+    description = "Recover unacknowledged synthetic alias from another JVM and verify idempotent 200"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("net.enthusia.staff.discordbot.AiMirrorActualHttpCrashProbe")
+    args("reopen-and-replay", syntheticHttpJournalDir.get().asFile.absolutePath)
+}
+
 tasks.check {
     dependsOn(verifyStaffBotRuntime, aiMirrorRecoverAfterCrash)
 }
