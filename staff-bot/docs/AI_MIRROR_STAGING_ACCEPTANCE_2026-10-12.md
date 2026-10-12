@@ -33,7 +33,7 @@
 
 ## Capacity/TTL conflict — explicit owner decision before claiming zero loss
 
-The encrypted journal currently holds up to **128** receipts, each expires at **60 minutes**, and the slow worker attempts **one** receipt **per minute**. The fast worker sends a new record promptly, but a record retained after a temporary outage is eligible only for the slow worker. These are independently verified current code constants, not staging observations.
+The encrypted journal holds **128** receipts with a **60-minute** TTL. The redesigned slow worker attempts one request every **60 seconds** until an authenticated API HTTP 200 and durable receipt ACK, and then one every **5 seconds** while confirmations continue. A failed retry or interrupted process returns it to conservative pacing. These are code limits, not live staging observations.
 
 Consequently, a synchronized backlog of **70** retained receipts cannot be guaranteed to drain before expiration even if the API is restored immediately: 70 sequential minute-spaced recovery attempts exceed a one-hour retention window, and failures/restarts reduce capacity further. The healthy 70-registration benchmark does **not** demonstrate 70-message outage recovery. Never assert zero message loss for sustained outages or approve retrospective deletion that assumes this.
 
