@@ -169,15 +169,20 @@ An additional isolated `AiMirrorRecoveryScheduler` prototype now runs
 already encrypted journal records. It keeps only aggregate counts; a corrupt
 or inaccessible journal stops its processing without HTTP fallback. Synthetic
 tests cover first-attempt success, typed transient recovery across a new
-scheduler/unchanged key and corrupted ciphertext fail-closed.
+scheduler/unchanged key and corrupted ciphertext fail-closed. It also exposes a privacy-safe,
+in-memory `expiredReceipts` count for authenticated records discarded by
+the journal's 60-minute TTL, including expiry during recovery admission.
+Each record is counted once even if repeatedly inspected. This counter
+contains no text or message identifiers and resets with the JVM; it is
+**not** yet a durable accounting audit or a production monitoring dashboard.
 
-This remains **inert**: StaffBotRuntime never constructs the
-recovery classes. A bounded off-JDA receipt writer and encrypted
-restart-persistent attempt spacing are implemented, but verified
-target secret provisioning, runtime integration, staging acceptance
-and production authorization are **not** complete. Do not enable
-for real Discord traffic or use as evidence of full mirror coverage
-or safe cross-bot deletion.
+These components are available only through the separately gated,
+**off-by-default staging configuration**; absent that configuration,
+StaffBot retains its existing volatile publisher. Target secret
+provisioning, actual staging acceptance, and production authorization
+are **not** complete. Do not activate real Discord traffic without
+owner-approved staging validation, or treat this as proof of full
+mirror coverage or safe cross-bot deletion.
 
 A separate `AiMirrorDurableReceiptIngress` prototype accepts only scoped
 actual post-send receipts into a queue of at most 64 pending, served by one

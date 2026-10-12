@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
@@ -91,6 +92,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private final FileChannel lockChannel;
     private final FileLock exclusiveLock;
     private boolean closed;
+    private final AtomicLong expiredRecords = new AtomicLong();
 
     AiMirrorEncryptedOutbox(
             Path directory, byte[] keyMaterial, String destinationBinding,
@@ -253,6 +255,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 if (clock.millis() - candidate.createdMillis() >= TTL_MILLIS) {
                     Files.delete(file);
                     syncDirectory();
+                    expiredRecords.incrementAndGet();
                 } else {
                     restored.add(candidate);
                 }
@@ -364,6 +367,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             if (recoveryExhausted(current)) {
                 Files.delete(file);
                 syncDirectory();
+                if (clock.millis() - current.createdMillis() >= TTL_MILLIS) {
+                    expiredRecords.incrementAndGet();
+                }
                 return new AttemptPreparation(AttemptStatus.EXHAUSTED, null);
             }
             if (recoveryDeferred(current) || globalRecoveryDeferred()) {
@@ -372,6 +378,10 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             persistGlobalAttemptClock();
             return persistNextRecoveryAttempt(file, current);
         }
+    }
+
+    long expiredRecordCount() {
+        return expiredRecords.get();
     }
 
     private boolean recoveryExhausted(Saved current) {

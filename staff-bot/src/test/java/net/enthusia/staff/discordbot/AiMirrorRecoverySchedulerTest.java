@@ -126,6 +126,33 @@ class AiMirrorRecoverySchedulerTest {
         }
     }
 
+    @Test
+    void expiredOfflineReceiptIsReportedWithoutIssuingHttp() throws Exception {
+        try (AiMirrorEncryptedOutbox first = open()) {
+            first.save(receipt());
+        }
+        Clock afterTtl = Clock.offset(FIXED,
+                java.time.Duration.ofHours(1).plusSeconds(1));
+        try (AiMirrorEncryptedOutbox restored = open(afterTtl)) {
+            var replay = new AiMirrorReceiptReplay(restored, config(), request -> {
+                throw new AssertionError("expired receipt must never reach API");
+            });
+            try (AiMirrorRecoveryScheduler scheduler = new AiMirrorRecoveryScheduler(
+                    restored, replay)) {
+                assertTrue(scheduler.start());
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(AWAIT_SECONDS);
+                while (scheduler.stats().expiredReceipts() == 0
+                        && System.nanoTime() < deadline) {
+                    Thread.sleep(10);
+                }
+                assertEquals(1L, scheduler.stats().expiredReceipts());
+                assertTrue(restored.recover().isEmpty());
+                assertEquals(1L, scheduler.stats().expiredReceipts());
+                assertFalse(scheduler.failed());
+            }
+        }
+    }
+
     private static void awaitConfirmed(AiMirrorRecoveryScheduler scheduler)
             throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(AWAIT_SECONDS);
