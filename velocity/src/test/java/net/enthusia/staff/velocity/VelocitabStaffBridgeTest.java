@@ -26,12 +26,16 @@ class VelocitabStaffBridgeTest {
     private static final String ADMIN = "Admin";
     private static final String MOD_RANK = "mod";
     private static final String SMP_SERVER = "SMP";
+    private static final String ORDINARY = "Ordinary";
+    private static final String VIEWER = "Viewer";
+    private static final String STAFF = "Staff";
+    private static final String HIDDEN = "Hidden";
 
     @Test
     void stalePresenceNeverRevealsUnknownPromotedOrPreviouslyStaffTargets() throws ReflectiveOperationException {
         UUID ordinaryId = UUID.randomUUID();
         UUID staffId = UUID.randomUUID();
-        Player ordinary = player(ordinaryId, "Ordinary", "none");
+        Player ordinary = player(ordinaryId, ORDINARY, "none");
         Player demoted = player(staffId, "Demoted", "none");
         Player unknown = player(UUID.randomUUID(), "Unknown", "none");
         Player promoted = player(UUID.randomUUID(), "Promoted", MOD_RANK);
@@ -42,7 +46,7 @@ class VelocitabStaffBridgeTest {
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api,
                 List.of(ordinary, demoted, unknown, promoted, identityOnly, unrestricted, staffMode, savedVanish));
-        assertTrue(api.integration.isVanished("Ordinary"), "unverified startup must stay closed");
+        assertTrue(api.integration.isVanished(ORDINARY), "unverified startup must stay closed");
         seedPresence(bridge,
                 new StaffTabPresence(Map.of(savedVanish.getUniqueId(), StaffRank.MOD), Set.of(staffMode.getUniqueId())),
                 Map.of(staffId, StaffRank.MOD),
@@ -50,35 +54,35 @@ class VelocitabStaffBridgeTest {
                         staffMode.getUniqueId(), savedVanish.getUniqueId()));
         for (String target : List.of("Unknown", "Promoted", "IdentityOnly", "Unrestricted", "Demoted", "StaffMode", "SavedVanish")) {
             assertTrue(api.integration.isVanished(target), target);
-            assertFalse(api.integration.canSee("Ordinary", target), target);
+            assertFalse(api.integration.canSee(ORDINARY, target), target);
         }
-        assertFalse(api.integration.isVanished("Ordinary"));
+        assertFalse(api.integration.isVanished(ORDINARY));
         bridge.close();
     }
 
     @Test
     void ordinaryFallbackPreservesPreviousProviderAndFreshRecovery() throws ReflectiveOperationException {
-        Player ordinary = player(UUID.randomUUID(), "Ordinary", "none");
-        Player viewer = player(UUID.randomUUID(), "Viewer", "founder");
-        Player staff = player(UUID.randomUUID(), "Staff", MOD_RANK);
+        Player ordinary = player(UUID.randomUUID(), ORDINARY, "none");
+        Player viewer = player(UUID.randomUUID(), VIEWER, "founder");
+        Player staff = player(UUID.randomUUID(), STAFF, MOD_RANK);
         FakeApi api = new FakeApi();
         api.integration = new VanishIntegration() {
-            public boolean canSee(String from, String target) { return !target.equals("Ordinary"); }
-            public boolean isVanished(String target) { return target.equals("Ordinary"); }
+            public boolean canSee(String from, String target) { return !target.equals(ORDINARY); }
+            public boolean isVanished(String target) { return target.equals(ORDINARY); }
         };
         VelocitabStaffBridge bridge = bridge(api, List.of(ordinary, viewer, staff));
         StaffTabPresence snapshot = new StaffTabPresence(Map.of(staff.getUniqueId(), StaffRank.MOD), Set.of());
         Map<UUID, StaffRank> ranks = Map.of(viewer.getUniqueId(), StaffRank.FOUNDER, staff.getUniqueId(), StaffRank.MOD);
         Set<UUID> players = Set.of(ordinary.getUniqueId(), viewer.getUniqueId(), staff.getUniqueId());
         seedPresence(bridge, snapshot, ranks, players);
-        assertTrue(api.integration.isVanished("Ordinary"));
-        assertFalse(api.integration.canSee("Viewer", "Ordinary"));
-        assertFalse(api.integration.canSee("Viewer", "Staff"), "stale staff visibility remains closed even for founders");
+        assertTrue(api.integration.isVanished(ORDINARY));
+        assertFalse(api.integration.canSee(VIEWER, ORDINARY));
+        assertFalse(api.integration.canSee(VIEWER, STAFF), "stale staff visibility remains closed even for founders");
         setPresence(bridge, snapshot, ranks, players, System.nanoTime());
-        assertTrue(api.integration.isVanished("Ordinary"));
-        assertTrue(api.integration.isVanished("Staff"));
-        assertTrue(api.integration.canSee("Viewer", "Staff"), "fresh verified hierarchy may reveal staff to an authorized viewer");
-        assertFalse(api.integration.canSee("Ordinary", "Staff"));
+        assertTrue(api.integration.isVanished(ORDINARY));
+        assertTrue(api.integration.isVanished(STAFF));
+        assertTrue(api.integration.canSee(VIEWER, STAFF), "fresh verified hierarchy may reveal staff to an authorized viewer");
+        assertFalse(api.integration.canSee(ORDINARY, STAFF));
         bridge.close();
     }
 
@@ -86,17 +90,17 @@ class VelocitabStaffBridgeTest {
     void verifiedOrdinaryPlayerSurvivesDelayedRefreshWithoutRevealingStaff() throws ReflectiveOperationException {
         UUID ordinaryId = UUID.randomUUID();
         UUID hiddenId = UUID.randomUUID();
-        Player ordinary = player(ordinaryId, "Ordinary", "none");
-        Player hidden = player(hiddenId, "Hidden", MOD_RANK);
+        Player ordinary = player(ordinaryId, ORDINARY, "none");
+        Player hidden = player(hiddenId, HIDDEN, MOD_RANK);
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api, List.of(ordinary, hidden));
         seedPresence(bridge, new StaffTabPresence(Map.of(hiddenId, StaffRank.MOD), Set.of()),
                 Map.of(hiddenId, StaffRank.MOD), Set.of(ordinaryId, hiddenId));
 
-        assertFalse(api.integration.isVanished("Ordinary"));
-        assertTrue(api.integration.canSee("Hidden", "Ordinary"));
-        assertTrue(api.integration.isVanished("Hidden"));
-        assertFalse(api.integration.canSee("Ordinary", "Hidden"));
+        assertFalse(api.integration.isVanished(ORDINARY));
+        assertTrue(api.integration.canSee(HIDDEN, ORDINARY));
+        assertTrue(api.integration.isVanished(HIDDEN));
+        assertFalse(api.integration.canSee(ORDINARY, HIDDEN));
         bridge.close();
     }
 
@@ -178,7 +182,7 @@ class VelocitabStaffBridgeTest {
 
     @Test
     void markersPreserveForeignNamesAndCleanupRestoresOnlyOwnedValues() throws ReflectiveOperationException {
-        Player player = player(UUID.randomUUID(), "Staff", MOD_RANK);
+        Player player = player(UUID.randomUUID(), STAFF, MOD_RANK);
         FakeApi api = new FakeApi();
         VanishIntegration previous = api.integration;
         VelocitabStaffBridge bridge = bridge(api, List.of(player));
@@ -200,7 +204,7 @@ class VelocitabStaffBridgeTest {
 
     @Test
     void cleanupDoesNotOverwriteANewerIntegrationOrName() throws ReflectiveOperationException {
-        Player player = player(UUID.randomUUID(), "Staff", MOD_RANK);
+        Player player = player(UUID.randomUUID(), STAFF, MOD_RANK);
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api, List.of(player));
         var update = VelocitabStaffBridge.class.getDeclaredMethod("updateName", Player.class, String.class);
@@ -223,9 +227,9 @@ class VelocitabStaffBridgeTest {
         UUID hiddenId = UUID.randomUUID();
         UUID ordinaryViewerId = UUID.randomUUID();
         UUID founderViewerId = UUID.randomUUID();
-        Player ordinary = player(ordinaryId, "Ordinary", "none", SMP_SERVER);
-        Player hidden = player(hiddenId, "Hidden", MOD_RANK, SMP_SERVER);
-        Player ordinaryViewer = player(ordinaryViewerId, "Viewer", "none", SMP_SERVER);
+        Player ordinary = player(ordinaryId, ORDINARY, "none", SMP_SERVER);
+        Player hidden = player(hiddenId, HIDDEN, MOD_RANK, SMP_SERVER);
+        Player ordinaryViewer = player(ordinaryViewerId, VIEWER, "none", SMP_SERVER);
         Player founderViewer = player(founderViewerId, "Founder", "founder", SMP_SERVER);
         VelocitabStaffBridge bridge = bridge(new FakeApi(),
                 List.of(ordinary, hidden, ordinaryViewer, founderViewer));
