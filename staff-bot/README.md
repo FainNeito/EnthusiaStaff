@@ -200,6 +200,22 @@ are currently **not loaded by StaffBotRuntime**. Providing them cannot
 turn on recovery. Do not provision or change Bloom configuration until a
 separately reviewed staging lifecycle integration and acceptance are ready.
 
+A further **inactive** `AiMirrorDurableRecoverySession` prototype now
+composes the same verified public chat lifecycle with the encrypted ingress
+and recovery scheduler. The session starts only the chat transport until
+the normal runtime signals staging identity readiness; `resume()` then
+enables journal admission and scheduled recovery. `pause()` suspends both
+on disconnect, while `close()` stops both workers and closes the locked
+journal before chat teardown. A **single** JDA post-send observer must be
+installed: durable mode and the existing volatile publisher are mutually
+exclusive. Synthetic lifecycle tests exercise pre-readiness rejection,
+pause/resume, bounded receipt persistence and isolated HTTP callback.
+
+The session and config **remain unreferenced by StaffBotRuntime**, so none
+of these paths can yet be activated. Target OS key, restart-global retry
+rate accounting, privacy review and actual on-disk Java↔Python HTTP
+acceptance are further release gates.
+
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
 including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,

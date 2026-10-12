@@ -88,6 +88,33 @@ class AiMirrorDurableRecoverySessionTest {
     }
 
     @Test
+    void gatewayDisconnectSuspendsHttpUntilExplicitResume() throws Exception {
+        FakeChat chat = new FakeChat();
+        CountDownLatch posted = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        try (AiMirrorEncryptedOutbox journal = openStore();
+                AiMirrorDurableRecoverySession session = new AiMirrorDurableRecoverySession(
+                        chat, journal, config(), request -> {
+                            calls.incrementAndGet();
+                            posted.countDown();
+                            return new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, "");
+                        })) {
+            session.start();
+            session.resume();
+            session.pause();
+            journal.save(receipt());
+            assertFalse(posted.await(200, TimeUnit.MILLISECONDS));
+            assertEquals(0, calls.get());
+            session.resume();
+            assertTrue(posted.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            awaitConfirmed(session);
+            assertEquals(1, calls.get());
+            assertEquals(2, chat.resumed.get());
+            assertEquals(1, chat.paused.get());
+        }
+    }
+
+    @Test
     void noVolatileOrAdditionalDiscordPostsAreEverRequested() throws Exception {
         FakeChat chat = new FakeChat();
         CountDownLatch persisted = new CountDownLatch(1);
