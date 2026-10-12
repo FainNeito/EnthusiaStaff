@@ -1,6 +1,9 @@
 package net.enthusia.staff.discordbot;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -75,16 +78,37 @@ final class AiMirrorDurableStagingSettings {
     AiMirrorEncryptedOutbox openOutbox(Clock clock) throws IOException {
         Objects.requireNonNull(clock, "clock");
         verifyProvisioning(directory, keyFile);
-        byte[] rawKey = Files.readAllBytes(keyFile);
+        byte[] rawKey = readPrivateKey();
         try {
-            if (rawKey.length != KEY_BYTES) {
-                throw new IOException("invalid durable mirror key size");
-            }
             return new AiMirrorEncryptedOutbox(
                     directory, rawKey, destinationBinding(), transport.guildId(),
                     transport.allowedChannels(), transport.channelProfile(), clock);
         } finally {
             Arrays.fill(rawKey, (byte) 0);
+        }
+    }
+
+    private byte[] readPrivateKey() throws IOException {
+        byte[] rawKey = new byte[KEY_BYTES];
+        try (FileChannel channel = FileChannel.open(
+                keyFile, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+            if (channel.size() != KEY_BYTES) {
+                throw new IOException("invalid durable mirror key size");
+            }
+            ByteBuffer bytes = ByteBuffer.wrap(rawKey);
+            while (bytes.hasRemaining()) {
+                if (channel.read(bytes) < 0) {
+                    throw new IOException("truncated durable mirror key");
+                }
+            }
+            if (channel.size() != KEY_BYTES) {
+                throw new IOException("durable mirror key size changed during read");
+            }
+            return rawKey;
+        } catch (IOException failure) {
+            Arrays.fill(rawKey, (byte) 0);
+            // Never include paths or key bytes in operator-facing failures.
+            throw new IOException("unable to securely read durable mirror key");
         }
     }
 

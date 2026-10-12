@@ -147,6 +147,36 @@ class AiMirrorDurableStagingSettingsTest {
                 StaffBotEnvironment.STAGING, Optional.of(config()), settings(directory, link)));
     }
 
+    @Test
+    void changedKeyFileAfterValidationFailsClosedBeforeJournalOpen() throws Exception {
+        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
+        Path directory = provisionDirectory();
+        Path key = provisionKey();
+        var validated = AiMirrorDurableStagingSettings.fromEnvironment(
+                StaffBotEnvironment.STAGING, Optional.of(config()), settings(directory, key))
+                .orElseThrow();
+        Files.write(key, new byte[31]);
+        assertThrows(IOException.class, () -> validated.openOutbox(FIXED));
+        assertFalse(Files.exists(directory.resolve(".mirror.lock")));
+    }
+
+    @Test
+    void replacedKeySymlinkAfterValidationCannotOpenJournal() throws Exception {
+        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
+        Path directory = provisionDirectory();
+        Path key = provisionKey();
+        var validated = AiMirrorDurableStagingSettings.fromEnvironment(
+                StaffBotEnvironment.STAGING, Optional.of(config()), settings(directory, key))
+                .orElseThrow();
+        Path replacement = temp.resolve("replacement-key");
+        Files.write(replacement, fixedKey());
+        Files.setPosixFilePermissions(replacement, PosixFilePermissions.fromString("r--------"));
+        Files.delete(key);
+        Files.createSymbolicLink(key, replacement);
+        assertThrows(IOException.class, () -> validated.openOutbox(FIXED));
+        assertFalse(Files.exists(directory.resolve(".mirror.lock")));
+    }
+
     private Path provisionDirectory() throws IOException {
         Path directory = temp.resolve(JOURNAL_NAME);
         Files.createDirectory(directory);
