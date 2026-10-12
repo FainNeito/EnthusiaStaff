@@ -74,25 +74,32 @@ final class AiMirrorDurableRecoverySession
 
     @Override
     public void resume() {
+        ensureReadyForResume();
+        try {
+            chat.resume();
+            ingress.resume();
+            resumeRecovery();
+        } catch (RuntimeException failure) {
+            ingress.pause();
+            recovery.pause();
+            throw failure;
+        }
+    }
+
+    private void ensureReadyForResume() {
         if (closed.get() || !started.get()) {
             throw new IllegalStateException("durable staging chat not started");
         }
         if (ingress.failed() || recovery.failed()) {
             throw new IllegalStateException("durable staging mirror storage unavailable");
         }
-        // Chat starts only after the normal runtime identity verification.
-        try {
-            chat.resume();
-            ingress.resume();
-            boolean scheduled = recoveryStarted.compareAndSet(false, true)
-                    ? recovery.start() : recovery.resume();
-            if (!scheduled && (ingress.failed() || recovery.failed())) {
-                throw new IllegalStateException("durable staging mirror recovery unavailable");
-            }
-        } catch (RuntimeException failure) {
-            ingress.pause();
-            recovery.pause();
-            throw failure;
+    }
+
+    private void resumeRecovery() {
+        boolean scheduled = recoveryStarted.compareAndSet(false, true)
+                ? recovery.start() : recovery.resume();
+        if (!scheduled && (ingress.failed() || recovery.failed())) {
+            throw new IllegalStateException("durable staging mirror recovery unavailable");
         }
     }
 

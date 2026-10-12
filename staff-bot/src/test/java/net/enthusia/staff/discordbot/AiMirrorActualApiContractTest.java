@@ -77,6 +77,62 @@ class AiMirrorActualApiContractTest {
     }
 
     @Test
+    void realPythonApiConfirmsIdempotentReplayAfterUnacknowledgedHttpSuccess(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path journal) throws Exception {
+        String configured = System.getenv(ENDPOINT_ENV);
+        assumeTrue(configured != null && !configured.isBlank(),
+                "synthetic loopback Python API fixture not enabled");
+        URI uri = URI.create(configured);
+        assertEquals("http", uri.getScheme());
+        assertEquals("127.0.0.1", uri.getHost());
+        assertEquals("/v1/mirror-aliases", uri.getRawPath());
+        AiMirrorPublicationConfig config = new AiMirrorPublicationConfig(
+                uri, CLIENT, TOKEN, GUILD, Set.of(CHANNEL), "discord_general");
+        if (java.nio.file.Files.getFileStore(journal)
+                .supportsFileAttributeView("posix")) {
+            java.nio.file.Files.setPosixFilePermissions(journal,
+                    java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+        }
+        byte[] key = new byte[32];
+        java.util.Arrays.fill(key, (byte) 0x48);
+        String binding = "staging:synthetic:real-loopback-replay";
+        DiscordChatPublication publication = new DiscordChatPublication(
+                GUILD, CHANNEL, ID, CANONICAL, TEXT);
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(2))
+                .followRedirects(HttpClient.Redirect.NEVER).build();
+
+        try (AiMirrorEncryptedOutbox first = new AiMirrorEncryptedOutbox(
+                journal, key, binding, GUILD, Set.of(CHANNEL), "discord_general",
+                java.time.Clock.systemUTC())) {
+            var saved = first.save(publication);
+            var prepared = first.prepareRecoveryAttempt(saved).orElseThrow();
+            HttpResponse<Void> committed = client.send(
+                    AiMirrorRegistrationPublisher.request(config, prepared.publication()),
+                    HttpResponse.BodyHandlers.discarding());
+            assertEquals(200, committed.statusCode());
+            // Simulate application termination after the HTTP success but
+            // before the encrypted record can be acknowledged.
+        }
+        try (AiMirrorEncryptedOutbox reopened = new AiMirrorEncryptedOutbox(
+                journal, key, binding, GUILD, Set.of(CHANNEL), "discord_general",
+                java.time.Clock.systemUTC())) {
+            var receipt = reopened.recover().getFirst();
+            assertEquals(1, receipt.recoveryAttempts());
+            var replay = new AiMirrorReceiptReplay(reopened, config, request -> {
+                HttpResponse<Void> response = client.send(
+                        request, HttpResponse.BodyHandlers.discarding());
+                return new AiMirrorRegistrationPublisher.PostResult(
+                        response.statusCode(),
+                        response.headers().firstValue("X-Moderation-Mirror-Error").orElse(""));
+            });
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED,
+                    replay.attemptOne(receipt));
+            assertTrue(reopened.recover().isEmpty());
+        }
+    }
+
+    @Test
     void realPythonApiRejectsPendingThenAcceptsExactDelayedRegistration() throws Exception {
         String configured = System.getenv(ENDPOINT_ENV);
         assumeTrue(configured != null && !configured.isBlank(),

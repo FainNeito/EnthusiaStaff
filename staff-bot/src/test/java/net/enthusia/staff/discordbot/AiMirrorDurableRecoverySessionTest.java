@@ -117,11 +117,10 @@ class AiMirrorDurableRecoverySessionTest {
     @Test
     void noVolatileOrAdditionalDiscordPostsAreEverRequested() throws Exception {
         FakeChat chat = new FakeChat();
-        CountDownLatch persisted = new CountDownLatch(1);
         try (AiMirrorEncryptedOutbox journal = openStore();
                 AiMirrorDurableRecoverySession session = new AiMirrorDurableRecoverySession(
                         chat, journal, config(), request ->
-                        new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""))) {
+                        new AiMirrorRegistrationPublisher.PostResult(503, "storage_unavailable"))) {
             session.start();
             session.resume();
             session.published(receipt());
