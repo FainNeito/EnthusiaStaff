@@ -37,7 +37,8 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
     private final AtomicLong storageFailures = new AtomicLong();
 
     record Stats(long confirmed, long transientFailures, long terminal,
-                 long exhausted, long deferred, long storageFailures) {}
+                 long exhausted, long deferred, long storageFailures,
+                 long expiredReceipts) {}
 
     AiMirrorRecoveryScheduler(AiMirrorEncryptedOutbox store, AiMirrorReceiptReplay replay) {
         this.store = Objects.requireNonNull(store, "store");
@@ -147,7 +148,8 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
 
     Stats stats() {
         return new Stats(confirmed.get(), transientFailures.get(),
-                terminal.get(), exhausted.get(), deferred.get(), storageFailures.get());
+                terminal.get(), exhausted.get(), deferred.get(),
+                storageFailures.get(), store.expiredRecordCount());
     }
 
     boolean failed() {

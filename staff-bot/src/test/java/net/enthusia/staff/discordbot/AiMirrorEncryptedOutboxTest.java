@@ -116,9 +116,30 @@ class AiMirrorEncryptedOutboxTest {
         try (AiMirrorEncryptedOutbox restarted = open(
                 key(), BINDING, fixed(TIME.plusSeconds(3601)))) {
             assertTrue(restarted.recover().isEmpty());
+            assertEquals(1L, restarted.expiredRecordCount());
+            assertTrue(restarted.recover().isEmpty());
+            assertEquals(1L, restarted.expiredRecordCount(),
+                    "expiry must be counted only once");
         }
         try (AiMirrorEncryptedOutbox restarted = open(key(), BINDING, fixed(TIME))) {
             assertTrue(restarted.recover().isEmpty());
+        }
+    }
+
+    @Test
+    void expiredReceiptRejectedDuringAttemptPreparationIsCounted() throws Exception {
+        AiMirrorEncryptedOutbox.Saved receipt;
+        try (AiMirrorEncryptedOutbox initial = open(key(), BINDING, fixed(TIME))) {
+            receipt = initial.save(receipt(2));
+        }
+        try (AiMirrorEncryptedOutbox restarted = open(
+                key(), BINDING, fixed(TIME.plusSeconds(3601)))) {
+            var prepared = restarted.prepareRecoveryAttempt(receipt);
+            assertEquals(AiMirrorEncryptedOutbox.AttemptStatus.EXHAUSTED,
+                    prepared.status());
+            assertEquals(1L, restarted.expiredRecordCount());
+            assertTrue(restarted.recover().isEmpty());
+            assertEquals(1L, restarted.expiredRecordCount());
         }
     }
 
