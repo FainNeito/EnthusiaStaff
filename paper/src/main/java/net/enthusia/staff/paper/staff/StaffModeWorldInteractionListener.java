@@ -55,43 +55,53 @@ public final class StaffModeWorldInteractionListener implements Listener {
         this.staffMode = Objects.requireNonNull(staffMode, "staffMode");
     }
 
+    // Enforce rank restrictions before the event completes. Successful mutations are
+    // recorded at MONITOR, after other plugins' cancellation handlers have run.
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
-        if (!onDuty(player)) {
-            return;
+        if (onDuty(player) && !staffMode.isUnrestricted(player)) {
+            denyRankedBlockEdit(player, event, event.getBlock(), "block-break");
         }
-        if (staffMode.isUnrestricted(player)) {
-            staffMode.logStaffAction(player, "block-break", describe(event.getBlock()));
-            return;
-        }
-        auditRankedBlockEdit(player, event, event.getBlock(), "block-break");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
         Player player = event.getPlayer();
+        if (onDuty(player) && !staffMode.isUnrestricted(player)) {
+            denyRankedBlockEdit(player, event, event.getBlockPlaced(), "block-place");
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCompletedBlockBreak(BlockBreakEvent event) {
+        auditCompletedBlockEdit(event.getPlayer(), event.getBlock(), "block-break");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCompletedBlockPlace(BlockPlaceEvent event) {
+        auditCompletedBlockEdit(event.getPlayer(), event.getBlockPlaced(), "block-place");
+    }
+
+    private void denyRankedBlockEdit(Player player, Cancellable event, Block block, String action) {
+        if (StaffModeWorldInteractionPolicy.blocksBlockEdit(staffMode.dutyTier(player))) {
+            event.setCancelled(true);
+            // Denied actions remain distinct from committed edits, with no item NBT.
+            staffMode.logStaffAction(player, blockEditAuditAction(action, true), describe(block));
+        }
+    }
+
+    private void auditCompletedBlockEdit(Player player, Block block, String action) {
         if (!onDuty(player)) {
             return;
         }
-        if (staffMode.isUnrestricted(player)) {
-            staffMode.logStaffAction(player, "block-place", describe(event.getBlockPlaced()));
-            return;
+        if (shouldAuditCompletedBlockEdit(staffMode.isUnrestricted(player), staffMode.dutyTier(player))) {
+            staffMode.logStaffAction(player, action, describe(block));
         }
-        auditRankedBlockEdit(player, event, event.getBlockPlaced(), "block-place");
     }
 
-    private void auditRankedBlockEdit(Player player, Cancellable event, Block block, String action) {
-        StaffDutyTier tier = staffMode.dutyTier(player);
-        boolean denied = StaffModeWorldInteractionPolicy.blocksBlockEdit(tier);
-        if (denied) {
-            event.setCancelled(true);
-        }
-        if (denied || StaffModeWorldInteractionPolicy.logsWorldInteraction(tier)) {
-            // Keep rejected attempts distinct from successful edits. Only block type and
-            // location are recorded; never include item NBT, chat or command arguments.
-            staffMode.logStaffAction(player, blockEditAuditAction(action, denied), describe(block));
-        }
+    static boolean shouldAuditCompletedBlockEdit(boolean unrestricted, StaffDutyTier tier) {
+        return unrestricted || StaffModeWorldInteractionPolicy.logsWorldInteraction(tier);
     }
 
     static String blockEditAuditAction(String action, boolean denied) {
@@ -219,19 +229,12 @@ public final class StaffModeWorldInteractionListener implements Listener {
             return;
         }
         Inventory top = event.getView().getTopInventory();
-        if (!isProtectedContainerInventory(top)) {
-            return;
-        }
-        if (staffMode.isUnrestricted(player)) {
-            staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION,
-                    top.getType() + " raw-slot=" + event.getRawSlot() + " action=" + event.getAction());
+        if (!isProtectedContainerInventory(top) || staffMode.isUnrestricted(player)) {
             return;
         }
         StaffDutyTier tier = staffMode.dutyTier(player);
         if (StaffModeWorldInteractionPolicy.blocksContainerEdit(tier)) {
-            // Cancel every click while a protected container is open. Cancelling only clicks in
-            // the top inventory is insufficient: shift-click, hotbar swap, double-click/collect,
-            // and similar actions can mutate the container from the player's inventory.
+            // Cancel lower-inventory transfers too: shift-click and collect can mutate the top.
             event.setCancelled(true);
             if (shouldAuditDeniedContainerClick(event.getAction(),
                     event.getRawSlot(), top.getSize())) {
@@ -239,11 +242,23 @@ public final class StaffModeWorldInteractionListener implements Listener {
                         top.getType() + " raw-slot=" + event.getRawSlot()
                                 + " action=" + event.getAction());
             }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCompletedContainerEdit(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player) || !onDuty(player)) {
             return;
         }
-        if (StaffModeWorldInteractionPolicy.logsContainerEdit(tier)) {
+        Inventory top = event.getView().getTopInventory();
+        if (isProtectedContainerInventory(top)
+                && shouldAuditCompletedContainerEdit(staffMode.isUnrestricted(player),
+                        staffMode.dutyTier(player))) {
+            // A later StaffModeManager or third-party handler may deny the edit.
+            // Only successful, uncancelled events reach this callback.
             staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION,
-                    top.getType() + " raw-slot=" + event.getRawSlot() + " action=" + event.getAction());
+                    top.getType() + " raw-slot=" + event.getRawSlot()
+                            + " action=" + event.getAction());
         }
     }
 
@@ -253,29 +268,35 @@ public final class StaffModeWorldInteractionListener implements Listener {
             return;
         }
         Inventory top = event.getView().getTopInventory();
-        if (!isProtectedContainerInventory(top)) {
-            return;
-        }
-        if (staffMode.isUnrestricted(player)) {
-            boolean touchesContainer = touchesProtectedContainerSlot(event.getRawSlots(), top.getSize());
-            if (touchesContainer) {
-                staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION, top.getType() + " drag");
-            }
+        if (!isProtectedContainerInventory(top) || staffMode.isUnrestricted(player)) {
             return;
         }
         StaffDutyTier tier = staffMode.dutyTier(player);
-        boolean touchesProtectedContainer = touchesProtectedContainerSlot(event.getRawSlots(), top.getSize());
         if (StaffModeWorldInteractionPolicy.blocksContainerEdit(tier)) {
             event.setCancelled(true);
-            if (touchesProtectedContainer) {
+            if (touchesProtectedContainerSlot(event.getRawSlots(), top.getSize())) {
                 staffMode.logStaffAction(player, CONTAINER_EDIT_DENIED_ACTION,
                         top.getType() + " drag");
             }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCompletedContainerDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player) || !onDuty(player)) {
             return;
         }
-        if (touchesProtectedContainer && StaffModeWorldInteractionPolicy.logsContainerEdit(tier)) {
+        Inventory top = event.getView().getTopInventory();
+        if (isProtectedContainerInventory(top)
+                && touchesProtectedContainerSlot(event.getRawSlots(), top.getSize())
+                && shouldAuditCompletedContainerEdit(staffMode.isUnrestricted(player),
+                        staffMode.dutyTier(player))) {
             staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION, top.getType() + " drag");
         }
+    }
+
+    static boolean shouldAuditCompletedContainerEdit(boolean unrestricted, StaffDutyTier tier) {
+        return unrestricted || StaffModeWorldInteractionPolicy.logsContainerEdit(tier);
     }
 
     /**
