@@ -324,7 +324,8 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             byte[] ciphertext = cipher.doFinal(JSON.writeValueAsBytes(receipt));
             return ByteBuffer.allocate(MAGIC.length + NONCE_BYTES + ciphertext.length)
                     .put(MAGIC).put(nonce).put(ciphertext).array();
-        } catch (GeneralSecurityException exception) {
+        } catch (GeneralSecurityException | IOException exception) {
+            // Do not propagate Jackson exception messages that could contain text.
             throw new IOException("could not seal receipt");
         }
     }
@@ -346,7 +347,8 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             cipher.updateAAD(MAGIC);
             cipher.updateAAD(binding);
             return JSON.readValue(cipher.doFinal(ciphertext), Sealed.class);
-        } catch (GeneralSecurityException | RuntimeException exception) {
+        } catch (GeneralSecurityException | IOException | RuntimeException exception) {
+            // Parsing failures must never reveal decrypted JSON in diagnostics.
             throw new IOException("untrusted or corrupt encrypted receipt");
         }
     }
