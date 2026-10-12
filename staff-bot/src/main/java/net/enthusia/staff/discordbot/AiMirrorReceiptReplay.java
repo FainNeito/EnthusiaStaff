@@ -21,6 +21,7 @@ final class AiMirrorReceiptReplay {
     enum Outcome { CONFIRMED, TRANSIENT, TERMINAL, EXHAUSTED, DEFERRED }
 
     private final AiMirrorEncryptedOutbox store;
+    private final AiMirrorReceiptClaims claims;
     private final AiMirrorPublicationConfig config;
     private final AiMirrorRegistrationPublisher.DetailedPoster poster;
 
@@ -28,6 +29,15 @@ final class AiMirrorReceiptReplay {
             AiMirrorEncryptedOutbox store,
             AiMirrorPublicationConfig config,
             AiMirrorRegistrationPublisher.DetailedPoster poster) {
+        this(store, config, poster, new AiMirrorReceiptClaims());
+    }
+
+    AiMirrorReceiptReplay(
+            AiMirrorEncryptedOutbox store,
+            AiMirrorPublicationConfig config,
+            AiMirrorRegistrationPublisher.DetailedPoster poster,
+            AiMirrorReceiptClaims claims) {
+        this.claims = Objects.requireNonNull(claims, "claims");
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.poster = Objects.requireNonNull(poster, "poster");
@@ -37,6 +47,24 @@ final class AiMirrorReceiptReplay {
     }
 
     Outcome attemptOne(AiMirrorEncryptedOutbox.Saved receipt)
+            throws IOException, InterruptedException {
+        if (!claims.tryClaim(receipt)) {
+            return Outcome.DEFERRED;
+        }
+        try {
+            // A fast registration may already have removed or superseded
+            // the scheduler's snapshot. Do not charge the slow budget or
+            // issue HTTP for a stale encrypted revision.
+            if (!store.isCurrent(receipt)) {
+                return Outcome.DEFERRED;
+            }
+            return attemptClaimed(receipt);
+        } finally {
+            claims.release(receipt);
+        }
+    }
+
+    private Outcome attemptClaimed(AiMirrorEncryptedOutbox.Saved receipt)
             throws IOException, InterruptedException {
         // This is the only method that can issue HTTP; it never runs on JDA.
         AiMirrorEncryptedOutbox.AttemptPreparation prepared =
