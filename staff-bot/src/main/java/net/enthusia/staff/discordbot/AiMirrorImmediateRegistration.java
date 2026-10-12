@@ -85,37 +85,55 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
                 deferredToRecovery.incrementAndGet();
                 return false;
             }
+            if (!claims.tryClaim(receipt)) {
+                deferredToRecovery.incrementAndGet();
+                return false;
+            }
             try {
-                worker.execute(() -> sendCommitted(receipt));
+                worker.execute(new ClaimedTask(receipt));
                 return true;
             } catch (RejectedExecutionException saturated) {
+                claims.release(receipt);
                 deferredToRecovery.incrementAndGet();
                 return false;
             }
         }
     }
 
+    private final class ClaimedTask implements Runnable {
+        private final AiMirrorEncryptedOutbox.Saved saved;
+
+        private ClaimedTask(AiMirrorEncryptedOutbox.Saved saved) {
+            this.saved = saved;
+        }
+
+        @Override
+        public void run() {
+            try {
+                sendCommitted(saved);
+            } finally {
+                claims.release(saved);
+            }
+        }
+
+        void cancel() {
+            claims.release(saved);
+        }
+    }
+
     private void sendCommitted(AiMirrorEncryptedOutbox.Saved receipt) {
-        if (!claims.tryClaim(receipt)) {
+        final boolean current;
+        try {
+            current = store.isCurrent(receipt);
+        } catch (IOException | RuntimeException storageFault) {
+            failClosed();
+            return;
+        }
+        if (!current) {
             deferredToRecovery.incrementAndGet();
             return;
         }
-        try {
-            final boolean current;
-            try {
-                current = store.isCurrent(receipt);
-            } catch (IOException | RuntimeException storageFault) {
-                failClosed();
-                return;
-            }
-            if (!current) {
-                deferredToRecovery.incrementAndGet();
-                return;
-            }
-            sendClaimed(receipt);
-        } finally {
-            claims.release(receipt);
-        }
+        sendClaimed(receipt);
     }
 
     private void sendClaimed(AiMirrorEncryptedOutbox.Saved receipt) {
@@ -180,6 +198,9 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
             accepting.set(false);
             List<Runnable> pending = new ArrayList<>();
             worker.getQueue().drainTo(pending);
+            for (Runnable task : pending) {
+                ((ClaimedTask) task).cancel();
+            }
             deferredToRecovery.addAndGet(pending.size());
         }
     }
