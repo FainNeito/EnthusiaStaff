@@ -49,6 +49,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private static final int MAX_FILE_BYTES = 32 * 1024;
     private static final long TTL_MILLIS = 60 * 60 * 1000L;
     private static final String EXTENSION = ".mir";
+    private static final String POSIX_VIEW = "posix";
     private static final String LOCK_NAME = ".mirror.lock";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Set<PosixFilePermission> PRIVATE_DIRECTORY = Set.of(
@@ -109,14 +110,19 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         Objects.requireNonNull(destinationBinding, "destinationBinding");
         Objects.requireNonNull(channels, "channels");
         Objects.requireNonNull(clock, "clock");
-        if (keyMaterial.length != KEY_BYTES || destinationBinding.isBlank()
-                || destinationBinding.length() > 512 || guildId <= 0) {
+        if (!validIdentitySettings(keyMaterial, destinationBinding, guildId)) {
             throw new IllegalArgumentException("invalid isolated receipt store settings");
         }
         if (channels.isEmpty() || channels.stream().anyMatch(value -> value <= 0)
                 || (!"discord_general".equals(profile) && !"discord_gaming".equals(profile))) {
             throw new IllegalArgumentException("invalid staging receipt scope");
         }
+    }
+
+    private static boolean validIdentitySettings(
+            byte[] keyMaterial, String destinationBinding, long guildId) {
+        return keyMaterial.length == KEY_BYTES && !destinationBinding.isBlank()
+                && destinationBinding.length() <= 512 && guildId > 0;
     }
 
     private Ownership acquireOwnership() throws IOException {
@@ -150,7 +156,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             if (!Files.isRegularFile(lockPath, LinkOption.NOFOLLOW_LINKS)) {
                 throw new IOException("invalid receipt store lock path");
             }
-            if (Files.getFileStore(directory).supportsFileAttributeView("posix")
+            if (Files.getFileStore(directory).supportsFileAttributeView(POSIX_VIEW)
                     && !Files.getPosixFilePermissions(lockPath, LinkOption.NOFOLLOW_LINKS)
                             .equals(PosixFilePermissions.fromString("rw-------"))) {
                 throw new IOException("insecure receipt lock permissions");
@@ -345,7 +351,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 || Files.isSymbolicLink(directory)) {
             throw new IOException("receipt directory must be pre-provisioned and not a symlink");
         }
-        if (Files.getFileStore(directory).supportsFileAttributeView("posix")
+        if (Files.getFileStore(directory).supportsFileAttributeView(POSIX_VIEW)
                 && !Files.getPosixFilePermissions(directory, LinkOption.NOFOLLOW_LINKS)
                         .equals(PRIVATE_DIRECTORY)) {
             throw new IOException("receipt directory must have private permissions");
@@ -380,7 +386,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                         LinkOption.NOFOLLOW_LINKS)
                 : Set.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE,
                         LinkOption.NOFOLLOW_LINKS);
-        if (Files.getFileStore(directory).supportsFileAttributeView("posix")) {
+        if (Files.getFileStore(directory).supportsFileAttributeView(POSIX_VIEW)) {
             return FileChannel.open(path, options, PRIVATE_FILE);
         }
         return FileChannel.open(path, options);
@@ -388,6 +394,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
 
     private byte[] encrypt(Sealed receipt) throws IOException {
         try {
+            // A fresh 96-bit nonce comes from the CSPRNG for every encryption.
+            // Never reuse a nonce under this journal key. Store it with the
+            // ciphertext; check uniqueness over the full 128-record test bound.
             byte[] nonce = new byte[NONCE_BYTES];
             RANDOM.nextBytes(nonce);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
@@ -429,7 +438,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private void syncDirectory() throws IOException {
         // On POSIX filesystems, also force the atomic rename or unlink.
         // Windows volume durability still requires platform-specific review.
-        if (Files.getFileStore(directory).supportsFileAttributeView("posix")) {
+        if (Files.getFileStore(directory).supportsFileAttributeView(POSIX_VIEW)) {
             try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
                 channel.force(true);
             }

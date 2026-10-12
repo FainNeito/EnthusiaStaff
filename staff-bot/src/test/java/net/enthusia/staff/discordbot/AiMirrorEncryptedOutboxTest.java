@@ -60,6 +60,21 @@ class AiMirrorEncryptedOutboxTest {
     }
 
     @Test
+    void boundedWritesHaveDistinctRandomAesGcmNonces() throws Exception {
+        Set<String> seen = new java.util.HashSet<>();
+        try (AiMirrorEncryptedOutbox outbox = open(key(), BINDING, fixed(TIME))) {
+            for (int index = 0; index < 128; index++) {
+                AiMirrorEncryptedOutbox.Saved saved = outbox.save(receipt(index));
+                byte[] sealed = Files.readAllBytes(temp.resolve(saved.fileName()));
+                assertEquals("EMR1", new String(sealed, 0, 4, StandardCharsets.US_ASCII));
+                String nonce = java.util.HexFormat.of().formatHex(sealed, 4, 16);
+                assertTrue(seen.add(nonce), "AES-GCM nonce reused in bounded synthetic writes");
+            }
+        }
+        assertEquals(128, seen.size());
+    }
+
+    @Test
     void replayWithDifferentKeyOrDestinationCannotReadStoredData() throws Exception {
         byte[] key = key();
         try (AiMirrorEncryptedOutbox outbox = open(key, BINDING, fixed(TIME))) {
