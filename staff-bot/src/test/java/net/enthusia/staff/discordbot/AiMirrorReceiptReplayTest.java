@@ -128,11 +128,14 @@ class AiMirrorReceiptReplayTest {
     void terminalIdentityAuthAndUnknownStatusesAreDurablyForgotten() throws Exception {
         int[] codes = {404, HTTP_CONFLICT, HTTP_CONFLICT, HTTP_UNAVAILABLE, 401, 422, 302};
         String[] errors = {"canonical_missing", "mirror_conflict", "", "", "", "", ""};
-        try (AiMirrorEncryptedOutbox store = open(key())) {
-            for (int index = 0; index < codes.length; index++) {
-                verifySingleTerminalResponse(store, index, codes[index], errors[index]);
+        for (int index = 0; index < codes.length; index++) {
+            if (index > 0) {
+                advanceTime();
             }
-            assertTrue(store.recover().isEmpty());
+            try (AiMirrorEncryptedOutbox store = open(key())) {
+                verifySingleTerminalResponse(store, index, codes[index], errors[index]);
+                assertTrue(store.recover().isEmpty());
+            }
         }
     }
 
@@ -165,6 +168,62 @@ class AiMirrorReceiptReplayTest {
             assertEquals(1, recovered.size());
             assertEquals(1, recovered.getFirst().recoveryAttempts());
             assertFalse(recovered.getFirst().toString().contains(CANONICAL_TEXT));
+        }
+    }
+
+    @Test
+    void confirmedAliasCannotResetGlobalThrottleForAnotherReceiptAfterRestart()
+            throws Exception {
+        byte[] key = key();
+        try (AiMirrorEncryptedOutbox initial = open(key)) {
+            var first = initial.save(receipt());
+            initial.save(new DiscordChatPublication(GUILD, CHANNEL,
+                    "1234567890123456786", "rosechat:synthetic:second",
+                    CANONICAL_TEXT));
+            var replay = new AiMirrorReceiptReplay(initial, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(first));
+            assertEquals(1, initial.recover().size());
+        }
+        try (AiMirrorEncryptedOutbox restarted = open(key)) {
+            var second = restarted.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(restarted, config(), request -> {
+                throw new AssertionError("a restarted worker must not bypass global rate limit");
+            });
+            assertEquals(AiMirrorReceiptReplay.Outcome.DEFERRED, replay.attemptOne(second));
+            assertEquals(0, restarted.recover().getFirst().recoveryAttempts());
+        }
+        advanceTime();
+        try (AiMirrorEncryptedOutbox later = open(key)) {
+            var second = later.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(later, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(second));
+            assertTrue(later.recover().isEmpty());
+        }
+    }
+
+    @Test
+    void corruptedAuthenticatedGlobalRateStateRefusesHttp() throws Exception {
+        byte[] key = key();
+        try (AiMirrorEncryptedOutbox initial = open(key)) {
+            var first = initial.save(receipt());
+            var replay = new AiMirrorReceiptReplay(initial, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(
+                            HTTP_UNAVAILABLE, "storage_unavailable"));
+            assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT, replay.attemptOne(first));
+        }
+        Path rate = temporary.resolve(".mirror-rate");
+        byte[] encrypted = Files.readAllBytes(rate);
+        encrypted[encrypted.length - 1] ^= 1;
+        Files.write(rate, encrypted);
+        advanceTime();
+        try (AiMirrorEncryptedOutbox restarted = open(key)) {
+            var saved = restarted.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(restarted, config(), request -> {
+                throw new AssertionError("untrusted rate state cannot authorize HTTP");
+            });
+            assertThrows(IOException.class, () -> replay.attemptOne(saved));
         }
     }
 

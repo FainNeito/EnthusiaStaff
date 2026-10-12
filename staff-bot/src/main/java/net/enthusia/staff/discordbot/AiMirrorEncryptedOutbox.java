@@ -53,6 +53,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private static final String EXTENSION = ".mir";
     private static final String POSIX_VIEW = "posix";
     private static final String LOCK_NAME = ".mirror.lock";
+    private static final String RATE_NAME = ".mirror-rate";
+    private static final String RATE_TEMP_NAME = ".mirror-rate.tmp";
+    private static final int RATE_VERSION = 2;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Set<PosixFilePermission> PRIVATE_DIRECTORY = Set.of(
             PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
@@ -68,6 +71,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             return "Saved[receipt=REDACTED]";
         }
     }
+
+    private record RateState(
+            int version, String kind, long guildId, String profile, long lastAttemptMillis) {}
 
     private record Sealed(
             int version, long createdMillis, long guildId, long channelId,
@@ -283,7 +289,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         byte[] contents = readCiphertext(file);
         Sealed decoded;
         try {
-            decoded = decrypt(contents);
+            decoded = decrypt(contents, Sealed.class);
         } finally {
             Arrays.fill(contents, (byte) 0);
         }
@@ -356,9 +362,10 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 syncDirectory();
                 return new AttemptPreparation(AttemptStatus.EXHAUSTED, null);
             }
-            if (recoveryDeferred(current)) {
+            if (recoveryDeferred(current) || globalRecoveryDeferred()) {
                 return new AttemptPreparation(AttemptStatus.DEFERRED, null);
             }
+            persistGlobalAttemptClock();
             return persistNextRecoveryAttempt(file, current);
         }
     }
@@ -366,6 +373,64 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private boolean recoveryExhausted(Saved current) {
         return clock.millis() - current.createdMillis() >= TTL_MILLIS
                 || current.recoveryAttempts() >= MAX_RECOVERY_ATTEMPTS;
+    }
+
+    private boolean globalRecoveryDeferred() throws IOException {
+        long last = readGlobalAttemptClock();
+        return last > 0 && clock.millis() - last < SLOW_INTERVAL_MILLIS;
+    }
+
+    private long readGlobalAttemptClock() throws IOException {
+        Path file = directory.resolve(RATE_NAME);
+        if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+            return 0L;
+        }
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("invalid encrypted recovery rate state");
+        }
+        if (Files.getFileStore(directory).supportsFileAttributeView(POSIX_VIEW)
+                && !Files.getPosixFilePermissions(file, LinkOption.NOFOLLOW_LINKS)
+                        .equals(PosixFilePermissions.fromString("rw-------"))) {
+            throw new IOException("insecure recovery rate permissions");
+        }
+        byte[] data = readCiphertext(file);
+        try {
+            RateState state = decrypt(data, RateState.class);
+            if (state.version() != RATE_VERSION || !"mirror-recovery".equals(state.kind())
+                    || state.guildId() != guildId || !profile.equals(state.profile())
+                    || state.lastAttemptMillis() <= 0
+                    || state.lastAttemptMillis() > clock.millis()) {
+                throw new IOException("invalid authenticated recovery rate state");
+            }
+            return state.lastAttemptMillis();
+        } finally {
+            Arrays.fill(data, (byte) 0);
+        }
+    }
+
+    private void persistGlobalAttemptClock() throws IOException {
+        byte[] data = encrypt(new RateState(
+                RATE_VERSION, "mirror-recovery", guildId, profile, clock.millis()));
+        Path committed = directory.resolve(RATE_NAME);
+        Path temporary = directory.resolve(RATE_TEMP_NAME);
+        try {
+            if (data.length > MAX_FILE_BYTES) {
+                throw new IOException("invalid recovery rate state size");
+            }
+            try (FileChannel channel = openFile(temporary, true)) {
+                ByteBuffer buffer = ByteBuffer.wrap(data);
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
+                channel.force(true);
+            }
+            Files.move(temporary, committed,
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            syncDirectory();
+        } finally {
+            Files.deleteIfExists(temporary);
+            Arrays.fill(data, (byte) 0);
+        }
     }
 
     private boolean recoveryDeferred(Saved current) {
@@ -464,7 +529,14 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         try (DirectoryStream<Path> listing = Files.newDirectoryStream(directory)) {
             for (Path path : listing) {
                 String name = path.getFileName().toString();
-                if (LOCK_NAME.equals(name)) {
+                if (LOCK_NAME.equals(name) || RATE_NAME.equals(name)) {
+                    continue;
+                }
+                if (RATE_TEMP_NAME.equals(name)) {
+                    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                        throw new IOException("invalid recovery rate temporary file");
+                    }
+                    files.add(path);
                     continue;
                 }
                 if (!name.matches(
@@ -493,7 +565,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         return FileChannel.open(path, options);
     }
 
-    private byte[] encrypt(Sealed receipt) throws IOException {
+    private byte[] encrypt(Object receipt) throws IOException {
         try {
             // Each record uses a fresh 96-bit nonce from SecureRandom with a
             // distinct random key supplied per deployment. The 128-record
@@ -513,7 +585,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         }
     }
 
-    private Sealed decrypt(byte[] contents) throws IOException {
+    private <T> T decrypt(byte[] contents, Class<T> resultType) throws IOException {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(contents);
             byte[] magic = new byte[MAGIC.length];
@@ -529,7 +601,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(nonce));
             cipher.updateAAD(MAGIC);
             cipher.updateAAD(binding);
-            return JSON.readValue(cipher.doFinal(ciphertext), Sealed.class);
+            return JSON.readValue(cipher.doFinal(ciphertext), resultType);
         } catch (GeneralSecurityException | IOException | RuntimeException exception) {
             // Parsing failures must never reveal decrypted JSON in diagnostics.
             throw new IOException("untrusted or corrupt encrypted receipt");
