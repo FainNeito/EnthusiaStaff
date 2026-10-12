@@ -79,15 +79,7 @@ class AiMirrorActualApiContractTest {
     @Test
     void realPythonApiConfirmsIdempotentReplayAfterUnacknowledgedHttpSuccess(
             @org.junit.jupiter.api.io.TempDir java.nio.file.Path journal) throws Exception {
-        String configured = System.getenv(ENDPOINT_ENV);
-        assumeTrue(configured != null && !configured.isBlank(),
-                "synthetic loopback Python API fixture not enabled");
-        URI uri = URI.create(configured);
-        assertEquals("http", uri.getScheme());
-        assertEquals("127.0.0.1", uri.getHost());
-        assertEquals("/v1/mirror-aliases", uri.getRawPath());
-        AiMirrorPublicationConfig config = new AiMirrorPublicationConfig(
-                uri, CLIENT, TOKEN, GUILD, Set.of(CHANNEL), "discord_general");
+        AiMirrorPublicationConfig config = syntheticOnlyConfig();
         if (java.nio.file.Files.getFileStore(journal)
                 .supportsFileAttributeView("posix")) {
             java.nio.file.Files.setPosixFilePermissions(journal,
@@ -130,6 +122,18 @@ class AiMirrorActualApiContractTest {
                     replay.attemptOne(receipt));
             assertTrue(reopened.recover().isEmpty());
         }
+    }
+
+    private static AiMirrorPublicationConfig syntheticOnlyConfig() {
+        String configured = System.getenv(ENDPOINT_ENV);
+        assumeTrue(configured != null && !configured.isBlank(),
+                "synthetic loopback Python API fixture not enabled");
+        URI uri = URI.create(configured);
+        assertEquals("http", uri.getScheme());
+        assertEquals("127.0.0.1", uri.getHost());
+        assertEquals("/v1/mirror-aliases", uri.getRawPath());
+        return new AiMirrorPublicationConfig(
+                uri, CLIENT, TOKEN, GUILD, Set.of(CHANNEL), "discord_general");
     }
 
     @Test
