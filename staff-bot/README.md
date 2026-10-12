@@ -281,6 +281,21 @@ measurements, key/backup/retention review and separate owner authorization
 before enabling this setting. No live or production configuration changes
 have been made.
 
+**Aggregate staging telemetry (code only; not enabled):** When and only
+when the durable STAGING session is actually selected, the loopback
+`GET /ready` response additionally contains numeric-only
+`mirrorRecovery` counters: eligible post-send callbacks, encrypted
+persistence, ingress capacity/storage/cancel drops, prompt confirmed /
+transient / deferred / terminal / storage failures, slow confirmed /
+transient / deferred / terminal / exhausted / storage failures, and
+expired receipts. `GET /health` and all non-durable/PRODUCTION
+responses retain their previous shapes. No text, IDs, keys, paths,
+endpoints or exception messages are ever included. The values are
+process-lifetime snapshots (not durable across restarts) and cannot
+independently prove complete coverage: compare externally counted
+eligible original and Discord post-send events, restart windows, and
+the journal's eventual pending count before approving any deletion.
+
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
 including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,

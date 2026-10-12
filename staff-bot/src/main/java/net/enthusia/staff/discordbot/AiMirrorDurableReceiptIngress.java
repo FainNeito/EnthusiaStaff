@@ -28,7 +28,7 @@ final class AiMirrorDurableReceiptIngress implements DiscordChatPostObserver, Au
     }
 
     record Stats(long persisted, long capacityDrops, long storageFailures,
-                 long cancelledPending) {}
+                 long cancelledPending, long eligiblePostSend) {}
 
     private final AiMirrorPublicationConfig config;
     private final Sink sink;
@@ -36,6 +36,7 @@ final class AiMirrorDurableReceiptIngress implements DiscordChatPostObserver, Au
     private final AtomicBoolean accepting = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean failed = new AtomicBoolean();
+    private final AtomicLong eligiblePostSend = new AtomicLong();
     private final AtomicLong persisted = new AtomicLong();
     private final AtomicLong capacityDrops = new AtomicLong();
     private final AtomicLong storageFailures = new AtomicLong();
@@ -92,6 +93,7 @@ final class AiMirrorDurableReceiptIngress implements DiscordChatPostObserver, Au
         if (!eligible(publication)) {
             return;
         }
+        eligiblePostSend.incrementAndGet();
         try {
             worker.execute(() -> persistOffCallback(publication));
         } catch (RejectedExecutionException fullOrClosed) {
@@ -132,7 +134,7 @@ final class AiMirrorDurableReceiptIngress implements DiscordChatPostObserver, Au
 
     Stats stats() {
         return new Stats(persisted.get(), capacityDrops.get(),
-                storageFailures.get(), cancelledPending.get());
+                storageFailures.get(), cancelledPending.get(), eligiblePostSend.get());
     }
 
     boolean failed() {
