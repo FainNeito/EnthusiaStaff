@@ -205,6 +205,46 @@ class AiMirrorRegistrationRetryTest {
         }
     }
 
+
+    @Test
+    void pauseDuringInFlightRequestDoesNotOverbookTheOutstandingBound() throws Exception {
+        final int queuedCapacity = 64;
+        final int newSubmissions = 70;
+        final int expectedDrops = newSubmissions - queuedCapacity;
+        AtomicInteger calls = new AtomicInteger();
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch deliveredFresh = new CountDownLatch(queuedCapacity);
+        try (AiMirrorRegistrationPublisher publisher = AiMirrorRegistrationPublisher.withDetailedPoster(
+                config(), request -> {
+                    if (calls.incrementAndGet() == FIRST_ATTEMPT) {
+                        firstStarted.countDown();
+                        if (!releaseFirst.await(WAIT_SECONDS, TimeUnit.SECONDS)) {
+                            throw new IOException("synthetic first request held too long");
+                        }
+                    } else {
+                        deliveredFresh.countDown();
+                    }
+                    return new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, "");
+                })) {
+            publisher.resume();
+            publisher.published(receipt());
+            assertTrue(firstStarted.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            publisher.pause();
+            publisher.resume();
+            // The old in-flight HTTP call still owns one slot until it returns.
+            for (int i = 0; i < newSubmissions; i++) {
+                publisher.published(receipt());
+            }
+            assertEquals(expectedDrops, publisher.stats().capacityDrops());
+            releaseFirst.countDown();
+            assertTrue(deliveredFresh.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            assertEquals(queuedCapacity + FIRST_ATTEMPT, calls.get());
+        } finally {
+            releaseFirst.countDown();
+        }
+    }
+
     private static void awaitConfirmed(AiMirrorRegistrationPublisher publisher)
             throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);

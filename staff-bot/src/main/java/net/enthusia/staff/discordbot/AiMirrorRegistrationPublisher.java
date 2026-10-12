@@ -175,6 +175,16 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
     }
 
     private void attempt(Pending pending) {
+        pending.inFlight.set(true);
+        try {
+            attemptOnce(pending);
+        } finally {
+            pending.inFlight.set(false);
+            pending.releaseIfIdle();
+        }
+    }
+
+    private void attemptOnce(Pending pending) {
         if (!active(pending)) {
             pending.finish();
             return;
@@ -277,6 +287,8 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
         private final long generation;
         private final long createdAtNanos = System.nanoTime();
         private final AtomicBoolean finished = new AtomicBoolean();
+        private final AtomicBoolean inFlight = new AtomicBoolean();
+        private final AtomicBoolean permitReturned = new AtomicBoolean();
         private volatile ScheduledFuture<?> future;
         private int attempts;
 
@@ -310,6 +322,13 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
                     scheduled.cancel(false);
                 }
                 outstanding.remove(this);
+                releaseIfIdle();
+            }
+        }
+
+        void releaseIfIdle() {
+            if (finished.get() && !inFlight.get()
+                    && permitReturned.compareAndSet(false, true)) {
                 slots.release();
             }
         }
