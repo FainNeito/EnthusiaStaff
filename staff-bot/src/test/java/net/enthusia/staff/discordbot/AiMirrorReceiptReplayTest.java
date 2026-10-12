@@ -33,6 +33,7 @@ class AiMirrorReceiptReplayTest {
     private static final int HTTP_UNAVAILABLE = 503;
 
     @TempDir Path temporary;
+    private Instant simulatedTime = FIXED.instant();
 
     @BeforeEach
     void permissions() throws IOException {
@@ -66,6 +67,7 @@ class AiMirrorReceiptReplayTest {
             });
             assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT, replay.attemptOne(recovered));
         }
+        advanceTime();
         try (AiMirrorEncryptedOutbox resumed = open(key)) {
             var recovered = resumed.recover().getFirst();
             assertEquals(1, recovered.recoveryAttempts());
@@ -106,6 +108,9 @@ class AiMirrorReceiptReplayTest {
 
     private void verifySingleTransientRestart(byte[] key, int expectedAttempts,
             AtomicInteger sent) throws Exception {
+        if (expectedAttempts > 0) {
+            advanceTime();
+        }
         try (AiMirrorEncryptedOutbox restarted = open(key)) {
             var current = restarted.recover().getFirst();
             assertEquals(expectedAttempts, current.recoveryAttempts());
@@ -203,10 +208,42 @@ class AiMirrorReceiptReplayTest {
         return sink.toString(java.nio.charset.StandardCharsets.UTF_8);
     }
 
+    private void advanceTime() {
+        simulatedTime = simulatedTime.plusSeconds(61);
+    }
+
+    @Test
+    void rapidRestartCannotBypassOneMinuteGlobalRecoveryRate() throws Exception {
+        byte[] key = key();
+        try (AiMirrorEncryptedOutbox initial = open(key)) {
+            var saved = initial.save(receipt());
+            var replay = new AiMirrorReceiptReplay(initial, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(
+                            HTTP_UNAVAILABLE, "storage_unavailable"));
+            assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT, replay.attemptOne(saved));
+        }
+        try (AiMirrorEncryptedOutbox immediate = open(key)) {
+            var restored = immediate.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(immediate, config(), request -> {
+                throw new AssertionError("HTTP was not due yet");
+            });
+            assertEquals(AiMirrorReceiptReplay.Outcome.DEFERRED, replay.attemptOne(restored));
+            assertEquals(1, immediate.recover().getFirst().recoveryAttempts());
+        }
+        advanceTime();
+        try (AiMirrorEncryptedOutbox later = open(key)) {
+            var restored = later.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(later, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(restored));
+            assertTrue(later.recover().isEmpty());
+        }
+    }
+
     private AiMirrorEncryptedOutbox open(byte[] key) throws IOException {
         return new AiMirrorEncryptedOutbox(
                 temporary, key, DESTINATION, GUILD, Set.of(CHANNEL),
-                "discord_general", FIXED);
+                "discord_general", Clock.fixed(simulatedTime, ZoneOffset.UTC));
     }
 
     private static AiMirrorPublicationConfig config() {

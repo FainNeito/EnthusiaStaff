@@ -155,7 +155,14 @@ records are removed. HTTP 200 confirms an exact alias then acknowledges the
 record. Only explicitly typed pending / storage / timeout responses or
 transport I/O failure retain a record; unknown-canonical 404, collision,
 authorization, malformed responses and other unexpected statuses are terminal.
-A stale journal snapshot cannot remove a newer record.
+A stale journal snapshot cannot remove a newer record. The encrypted
+receipt now also retains the prior attempt timestamp. If a restart
+occurs less than 60 seconds after the prior attempt, replay is
+`DEFERRED` **without any HTTP request or attempt-budget charge**.
+A simulated clock move backward also defers rather than immediately
+issuing duplicate calls; corrupt/future timestamps fail closed.
+Synthetic tests advance the fake clock across successive restarts
+and verify 8 attempts remain the lifetime cap.
 
 An additional isolated `AiMirrorRecoveryScheduler` prototype now runs
 **one slow recovery attempt per minute, maximum, on one daemon worker** from
@@ -164,12 +171,13 @@ or inaccessible journal stops its processing without HTTP fallback. Synthetic
 tests cover first-attempt success, typed transient recovery across a new
 scheduler/unchanged key and corrupted ciphertext fail-closed.
 
-This remains **inert**: StaffBotRuntime never constructs either class. There
-is still no cross-restart global rate ledger, bounded off-JDA receipt
-persistence handoff, secure key/ACL provisioning, explicit staging-only
-operator switch, actual HTTP replay-after-crash acceptance or production
-authorization. Do not enable for real Discord traffic or use as evidence
-of full mirror coverage or safe cross-bot deletion.
+This remains **inert**: StaffBotRuntime never constructs the
+recovery classes. A bounded off-JDA receipt writer and encrypted
+restart-persistent attempt spacing are implemented, but verified
+target secret provisioning, runtime integration, staging acceptance
+and production authorization are **not** complete. Do not enable
+for real Discord traffic or use as evidence of full mirror coverage
+or safe cross-bot deletion.
 
 A separate `AiMirrorDurableReceiptIngress` prototype accepts only scoped
 actual post-send receipts into a queue of at most 64 pending, served by one

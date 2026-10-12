@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpTimeoutException;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Inert, one-receipt slow recovery step. The caller must be an off-JDA
@@ -19,7 +18,7 @@ final class AiMirrorReceiptReplay {
     private static final int HTTP_CONFLICT = 409;
     private static final int HTTP_UNAVAILABLE = 503;
 
-    enum Outcome { CONFIRMED, TRANSIENT, TERMINAL, EXHAUSTED }
+    enum Outcome { CONFIRMED, TRANSIENT, TERMINAL, EXHAUSTED, DEFERRED }
 
     private final AiMirrorEncryptedOutbox store;
     private final AiMirrorPublicationConfig config;
@@ -40,12 +39,15 @@ final class AiMirrorReceiptReplay {
     Outcome attemptOne(AiMirrorEncryptedOutbox.Saved receipt)
             throws IOException, InterruptedException {
         // This is the only method that can issue HTTP; it never runs on JDA.
-        Optional<AiMirrorEncryptedOutbox.Saved> prepared =
+        AiMirrorEncryptedOutbox.AttemptPreparation prepared =
                 store.prepareRecoveryAttempt(receipt);
-        if (prepared.isEmpty()) {
+        if (prepared.status() == AiMirrorEncryptedOutbox.AttemptStatus.EXHAUSTED) {
             return Outcome.EXHAUSTED;
         }
-        AiMirrorEncryptedOutbox.Saved counted = prepared.orElseThrow();
+        if (prepared.status() == AiMirrorEncryptedOutbox.AttemptStatus.DEFERRED) {
+            return Outcome.DEFERRED;
+        }
+        AiMirrorEncryptedOutbox.Saved counted = prepared.saved();
         final HttpRequest request;
         try {
             request = AiMirrorRegistrationPublisher.request(config, counted.publication());

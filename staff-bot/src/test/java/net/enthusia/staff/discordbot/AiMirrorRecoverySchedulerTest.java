@@ -83,7 +83,8 @@ class AiMirrorRecoverySchedulerTest {
             }
             assertEquals(1, original.recover().getFirst().recoveryAttempts());
         }
-        try (AiMirrorEncryptedOutbox recovered = open()) {
+        try (AiMirrorEncryptedOutbox recovered = open(java.time.Clock.offset(
+                FIXED, java.time.Duration.ofSeconds(61)))) {
             CountDownLatch attempted = new CountDownLatch(1);
             var replay = new AiMirrorReceiptReplay(recovered, config(), request -> {
                 attempted.countDown();
@@ -152,11 +153,15 @@ class AiMirrorRecoverySchedulerTest {
     }
 
     private AiMirrorEncryptedOutbox open() throws IOException {
+        return open(FIXED);
+    }
+
+    private AiMirrorEncryptedOutbox open(Clock clock) throws IOException {
         byte[] key = new byte[32];
         java.util.Arrays.fill(key, (byte) 0x48);
         return new AiMirrorEncryptedOutbox(
                 directory, key, DESTINATION, GUILD, Set.of(CHANNEL),
-                "discord_general", FIXED);
+                "discord_general", clock);
     }
 
     private static AiMirrorPublicationConfig config() {
