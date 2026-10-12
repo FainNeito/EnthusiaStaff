@@ -66,7 +66,8 @@ class AiMirrorEncryptedOutboxTest {
             for (int index = 0; index < 128; index++) {
                 AiMirrorEncryptedOutbox.Saved saved = outbox.save(receipt(index));
                 byte[] sealed = Files.readAllBytes(temp.resolve(saved.fileName()));
-                assertEquals("EMR1", new String(sealed, 0, 4, StandardCharsets.US_ASCII));
+                assertTrue(sealed[0] == 'E' && sealed[1] == 'M'
+                        && sealed[2] == 'R' && sealed[3] == '1');
                 String nonce = java.util.HexFormat.of().formatHex(sealed, 4, 16);
                 assertTrue(seen.add(nonce), "AES-GCM nonce reused in bounded synthetic writes");
             }
