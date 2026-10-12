@@ -1,6 +1,8 @@
 package net.enthusia.staff.discordbot;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -69,9 +71,7 @@ final class AiMirrorDurableReceiptIngress implements DiscordChatPostObserver, Au
 
     void pause() {
         accepting.set(false);
-        int removed = worker.getQueue().size();
-        worker.getQueue().clear();
-        cancelledPending.addAndGet(removed);
+        cancelPending();
     }
 
     @Override
@@ -112,9 +112,9 @@ final class AiMirrorDurableReceiptIngress implements DiscordChatPostObserver, Au
     }
 
     private void cancelPending() {
-        int removed = worker.getQueue().size();
-        worker.getQueue().clear();
-        cancelledPending.addAndGet(removed);
+        List<Runnable> dropped = new ArrayList<>();
+        worker.getQueue().drainTo(dropped);
+        cancelledPending.addAndGet(dropped.size());
     }
 
     Stats stats() {

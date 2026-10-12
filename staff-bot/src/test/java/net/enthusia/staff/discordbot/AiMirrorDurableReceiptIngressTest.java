@@ -72,6 +72,7 @@ class AiMirrorDurableReceiptIngressTest {
             assertTrue(durationMillis < 800L, "Discord callback was blocked by disk work");
             assertEquals(EXPECTED_DROPS, ingress.stats().capacityDrops());
             ingress.pause();
+            assertEquals(PENDING_CAPACITY, ingress.stats().cancelledPending());
             ingress.published(receipt(CHANNEL));
             release.countDown();
             awaitPersisted(ingress, persisted);
