@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class AiMirrorDurableRecoverySession
         implements DiscordChatPostObserver, StaffBotChatLifecycle {
     private static final Duration REQUEST_DEADLINE = Duration.ofSeconds(2);
+    private static final Duration SHUTDOWN_DEADLINE = Duration.ofSeconds(3);
     private static final String ERROR_HEADER = "X-Moderation-Mirror-Error";
 
     private final StaffBotChatLifecycle chat;
@@ -24,6 +25,7 @@ final class AiMirrorDurableRecoverySession
     private final AiMirrorRecoveryScheduler recovery;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean recoveryStarted = new AtomicBoolean();
+    private final AtomicBoolean identityReady = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     static AiMirrorDurableRecoverySession open(
@@ -32,6 +34,9 @@ final class AiMirrorDurableRecoverySession
             StaffBotChatLifecycle chat,
             Clock clock) throws IOException {
         Objects.requireNonNull(settings, "settings");
+        if (!settings.boundTo(transport)) {
+            throw new IllegalArgumentException("durable journal destination configuration mismatch");
+        }
         AiMirrorEncryptedOutbox store = settings.openOutbox(clock);
         try {
             HttpClient client = HttpClient.newBuilder()
@@ -64,17 +69,32 @@ final class AiMirrorDurableRecoverySession
     }
 
     @Override
-    public void start() {
+    public synchronized void start() {
         if (closed.get() || !started.compareAndSet(false, true)) {
             throw new IllegalStateException("durable staging chat already started or closed");
         }
         chat.start();
-        // No recovery HTTP before JDA's staging identity readiness callback.
+        // The verified JDA callback can arrive before chat.start() completes.
+        if (identityReady.get()) {
+            resumeAfterStart();
+        }
     }
 
     @Override
-    public void resume() {
-        ensureReadyForResume();
+    public synchronized void resume() {
+        if (closed.get()) {
+            throw new IllegalStateException("durable staging chat already closed");
+        }
+        identityReady.set(true);
+        if (started.get()) {
+            resumeAfterStart();
+        }
+    }
+
+    private void resumeAfterStart() {
+        if (ingress.failed() || recovery.failed()) {
+            throw new IllegalStateException("durable staging mirror storage unavailable");
+        }
         try {
             chat.resume();
             ingress.resume();
@@ -83,15 +103,6 @@ final class AiMirrorDurableRecoverySession
             ingress.pause();
             recovery.pause();
             throw failure;
-        }
-    }
-
-    private void ensureReadyForResume() {
-        if (closed.get() || !started.get()) {
-            throw new IllegalStateException("durable staging chat not started");
-        }
-        if (ingress.failed() || recovery.failed()) {
-            throw new IllegalStateException("durable staging mirror storage unavailable");
         }
     }
 
@@ -104,7 +115,8 @@ final class AiMirrorDurableRecoverySession
     }
 
     @Override
-    public void pause() {
+    public synchronized void pause() {
+        identityReady.set(false);
         ingress.pause();
         recovery.pause();
         chat.pause();
@@ -126,19 +138,29 @@ final class AiMirrorDurableRecoverySession
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        identityReady.set(false);
         ingress.close();
         recovery.close();
         try {
+            // If a worker cannot terminate, retain the exclusive file lock.
+            // A second process must never race the old disk writer or HTTP ACK.
+            if (!ingress.awaitStopped(SHUTDOWN_DEADLINE)
+                    || !recovery.awaitStopped(SHUTDOWN_DEADLINE)) {
+                throw new IllegalStateException("durable mirror workers did not terminate");
+            }
             store.close();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("durable mirror shutdown interrupted");
         } catch (IOException failure) {
-            // No exception detail: file paths or storage metadata must not leak.
             throw new IllegalStateException("encrypted mirror journal could not close");
         } finally {
             chat.close();
         }
     }
+
 }

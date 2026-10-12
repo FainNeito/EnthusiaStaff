@@ -191,38 +191,40 @@ Admission cannot guarantee zero loss on queue overflow, crash-before-fsync or
 full/failed storage. Activation requires separate privacy-reviewed
 staging-only config and lifecycle wiring.
 
-**Preactivation security gate (not wired or enabled):**
-`AiMirrorDurableStagingSettings` parses an additional explicit staging-only
-toggle `ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_ENABLED=true`, and requires
-`ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_DIRECTORY` and
-`ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_KEY_FILE` to be absolute, separately
-provisioned locations. The 32-byte binary random key file must have POSIX
-mode 0400 or 0600, share ownership with the journal directory (0700),
-and must not be a symlink. The journal must use verified POSIX permissions;
-other filesystem models fail closed until explicitly reviewed. The
-authenticated destination binding includes exact API endpoint, client ID,
-public guild, authorized channels and profile; changing them makes old
-ciphertext unreadable rather than silently replaying to a new destination.
-The journal key is never the Discord or API bearer token. These settings
-are currently **not loaded by StaffBotRuntime**. Providing them cannot
-turn on recovery. Do not provision or change Bloom configuration until a
-separately reviewed staging lifecycle integration and acceptance are ready.
+**Opt-in staging-only runtime selection (code only; not deployed):**
+`StaffBotRuntime` now reads `ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_ENABLED`
+at startup, **default false**. When false, the existing volatile mirror
+registration works unchanged and no durable key is read. When true, the
+existing mirror registration flag/config must already be enabled **in
+STAGING**, then a separately pre-provisioned directory and key are required:
+`ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_DIRECTORY` (absolute path, POSIX 0700)
+and `ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_KEY_FILE` (absolute path, exactly
+32 random binary bytes, POSIX 0400 or 0600, same owner, no symlink). Invalid
+settings fail startup closed. Production cannot select this mode. The
+key must be separate from the existing API/Discord bearer tokens. The
+authenticated destination binding covers endpoint, client ID, guild,
+profile and authorized channels, so a change to any of these refuses
+old ciphertext.
 
-A further **inactive** `AiMirrorDurableRecoverySession` prototype now
-composes the same verified public chat lifecycle with the encrypted ingress
-and recovery scheduler. The session starts only the chat transport until
-the normal runtime signals staging identity readiness; `resume()` then
-enables journal admission and scheduled recovery. `pause()` suspends both
-on disconnect, while `close()` stops both workers and closes the locked
-journal before chat teardown. A **single** JDA post-send observer must be
-installed: durable mode and the existing volatile publisher are mutually
-exclusive. Synthetic lifecycle tests exercise pre-readiness rejection,
-pause/resume, bounded receipt persistence and isolated HTTP callback.
+Exactly **one** JDA post-send observer is installed: either the volatile
+publisher, or the durable session which persists receipts off the JDA
+callback thread and uses a slow, nonpunitive HTTP replay worker. Gateway
+identity readiness gates `resume()`; disconnect pauses admission/retries,
+and shutdown cancels queued work and only releases the store lock after both
+workers terminate. An early identity callback before `chat.start()` is
+deferred safely. Settings are *not provisioned* in any Bloom environment
+by this change: the live server, staff bot, Discord, punishment/deletion,
+moderation policy and production runtime remain untouched.
 
-The session and config **remain unreferenced by StaffBotRuntime**, so none
-of these paths can yet be activated. Target OS key, restart-global retry
-rate accounting, privacy review and actual on-disk Java↔Python HTTP
-acceptance are further release gates.
+**Remaining acceptance gates before a real staging enablement:** explicit
+owner authorization to provision and activate this mode in the staging
+app, target Linux filesystem/key security review and retention/backup
+policy, real JDA post-send proof, loss/overflow monitoring, duplicate
+registration test, and safe non-punitive replay under restart stress.
+The authenticated 60-second cooldown is currently **per receipt**; a
+stronger global throttle across different receipts and rapid restart
+sequences remains necessary before claiming a global one-request-per-minute
+limit. No retrospective deletion or automatic sanctions are authorized.
 
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,

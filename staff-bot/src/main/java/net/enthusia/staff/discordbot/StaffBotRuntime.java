@@ -156,6 +156,7 @@ public final class StaffBotRuntime implements AutoCloseable {
         Optional<StaffModerationRuntime> moderation = Optional.empty();
         Optional<StaffBotChatTransport> chatTransport = Optional.empty();
         Optional<AiMirrorRegistrationPublisher> mirrorPublisher = Optional.empty();
+        Optional<AiMirrorDurableRecoverySession> durableRecovery = Optional.empty();
         try {
             moderation = StaffModerationRuntime.open(
                     moderationConfigFile,
@@ -170,18 +171,37 @@ public final class StaffBotRuntime implements AutoCloseable {
                     configuration, workers, replayGuard, moderation, chatConfiguration);
             chatTransport = chatConfiguration.map(
                     current -> StaffBotChatTransport.create(current, gateway, gateway));
-            mirrorPublisher = AiMirrorPublicationConfig.fromEnvironment(
-                    configuration.environment(), chatConfiguration.orElse(null), System.getenv())
-                    .map(AiMirrorRegistrationPublisher::create);
-            AiMirrorRegistrationPublisher installedMirror = mirrorPublisher.orElse(null);
-            if (installedMirror != null) {
-                gateway.installChatPublicationObserver(installedMirror);
+            Optional<AiMirrorPublicationConfig> mirrorConfig =
+                    AiMirrorPublicationConfig.fromEnvironment(
+                            configuration.environment(), chatConfiguration.orElse(null), System.getenv());
+            Optional<AiMirrorDurableStagingSettings> durableSettings =
+                    AiMirrorDurableStagingSettings.fromEnvironment(
+                            configuration.environment(), mirrorConfig, System.getenv());
+            AiMirrorRegistrationPublisher installedMirror = null;
+            if (durableSettings.isPresent()) {
+                // One JDA post-send observer: durable and volatile cannot coexist.
+                AiMirrorDurableRecoverySession session = AiMirrorDurableRecoverySession.open(
+                        durableSettings.orElseThrow(), mirrorConfig.orElseThrow(),
+                        chatTransport.orElseThrow(), java.time.Clock.systemUTC());
+                durableRecovery = Optional.of(session);
+                gateway.installChatPublicationObserver(session);
+            } else {
+                mirrorPublisher = mirrorConfig.map(AiMirrorRegistrationPublisher::create);
+                installedMirror = mirrorPublisher.orElse(null);
+                if (installedMirror != null) {
+                    gateway.installChatPublicationObserver(installedMirror);
+                }
             }
             if (chatConfiguration.map(current -> !current.ingressRoutes().isEmpty()).orElse(false)) {
                 gateway.installChatIngress(chatTransport.orElseThrow());
             }
-            Optional<StaffBotChatLifecycle> chat = chatTransport.map(current ->
-                    installedMirror == null ? current : new AiMirrorChatLifecycle(current, installedMirror));
+            Optional<StaffBotChatLifecycle> chat = durableRecovery.map(
+                    session -> (StaffBotChatLifecycle) session);
+            if (chat.isEmpty()) {
+                AiMirrorRegistrationPublisher activePublisher = installedMirror;
+                chat = chatTransport.map(current -> activePublisher == null
+                        ? current : new AiMirrorChatLifecycle(current, activePublisher));
+            }
             return new StaffBotRuntime(
                     configuration,
                     health,
@@ -193,7 +213,10 @@ public final class StaffBotRuntime implements AutoCloseable {
                     new RuntimeServices(tunnel, chat));
         } catch (IOException | RuntimeException exception) {
             mirrorPublisher.ifPresent(AiMirrorRegistrationPublisher::close);
-            chatTransport.ifPresent(StaffBotChatTransport::close);
+            durableRecovery.ifPresent(AiMirrorDurableRecoverySession::close);
+            if (durableRecovery.isEmpty()) {
+                chatTransport.ifPresent(StaffBotChatTransport::close);
+            }
             moderation.ifPresent(StaffModerationRuntime::close);
             workers.close();
             throw exception;

@@ -68,6 +68,10 @@ final class AiMirrorDurableStagingSettings {
                 directory, keyFile, transport.orElseThrow()));
     }
 
+    boolean boundTo(AiMirrorPublicationConfig current) {
+        return transport.equals(current);
+    }
+
     AiMirrorEncryptedOutbox openOutbox(Clock clock) throws IOException {
         Objects.requireNonNull(clock, "clock");
         verifyProvisioning(directory, keyFile);

@@ -52,7 +52,6 @@ class AiMirrorDurableRecoverySessionTest {
                         posted.countDown();
                         return new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, "");
                     })) {
-                assertThrows(IllegalStateException.class, session::resume);
                 assertEquals(0, calls.get());
                 session.start();
                 assertEquals(1, chat.started.get());
@@ -66,6 +65,28 @@ class AiMirrorDurableRecoverySessionTest {
             }
         }
         assertEquals(1, chat.closed.get());
+    }
+
+    @Test
+    void identityCallbackBeforeChatStartupDefersRecoveryWithoutLosingReadiness()
+            throws Exception {
+        FakeChat chat = new FakeChat();
+        CountDownLatch called = new CountDownLatch(1);
+        try (AiMirrorEncryptedOutbox journal = openStore();
+                AiMirrorDurableRecoverySession session = new AiMirrorDurableRecoverySession(
+                        chat, journal, config(), request -> {
+                            called.countDown();
+                            return new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, "");
+                        })) {
+            journal.save(receipt());
+            session.resume();
+            assertFalse(called.await(150, TimeUnit.MILLISECONDS));
+            session.start();
+            assertTrue(called.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            awaitConfirmed(session);
+            assertEquals(1, chat.started.get());
+            assertEquals(1, chat.resumed.get());
+        }
     }
 
     @Test
