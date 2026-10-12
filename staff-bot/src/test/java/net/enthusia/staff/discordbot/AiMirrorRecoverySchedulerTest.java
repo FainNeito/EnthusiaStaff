@@ -59,7 +59,7 @@ class AiMirrorRecoverySchedulerTest {
                 assertTrue(called.await(AWAIT_SECONDS, TimeUnit.SECONDS));
                 awaitEmpty(store);
                 assertTrue(workerThread.get().contains("AI-Mirror-Recovery-Prototype"));
-                assertEquals(1, scheduler.stats().confirmed());
+                awaitConfirmed(scheduler);
                 assertFalse(scheduler.failed());
             }
         }
@@ -123,6 +123,15 @@ class AiMirrorRecoverySchedulerTest {
                 assertEquals(0, requests.get());
             }
         }
+    }
+
+    private static void awaitConfirmed(AiMirrorRecoveryScheduler scheduler)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(AWAIT_SECONDS);
+        while (scheduler.stats().confirmed() == 0 && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertEquals(1, scheduler.stats().confirmed());
     }
 
     private static void awaitEmpty(AiMirrorEncryptedOutbox store) throws Exception {

@@ -183,6 +183,23 @@ Admission cannot guarantee zero loss on queue overflow, crash-before-fsync or
 full/failed storage. Activation requires separate privacy-reviewed
 staging-only config and lifecycle wiring.
 
+**Preactivation security gate (not wired or enabled):**
+`AiMirrorDurableStagingSettings` parses an additional explicit staging-only
+toggle `ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_ENABLED=true`, and requires
+`ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_DIRECTORY` and
+`ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_KEY_FILE` to be absolute, separately
+provisioned locations. The 32-byte binary random key file must have POSIX
+mode 0400 or 0600, share ownership with the journal directory (0700),
+and must not be a symlink. The journal must use verified POSIX permissions;
+other filesystem models fail closed until explicitly reviewed. The
+authenticated destination binding includes exact API endpoint, client ID,
+public guild, authorized channels and profile; changing them makes old
+ciphertext unreadable rather than silently replaying to a new destination.
+The journal key is never the Discord or API bearer token. These settings
+are currently **not loaded by StaffBotRuntime**. Providing them cannot
+turn on recovery. Do not provision or change Bloom configuration until a
+separately reviewed staging lifecycle integration and acceptance are ready.
+
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
 including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,
