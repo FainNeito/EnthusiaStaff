@@ -25,6 +25,8 @@ class VelocitabStaffBridgeTest {
     private static final String MOD = "Mod";
     private static final String ADMIN = "Admin";
     private static final String MOD_RANK = "mod";
+    private static final String NO_STAFF_RANK = "none";
+    private static final String FOUNDER_RANK = "founder";
     private static final String SMP_SERVER = "SMP";
     private static final String ORDINARY = "Ordinary";
     private static final String VIEWER = "Viewer";
@@ -35,14 +37,14 @@ class VelocitabStaffBridgeTest {
     void stalePresenceNeverRevealsUnknownPromotedOrPreviouslyStaffTargets() throws ReflectiveOperationException {
         UUID ordinaryId = UUID.randomUUID();
         UUID staffId = UUID.randomUUID();
-        Player ordinary = player(ordinaryId, ORDINARY, "none");
-        Player demoted = player(staffId, "Demoted", "none");
-        Player unknown = player(UUID.randomUUID(), "Unknown", "none");
+        Player ordinary = player(ordinaryId, ORDINARY, NO_STAFF_RANK);
+        Player demoted = player(staffId, "Demoted", NO_STAFF_RANK);
+        Player unknown = player(UUID.randomUUID(), "Unknown", NO_STAFF_RANK);
         Player promoted = player(UUID.randomUUID(), "Promoted", MOD_RANK);
         Player identityOnly = player(UUID.randomUUID(), "IdentityOnly", "identity.mod");
         Player unrestricted = player(UUID.randomUUID(), "Unrestricted", "identity.unrestricted");
-        Player staffMode = player(UUID.randomUUID(), "StaffMode", "none");
-        Player savedVanish = player(UUID.randomUUID(), "SavedVanish", "none");
+        Player staffMode = player(UUID.randomUUID(), "StaffMode", NO_STAFF_RANK);
+        Player savedVanish = player(UUID.randomUUID(), "SavedVanish", NO_STAFF_RANK);
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api,
                 List.of(ordinary, demoted, unknown, promoted, identityOnly, unrestricted, staffMode, savedVanish));
@@ -62,8 +64,8 @@ class VelocitabStaffBridgeTest {
 
     @Test
     void ordinaryFallbackPreservesPreviousProviderAndFreshRecovery() throws ReflectiveOperationException {
-        Player ordinary = player(UUID.randomUUID(), ORDINARY, "none");
-        Player viewer = player(UUID.randomUUID(), VIEWER, "founder");
+        Player ordinary = player(UUID.randomUUID(), ORDINARY, NO_STAFF_RANK);
+        Player viewer = player(UUID.randomUUID(), VIEWER, FOUNDER_RANK);
         Player staff = player(UUID.randomUUID(), STAFF, MOD_RANK);
         FakeApi api = new FakeApi();
         api.integration = new VanishIntegration() {
@@ -90,7 +92,7 @@ class VelocitabStaffBridgeTest {
     void verifiedOrdinaryPlayerSurvivesDelayedRefreshWithoutRevealingStaff() throws ReflectiveOperationException {
         UUID ordinaryId = UUID.randomUUID();
         UUID hiddenId = UUID.randomUUID();
-        Player ordinary = player(ordinaryId, ORDINARY, "none");
+        Player ordinary = player(ordinaryId, ORDINARY, NO_STAFF_RANK);
         Player hidden = player(hiddenId, HIDDEN, MOD_RANK);
         FakeApi api = new FakeApi();
         VelocitabStaffBridge bridge = bridge(api, List.of(ordinary, hidden));
@@ -227,10 +229,10 @@ class VelocitabStaffBridgeTest {
         UUID hiddenId = UUID.randomUUID();
         UUID ordinaryViewerId = UUID.randomUUID();
         UUID founderViewerId = UUID.randomUUID();
-        Player ordinary = player(ordinaryId, ORDINARY, "none", SMP_SERVER);
+        Player ordinary = player(ordinaryId, ORDINARY, NO_STAFF_RANK, SMP_SERVER);
         Player hidden = player(hiddenId, HIDDEN, MOD_RANK, SMP_SERVER);
-        Player ordinaryViewer = player(ordinaryViewerId, VIEWER, "none", SMP_SERVER);
-        Player founderViewer = player(founderViewerId, "Founder", "founder", SMP_SERVER);
+        Player ordinaryViewer = player(ordinaryViewerId, VIEWER, NO_STAFF_RANK, SMP_SERVER);
+        Player founderViewer = player(founderViewerId, "Founder", FOUNDER_RANK, SMP_SERVER);
         VelocitabStaffBridge bridge = bridge(new FakeApi(),
                 List.of(ordinary, hidden, ordinaryViewer, founderViewer));
 
@@ -239,7 +241,7 @@ class VelocitabStaffBridgeTest {
                 Set.of(ordinaryId, hiddenId, ordinaryViewerId, founderViewerId), System.nanoTime());
         assertEquals(3, bridge.localPublicOnlineCount(ordinaryViewer));
         assertEquals(3, bridge.localPublicOnlineCount(founderViewer));
-        assertEquals(0, bridge.localPublicOnlineCount(player(UUID.randomUUID(), "Connecting", "founder")));
+        assertEquals(0, bridge.localPublicOnlineCount(player(UUID.randomUUID(), "Connecting", FOUNDER_RANK)));
         seedPresence(bridge, snapshot, Map.of(hiddenId, StaffRank.MOD, founderViewerId, StaffRank.FOUNDER),
                 Set.of(ordinaryId, hiddenId, ordinaryViewerId, founderViewerId));
         assertEquals(0, bridge.localPublicOnlineCount(founderViewer));
