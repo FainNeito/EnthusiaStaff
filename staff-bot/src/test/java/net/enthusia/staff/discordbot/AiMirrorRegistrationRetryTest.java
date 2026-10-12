@@ -23,6 +23,8 @@ class AiMirrorRegistrationRetryTest {
     private static final int HTTP_CONFLICT = 409;
     private static final int HTTP_UNAVAILABLE = 503;
     private static final int MAX_ATTEMPTS = 4;
+    private static final int FIRST_ATTEMPT = 1;
+    private static final int INITIAL_TRANSIENT_ATTEMPTS = 2;
 
     @Test
     void pendingThenFinalRetriesOnlyRegistrationAndConfirmsOnce() throws Exception {
@@ -30,7 +32,7 @@ class AiMirrorRegistrationRetryTest {
         CountDownLatch confirmed = new CountDownLatch(1);
         try (AiMirrorRegistrationPublisher publisher = AiMirrorRegistrationPublisher.withDetailedPoster(
                 config(), request -> {
-                    if (calls.incrementAndGet() == 1) {
+                    if (calls.incrementAndGet() == FIRST_ATTEMPT) {
                         return new AiMirrorRegistrationPublisher.PostResult(
                                 HTTP_CONFLICT, "canonical_pending");
                     }
@@ -42,7 +44,7 @@ class AiMirrorRegistrationRetryTest {
             assertTrue(confirmed.await(WAIT_SECONDS, TimeUnit.SECONDS));
             Thread.sleep(CANCEL_SETTLE_MILLIS);
             assertEquals(2, calls.get());
-            assertEquals(1L, publisher.stats().confirmed());
+            awaitConfirmed(publisher);
             assertEquals(1L, publisher.stats().pendingResponses());
             assertEquals(1L, publisher.stats().retriesScheduled());
             assertEquals(0L, publisher.stats().conflicts());
@@ -91,7 +93,7 @@ class AiMirrorRegistrationRetryTest {
         CountDownLatch confirmed = new CountDownLatch(1);
         try (AiMirrorRegistrationPublisher publisher = AiMirrorRegistrationPublisher.withDetailedPoster(
                 config(), request -> {
-                    if (calls.incrementAndGet() <= 2) {
+                    if (calls.incrementAndGet() <= INITIAL_TRANSIENT_ATTEMPTS) {
                         return new AiMirrorRegistrationPublisher.PostResult(
                                 HTTP_UNAVAILABLE, "storage_unavailable");
                     }
@@ -102,7 +104,7 @@ class AiMirrorRegistrationRetryTest {
             publisher.published(receipt());
             assertTrue(confirmed.await(WAIT_SECONDS, TimeUnit.SECONDS));
             assertEquals(3, calls.get());
-            assertEquals(1L, publisher.stats().confirmed());
+            awaitConfirmed(publisher);
             assertEquals(2L, publisher.stats().unavailable());
         }
     }
@@ -156,7 +158,7 @@ class AiMirrorRegistrationRetryTest {
         try (AiMirrorRegistrationPublisher publisher = AiMirrorRegistrationPublisher.withDetailedPoster(
                 config(), request -> {
                     int call = calls.incrementAndGet();
-                    if (call == 1) {
+                    if (call == FIRST_ATTEMPT) {
                         first.countDown();
                         return new AiMirrorRegistrationPublisher.PostResult(
                                 HTTP_CONFLICT, "canonical_pending");
@@ -201,6 +203,15 @@ class AiMirrorRegistrationRetryTest {
         } finally {
             publisher.close();
         }
+    }
+
+    private static void awaitConfirmed(AiMirrorRegistrationPublisher publisher)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+        while (publisher.stats().confirmed() == 0 && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertEquals(1L, publisher.stats().confirmed());
     }
 
     private static AiMirrorPublicationConfig config() {

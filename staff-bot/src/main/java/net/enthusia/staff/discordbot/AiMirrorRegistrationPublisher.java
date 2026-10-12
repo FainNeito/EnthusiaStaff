@@ -42,6 +42,10 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
     private static final long MAX_AGE_NANOS = TimeUnit.SECONDS.toNanos(15);
     private static final long[] RETRY_DELAYS_MILLIS = {250L, 500L, 1_000L};
     private static final String ERROR_HEADER = "X-Moderation-Mirror-Error";
+    private static final String ERROR_PENDING = "canonical_pending";
+    private static final String ERROR_CONFLICT = "mirror_conflict";
+    private static final String ERROR_TIMEOUT = "timeout";
+    private static final String ERROR_STORAGE_UNAVAILABLE = "storage_unavailable";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @FunctionalInterface
@@ -191,17 +195,17 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
                 confirmed.incrementAndGet();
                 pending.finish();
             } else if (result.status() == HTTP_CONFLICT
-                    && "canonical_pending".equals(result.errorCode())) {
+                    && ERROR_PENDING.equals(result.errorCode())) {
                 pendingResponses.incrementAndGet();
                 retryOrFinish(pending);
             } else if (result.status() == HTTP_CONFLICT
-                    && "mirror_conflict".equals(result.errorCode())) {
+                    && ERROR_CONFLICT.equals(result.errorCode())) {
                 conflicts.incrementAndGet();
                 pending.finish();
             } else if (result.status() == HTTP_UNAVAILABLE
-                    && ("timeout".equals(result.errorCode())
-                    || "storage_unavailable".equals(result.errorCode()))) {
-                if ("timeout".equals(result.errorCode())) {
+                    && (ERROR_TIMEOUT.equals(result.errorCode())
+                    || ERROR_STORAGE_UNAVAILABLE.equals(result.errorCode()))) {
+                if (ERROR_TIMEOUT.equals(result.errorCode())) {
                     timeoutFailures.incrementAndGet();
                 } else {
                     unavailable.incrementAndGet();
