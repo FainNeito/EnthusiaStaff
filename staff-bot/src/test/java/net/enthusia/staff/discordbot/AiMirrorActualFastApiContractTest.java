@@ -25,7 +25,6 @@ import org.junit.jupiter.api.io.TempDir;
 class AiMirrorActualFastApiContractTest {
     private static final String ENDPOINT = "ENTHUSIA_AI_SYNTHETIC_MIRROR_URL";
     private static final int COUNT = 70;
-    private static final int HTTP_OK = 200;
     private static final int TIMEOUT_SECONDS = 45;
     private static final long GUILD = 1234567890123456789L;
     private static final long CHANNEL = 1234567890123456788L;
@@ -47,31 +46,17 @@ class AiMirrorActualFastApiContractTest {
         }
         byte[] key = new byte[32];
         java.util.Arrays.fill(key, (byte) 0x48);
-        AiMirrorPublicationConfig config = new AiMirrorPublicationConfig(
-                endpoint, "synthetic-staffbot-bridge", "synthetic-mirror-only-token",
-                GUILD, Set.of(CHANNEL), "discord_general");
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(2))
-                .followRedirects(HttpClient.Redirect.NEVER).build();
+        AiMirrorPublicationConfig config = config(endpoint);
 
         try (AiMirrorEncryptedOutbox store = new AiMirrorEncryptedOutbox(
                     journal, key, "staging:synthetic-fast:127.0.0.1",
                     GUILD, Set.of(CHANNEL), "discord_general", Clock.systemUTC());
                 AiMirrorDurableRecoverySession session = new AiMirrorDurableRecoverySession(
-                    new FakeChat(), store, config, request -> {
-                        HttpResponse<Void> response = client.send(
-                                request, HttpResponse.BodyHandlers.discarding());
-                        return new AiMirrorRegistrationPublisher.PostResult(
-                                response.statusCode(), response.headers()
-                                        .firstValue("X-Moderation-Mirror-Error").orElse(""));
-                    })) {
+                    new FakeChat(), store, config, realPoster())) {
             session.start();
             session.resume();
             for (int i = 0; i < COUNT; i++) {
-                session.published(new DiscordChatPublication(
-                        GUILD, CHANNEL, Long.toString(1234567890123456000L + i),
-                        "rosechat:canonical:fast-network-" + i,
-                        "synthetic fast registration " + i));
+                session.published(publication(i));
                 Thread.sleep(55);
             }
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
@@ -87,6 +72,32 @@ class AiMirrorActualFastApiContractTest {
             assertTrue(store.recover().isEmpty());
             assertTrue(!session.unhealthy());
         }
+    }
+
+    private static AiMirrorPublicationConfig config(URI endpoint) {
+        return new AiMirrorPublicationConfig(
+                endpoint, "synthetic-staffbot-bridge", "synthetic-mirror-only-token",
+                GUILD, Set.of(CHANNEL), "discord_general");
+    }
+
+    private static AiMirrorRegistrationPublisher.DetailedPoster realPoster() {
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(2))
+                .followRedirects(HttpClient.Redirect.NEVER).build();
+        return request -> {
+            HttpResponse<Void> response = client.send(
+                    request, HttpResponse.BodyHandlers.discarding());
+            return new AiMirrorRegistrationPublisher.PostResult(
+                    response.statusCode(), response.headers()
+                            .firstValue("X-Moderation-Mirror-Error").orElse(""));
+        };
+    }
+
+    private static DiscordChatPublication publication(int index) {
+        return new DiscordChatPublication(
+                GUILD, CHANNEL, Long.toString(1234567890123456000L + index),
+                "rosechat:canonical:fast-network-" + index,
+                "synthetic fast registration " + index);
     }
 
     private static final class FakeChat implements StaffBotChatLifecycle {
