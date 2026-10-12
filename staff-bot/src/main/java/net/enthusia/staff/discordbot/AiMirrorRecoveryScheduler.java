@@ -33,10 +33,11 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
     private final AtomicLong transientFailures = new AtomicLong();
     private final AtomicLong terminal = new AtomicLong();
     private final AtomicLong exhausted = new AtomicLong();
+    private final AtomicLong deferred = new AtomicLong();
     private final AtomicLong storageFailures = new AtomicLong();
 
     record Stats(long confirmed, long transientFailures, long terminal,
-                 long exhausted, long storageFailures) {}
+                 long exhausted, long deferred, long storageFailures) {}
 
     AiMirrorRecoveryScheduler(AiMirrorEncryptedOutbox store, AiMirrorReceiptReplay replay) {
         this.store = Objects.requireNonNull(store, "store");
@@ -123,6 +124,7 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
             case TRANSIENT -> transientFailures.incrementAndGet();
             case TERMINAL -> terminal.incrementAndGet();
             case EXHAUSTED -> exhausted.incrementAndGet();
+            case DEFERRED -> deferred.incrementAndGet();
             default -> throw new IllegalStateException("unknown recovery outcome");
         }
     }
@@ -145,7 +147,7 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
 
     Stats stats() {
         return new Stats(confirmed.get(), transientFailures.get(),
-                terminal.get(), exhausted.get(), storageFailures.get());
+                terminal.get(), exhausted.get(), deferred.get(), storageFailures.get());
     }
 
     boolean failed() {

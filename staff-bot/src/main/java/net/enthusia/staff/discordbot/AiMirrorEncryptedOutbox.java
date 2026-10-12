@@ -46,6 +46,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private static final int TAG_BYTES = 16;
     private static final int MAX_RECORDS = 128;
     private static final int MAX_RECOVERY_ATTEMPTS = 8;
+    private static final long SLOW_INTERVAL_MILLIS = 60_000L;
     private static final int MAX_TOTAL_BYTES = 1024 * 1024;
     private static final int MAX_FILE_BYTES = 32 * 1024;
     private static final long TTL_MILLIS = 60 * 60 * 1000L;
@@ -60,7 +61,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"));
 
     record Saved(String fileName, DiscordChatPublication publication,
-                 long createdMillis, int recoveryAttempts) {
+                 long createdMillis, int recoveryAttempts, long lastAttemptMillis) {
         @Override
         public String toString() {
             // An accidental log of the wrapper must never print original chat.
@@ -71,7 +72,8 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private record Sealed(
             int version, long createdMillis, long guildId, long channelId,
             String discordMessageId, String canonicalMessageId,
-            String canonicalPlainText, String channelProfile, int recoveryAttempts) {}
+            String canonicalPlainText, String channelProfile,
+            int recoveryAttempts, long lastAttemptMillis) {}
 
     private final Path directory;
     private final SecretKey key;
@@ -200,7 +202,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         long now = clock.millis();
         Sealed data = new Sealed(1, now, publication.guildId(), publication.channelId(),
                 publication.discordMessageId(), publication.canonicalMessageId(),
-                publication.canonicalPlainText(), profile, 0);
+                publication.canonicalPlainText(), profile, 0, 0L);
         byte[] encoded = encrypt(data);
         try {
             if (encoded.length > MAX_FILE_BYTES || encoded.length > availableBytes) {
@@ -208,7 +210,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             }
             String fileName = UUID.randomUUID() + EXTENSION;
             commitReceipt(fileName, encoded);
-            return new Saved(fileName, publication, now, 0);
+            return new Saved(fileName, publication, now, 0, 0L);
         } finally {
             Arrays.fill(encoded, (byte) 0);
         }
@@ -288,7 +290,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         if (decoded.version() != 1 || decoded.createdMillis() > clock.millis()
                 || decoded.createdMillis() <= 0 || !profile.equals(decoded.channelProfile())
                 || decoded.recoveryAttempts() < 0
-                || decoded.recoveryAttempts() > MAX_RECOVERY_ATTEMPTS) {
+                || decoded.recoveryAttempts() > MAX_RECOVERY_ATTEMPTS
+                || decoded.lastAttemptMillis() < 0
+                || decoded.lastAttemptMillis() > clock.millis()) {
             throw new IOException("invalid receipt metadata");
         }
         return validatedSaved(file, decoded);
@@ -305,7 +309,8 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                     decoded.canonicalMessageId(), decoded.canonicalPlainText());
             validatePublication(publication);
             return new Saved(file.getFileName().toString(), publication,
-                    decoded.createdMillis(), decoded.recoveryAttempts());
+                    decoded.createdMillis(), decoded.recoveryAttempts(),
+                    decoded.lastAttemptMillis());
         } catch (IllegalArgumentException invalid) {
             throw new IOException("invalid authenticated receipt scope");
         }
@@ -334,7 +339,11 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
      * Returns empty if the receipt expired or the lifetime attempt budget ended.
      * This is disk-bound and must never run on a JDA callback.
      */
-    java.util.Optional<Saved> prepareRecoveryAttempt(Saved saved) throws IOException {
+    enum AttemptStatus { READY, DEFERRED, EXHAUSTED }
+
+    record AttemptPreparation(AttemptStatus status, Saved saved) {}
+
+    AttemptPreparation prepareRecoveryAttempt(Saved saved) throws IOException {
         synchronized (this) {
             ensureOpen();
             Path file = receiptPath(saved);
@@ -342,23 +351,41 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
             if (!current.equals(saved)) {
                 throw new IOException("stale or mismatched receipt recovery state");
             }
-            if (clock.millis() - current.createdMillis() >= TTL_MILLIS
-                    || current.recoveryAttempts() >= MAX_RECOVERY_ATTEMPTS) {
+            if (recoveryExhausted(current)) {
                 Files.delete(file);
                 syncDirectory();
-                return java.util.Optional.empty();
+                return new AttemptPreparation(AttemptStatus.EXHAUSTED, null);
             }
-            int nextAttempt = current.recoveryAttempts() + 1;
-            Sealed updated = new Sealed(1, current.createdMillis(),
-                    current.publication().guildId(), current.publication().channelId(),
-                    current.publication().discordMessageId(),
-                    current.publication().canonicalMessageId(),
-                    current.publication().canonicalPlainText(), profile, nextAttempt);
-            persistAttempt(file, updated);
-            return java.util.Optional.of(new Saved(
-                    current.fileName(), current.publication(),
-                    current.createdMillis(), nextAttempt));
+            if (recoveryDeferred(current)) {
+                return new AttemptPreparation(AttemptStatus.DEFERRED, null);
+            }
+            return persistNextRecoveryAttempt(file, current);
         }
+    }
+
+    private boolean recoveryExhausted(Saved current) {
+        return clock.millis() - current.createdMillis() >= TTL_MILLIS
+                || current.recoveryAttempts() >= MAX_RECOVERY_ATTEMPTS;
+    }
+
+    private boolean recoveryDeferred(Saved current) {
+        return current.lastAttemptMillis() > 0
+                && clock.millis() - current.lastAttemptMillis() < SLOW_INTERVAL_MILLIS;
+    }
+
+    private AttemptPreparation persistNextRecoveryAttempt(Path file, Saved current)
+            throws IOException {
+        int nextAttempt = current.recoveryAttempts() + 1;
+        long now = clock.millis();
+        Sealed updated = new Sealed(1, current.createdMillis(),
+                current.publication().guildId(), current.publication().channelId(),
+                current.publication().discordMessageId(),
+                current.publication().canonicalMessageId(),
+                current.publication().canonicalPlainText(), profile, nextAttempt, now);
+        persistAttempt(file, updated);
+        Saved counted = new Saved(current.fileName(), current.publication(),
+                current.createdMillis(), nextAttempt, now);
+        return new AttemptPreparation(AttemptStatus.READY, counted);
     }
 
     private void persistAttempt(Path committed, Sealed updated) throws IOException {

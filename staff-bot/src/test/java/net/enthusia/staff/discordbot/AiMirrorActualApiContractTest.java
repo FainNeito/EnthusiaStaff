@@ -98,7 +98,7 @@ class AiMirrorActualApiContractTest {
                 journal, key, binding, GUILD, Set.of(CHANNEL), "discord_general",
                 java.time.Clock.systemUTC())) {
             var saved = first.save(publication);
-            var prepared = first.prepareRecoveryAttempt(saved).orElseThrow();
+            var prepared = first.prepareRecoveryAttempt(saved).saved();
             HttpResponse<Void> committed = client.send(
                     AiMirrorRegistrationPublisher.request(config, prepared.publication()),
                     HttpResponse.BodyHandlers.discarding());
@@ -108,7 +108,8 @@ class AiMirrorActualApiContractTest {
         }
         try (AiMirrorEncryptedOutbox reopened = new AiMirrorEncryptedOutbox(
                 journal, key, binding, GUILD, Set.of(CHANNEL), "discord_general",
-                java.time.Clock.systemUTC())) {
+                java.time.Clock.offset(
+                        java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(61)))) {
             var receipt = reopened.recover().getFirst();
             assertEquals(1, receipt.recoveryAttempts());
             var replay = new AiMirrorReceiptReplay(reopened, config, request -> {
