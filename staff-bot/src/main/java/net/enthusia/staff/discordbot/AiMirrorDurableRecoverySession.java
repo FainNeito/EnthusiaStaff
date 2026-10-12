@@ -23,6 +23,7 @@ final class AiMirrorDurableRecoverySession
     private final StaffBotChatLifecycle chat;
     private final AiMirrorEncryptedOutbox store;
     private final AiMirrorDurableReceiptIngress ingress;
+    private final AiMirrorImmediateRegistration immediate;
     private final AiMirrorRecoveryScheduler recovery;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean recoveryStarted = new AtomicBoolean();
@@ -64,9 +65,12 @@ final class AiMirrorDurableRecoverySession
         this.store = Objects.requireNonNull(store, "store");
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(poster, "poster");
-        this.ingress = AiMirrorDurableReceiptIngress.withStore(config, store);
+        AiMirrorReceiptClaims claims = new AiMirrorReceiptClaims();
+        this.immediate = new AiMirrorImmediateRegistration(store, config, poster, claims);
+        this.ingress = AiMirrorDurableReceiptIngress.withStore(
+                config, store, immediate::offer);
         this.recovery = new AiMirrorRecoveryScheduler(
-                store, new AiMirrorReceiptReplay(store, config, poster));
+                store, new AiMirrorReceiptReplay(store, config, poster, claims));
     }
 
     @Override
@@ -97,15 +101,17 @@ final class AiMirrorDurableRecoverySession
     }
 
     private void resumeAfterStart() {
-        if (ingress.failed() || recovery.failed()) {
+        if (unhealthy()) {
             throw new IllegalStateException("durable staging mirror storage unavailable");
         }
         try {
             chat.resume();
+            immediate.resume();
             ingress.resume();
             resumeRecovery();
         } catch (RuntimeException failure) {
             ingress.pause();
+            immediate.pause();
             recovery.pause();
             throw failure;
         }
@@ -114,7 +120,7 @@ final class AiMirrorDurableRecoverySession
     private void resumeRecovery() {
         boolean scheduled = recoveryStarted.compareAndSet(false, true)
                 ? recovery.start() : recovery.resume();
-        if (!scheduled && (ingress.failed() || recovery.failed())) {
+        if (!scheduled && unhealthy()) {
             throw new IllegalStateException("durable staging mirror recovery unavailable");
         }
     }
@@ -124,6 +130,7 @@ final class AiMirrorDurableRecoverySession
         synchronized (lifecycleLock) {
     identityReady.set(false);
             ingress.pause();
+            immediate.pause();
             recovery.pause();
             chat.pause();
         }
@@ -137,7 +144,7 @@ final class AiMirrorDurableRecoverySession
     }
 
     boolean unhealthy() {
-        return ingress.failed() || recovery.failed();
+        return ingress.failed() || immediate.failed() || recovery.failed();
     }
 
     AiMirrorDurableReceiptIngress.Stats ingressStats() {
@@ -148,6 +155,10 @@ final class AiMirrorDurableRecoverySession
         return recovery.stats();
     }
 
+    AiMirrorImmediateRegistration.Stats immediateStats() {
+        return immediate.stats();
+    }
+
     @Override
     public void close() {
         synchronized (lifecycleLock) {
@@ -156,11 +167,13 @@ final class AiMirrorDurableRecoverySession
             }
             identityReady.set(false);
             ingress.close();
+            immediate.close();
             recovery.close();
             try {
                 // If a worker cannot terminate, retain the exclusive file lock.
                 // A second process must never race the old disk writer or HTTP ACK.
                 if (!ingress.awaitStopped(SHUTDOWN_DEADLINE)
+                        || !immediate.awaitStopped(SHUTDOWN_DEADLINE)
                         || !recovery.awaitStopped(SHUTDOWN_DEADLINE)) {
                     throw new IllegalStateException("durable mirror workers did not terminate");
                 }

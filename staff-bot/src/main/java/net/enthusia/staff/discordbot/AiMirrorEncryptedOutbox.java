@@ -499,6 +499,25 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         return directory.resolve(saved.fileName());
     }
 
+    /**
+     * Authenticate the exact current encrypted revision before fast HTTP or
+     * slow retry. Missing/stale snapshots are expected after another worker
+     * completed a receipt; corrupted ciphertext remains a storage failure.
+     */
+    boolean isCurrent(Saved saved) throws IOException {
+        synchronized (this) {
+            ensureOpen();
+            Path file = receiptPath(saved);
+            if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+                return false;
+            }
+            if (!readSaved(file).equals(saved)) {
+                throw new IOException("stale or mismatched authenticated receipt");
+            }
+            return true;
+        }
+    }
+
     void acknowledge(Saved saved) throws IOException {
         synchronized (this) {
             ensureOpen();
