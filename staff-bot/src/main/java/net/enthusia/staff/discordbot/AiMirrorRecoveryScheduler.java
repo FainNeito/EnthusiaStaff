@@ -64,23 +64,30 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
             return;
         }
         try {
-            List<AiMirrorEncryptedOutbox.Saved> available = store.recover();
-            if (!available.isEmpty() && !closed.get()) {
-                recordOutcome(replay.attemptOne(available.getFirst()));
-            }
-        } catch (IOException | InterruptedException | RuntimeException error) {
-            // Storage/corruption/reconfiguration failure: fail closed. Never
-            // log the exception; it may contain receipt metadata or chat text.
-            storageFailures.incrementAndGet();
-            failed.set(true);
-            if (error instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
+            processOldestReceipt();
+        } catch (InterruptedException interrupted) {
+            stopOnFailure();
+            Thread.currentThread().interrupt();
+        } catch (IOException | RuntimeException failedReceipt) {
+            stopOnFailure();
         } finally {
             if (!closed.get() && !failed.get()) {
                 scheduleNext();
             }
         }
+    }
+
+    private void processOldestReceipt() throws IOException, InterruptedException {
+        List<AiMirrorEncryptedOutbox.Saved> available = store.recover();
+        if (!available.isEmpty() && !closed.get()) {
+            recordOutcome(replay.attemptOne(available.getFirst()));
+        }
+    }
+
+    private void stopOnFailure() {
+        // Never log the exception: it could expose private receipt metadata.
+        storageFailures.incrementAndGet();
+        failed.set(true);
     }
 
     private void recordOutcome(AiMirrorReceiptReplay.Outcome outcome) {
@@ -89,6 +96,7 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
             case TRANSIENT -> transientFailures.incrementAndGet();
             case TERMINAL -> terminal.incrementAndGet();
             case EXHAUSTED -> exhausted.incrementAndGet();
+            default -> throw new IllegalStateException("unknown recovery outcome");
         }
     }
 
