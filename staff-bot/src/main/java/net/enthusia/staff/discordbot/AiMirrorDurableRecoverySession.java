@@ -19,6 +19,7 @@ final class AiMirrorDurableRecoverySession
     private static final Duration SHUTDOWN_DEADLINE = Duration.ofSeconds(3);
     private static final String ERROR_HEADER = "X-Moderation-Mirror-Error";
 
+    private final Object lifecycleLock = new Object();
     private final StaffBotChatLifecycle chat;
     private final AiMirrorEncryptedOutbox store;
     private final AiMirrorDurableReceiptIngress ingress;
@@ -69,25 +70,29 @@ final class AiMirrorDurableRecoverySession
     }
 
     @Override
-    public synchronized void start() {
-        if (closed.get() || !started.compareAndSet(false, true)) {
-            throw new IllegalStateException("durable staging chat already started or closed");
-        }
-        chat.start();
-        // The verified JDA callback can arrive before chat.start() completes.
-        if (identityReady.get()) {
-            resumeAfterStart();
+    public void start() {
+        synchronized (lifecycleLock) {
+    if (closed.get() || !started.compareAndSet(false, true)) {
+                throw new IllegalStateException("durable staging chat already started or closed");
+            }
+            chat.start();
+            // The verified JDA callback can arrive before chat.start() completes.
+            if (identityReady.get()) {
+                resumeAfterStart();
+            }
         }
     }
 
     @Override
-    public synchronized void resume() {
-        if (closed.get()) {
-            throw new IllegalStateException("durable staging chat already closed");
-        }
-        identityReady.set(true);
-        if (started.get()) {
-            resumeAfterStart();
+    public void resume() {
+        synchronized (lifecycleLock) {
+    if (closed.get()) {
+                throw new IllegalStateException("durable staging chat already closed");
+            }
+            identityReady.set(true);
+            if (started.get()) {
+                resumeAfterStart();
+            }
         }
     }
 
@@ -115,11 +120,13 @@ final class AiMirrorDurableRecoverySession
     }
 
     @Override
-    public synchronized void pause() {
-        identityReady.set(false);
-        ingress.pause();
-        recovery.pause();
-        chat.pause();
+    public void pause() {
+        synchronized (lifecycleLock) {
+    identityReady.set(false);
+            ingress.pause();
+            recovery.pause();
+            chat.pause();
+        }
     }
 
     @Override
@@ -138,28 +145,30 @@ final class AiMirrorDurableRecoverySession
     }
 
     @Override
-    public synchronized void close() {
-        if (!closed.compareAndSet(false, true)) {
-            return;
-        }
-        identityReady.set(false);
-        ingress.close();
-        recovery.close();
-        try {
-            // If a worker cannot terminate, retain the exclusive file lock.
-            // A second process must never race the old disk writer or HTTP ACK.
-            if (!ingress.awaitStopped(SHUTDOWN_DEADLINE)
-                    || !recovery.awaitStopped(SHUTDOWN_DEADLINE)) {
-                throw new IllegalStateException("durable mirror workers did not terminate");
+    public void close() {
+        synchronized (lifecycleLock) {
+    if (!closed.compareAndSet(false, true)) {
+                return;
             }
-            store.close();
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("durable mirror shutdown interrupted");
-        } catch (IOException failure) {
-            throw new IllegalStateException("encrypted mirror journal could not close");
-        } finally {
-            chat.close();
+            identityReady.set(false);
+            ingress.close();
+            recovery.close();
+            try {
+                // If a worker cannot terminate, retain the exclusive file lock.
+                // A second process must never race the old disk writer or HTTP ACK.
+                if (!ingress.awaitStopped(SHUTDOWN_DEADLINE)
+                        || !recovery.awaitStopped(SHUTDOWN_DEADLINE)) {
+                    throw new IllegalStateException("durable mirror workers did not terminate");
+                }
+                store.close();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("durable mirror shutdown interrupted");
+            } catch (IOException failure) {
+                throw new IllegalStateException("encrypted mirror journal could not close");
+            } finally {
+                chat.close();
+            }
         }
     }
 
