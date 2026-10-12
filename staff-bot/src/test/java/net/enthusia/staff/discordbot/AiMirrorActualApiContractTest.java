@@ -75,4 +75,36 @@ class AiMirrorActualApiContractTest {
         assertEquals("NONE", bodies.get(1).get("strike_recommendation").asText());
         assertEquals("NONE", bodies.get(1).get("containment").asText());
     }
+
+    @Test
+    void realPythonApiRejectsPendingThenAcceptsExactDelayedRegistration() throws Exception {
+        String configured = System.getenv(ENDPOINT_ENV);
+        assumeTrue(configured != null && !configured.isBlank(),
+                "synthetic loopback Python API fixture not enabled");
+        URI uri = URI.create(configured);
+        assertEquals("http", uri.getScheme());
+        assertEquals("127.0.0.1", uri.getHost());
+        assertEquals("/v1/mirror-aliases", uri.getRawPath());
+        assertTrue(uri.getPort() > 0);
+
+        AiMirrorPublicationConfig config = new AiMirrorPublicationConfig(
+                uri, CLIENT, TOKEN, GUILD, Set.of(CHANNEL), "discord_general");
+        // Use the actual production-path Java HTTP factory, but only with a
+        // throwaway, explicit loopback test URL and synthetic credentials.
+        try (AiMirrorRegistrationPublisher publisher = AiMirrorRegistrationPublisher.create(config)) {
+            publisher.resume();
+            publisher.published(new DiscordChatPublication(
+                    GUILD, CHANNEL, "1234567890123456786",
+                    "rosechat:canonical:pending-network-test", TEXT));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (publisher.stats().confirmed() == 0 && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals(1L, publisher.stats().confirmed());
+            assertEquals(1L, publisher.stats().pendingResponses());
+            assertEquals(1L, publisher.stats().retriesScheduled());
+            assertEquals(0L, publisher.stats().conflicts());
+            assertEquals(0L, publisher.stats().rejected());
+        }
+    }
 }

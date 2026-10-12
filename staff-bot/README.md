@@ -99,6 +99,52 @@ Optional safe tuning:
 
 See `runtime.env.example` for a placeholder-only inventory.
 
+## Experimental AI mirror-registration reliability (staging only)
+
+The RoseChat -> Discord post-send mirror receipt publisher is **off by default**
+and **cannot be enabled in the production environment**. It is a metadata
+registration client, not an AI classifier, message-deletion mechanism, or
+punishment engine. It submits only actual JDA-returned Discord snowflakes for
+allowlisted public guild/channel copies and uses the original canonical ID and
+undecorated source text. The Moderation API requires a separate
+mirror:register credential and validates both platforms' public-chat scopes.
+
+The **single daemon worker** permits at most 65 outstanding receipts (one
+potentially executing plus 64 pending). Submission from Discord's callback
+never waits for the API; further receipts are dropped when full. HTTP requests
+have a 2-second deadline and redirects are forbidden. Only these failures may
+retry a registration (never a Discord post), with delays of 250/500/1000 ms,
+at most **four total requests** and **15 seconds since original receipt**:
+
+- HTTP 409 with X-Moderation-Mirror-Error: canonical_pending
+- HTTP 503 with X-Moderation-Mirror-Error: timeout or storage_unavailable
+- HTTP network I/O timeout/connection failure
+
+An unknown 404 source, any 409 mirror_conflict, authorization/schema
+failure, unexpected status, or missing/unrecognized machine code is terminal.
+Pause/shutdown cancels queued retries, and resuming never reactivates previous
+receipts. Aggregate-only counters for confirmed, pending, conflict, capacity
+drop, timeout, expiry, unavailable, rejection and retries are exposed through
+the publisher snapshot and emitted on pause; logs must not include text,
+message IDs, token values or endpoints.
+
+**Important remaining limitation:** the retry state is *volatile*.
+Crash/restart, lost receipts, long outages, unresolved 404, or a full queue
+can leave Discord copies unregistered. There is deliberately no automatic
+reconciliation from message content or guessed IDs. Do **not** use this as
+evidence of complete mirror coverage or activate retrospective deletion or
+punitive AI actions. Durable privacy-reviewed reconciliation, actual JDA
+staging validation, and separately approved deletion behavior remain release
+gates in wsg138/AI-Moderation-API#116.
+
+The opt-in zero-cost cross-language test harness in the private repository
+runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
+including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,
+privacy/conflict refusals, and zero punitive actions.
+
+This is a local test procedure, **not** permission to deploy or enable
+production API clients.
+
 ## MariaDB and Paper authority
 
 Staff Bot connects to the same logical EnthusiaStaff MariaDB used by the Staff platform. The bot does not own schema migration; run Flyway/schema updates through the authorized Staff/Paper deployment path first.
