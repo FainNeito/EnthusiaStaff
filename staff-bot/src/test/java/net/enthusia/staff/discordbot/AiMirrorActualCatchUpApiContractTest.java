@@ -33,7 +33,6 @@ class AiMirrorActualCatchUpApiContractTest {
     private static final long GUILD = 1234567890123456789L;
     private static final long CHANNEL = 1234567890123456788L;
     private static final int BACKLOG = 70;
-    private static final int HTTP_OK = 200;
     private static final long CATCH_UP_INTERVAL_MILLIS = 5_000L;
 
     @Test
