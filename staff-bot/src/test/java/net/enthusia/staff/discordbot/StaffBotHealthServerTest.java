@@ -2,6 +2,7 @@ package net.enthusia.staff.discordbot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.InetSocketAddress;
@@ -96,6 +97,41 @@ class StaffBotHealthServerTest {
                             + "slash\\\\quote\\\"\",\"rejectedWork\":0}\n",
                     response.body());
         }
+    }
+
+    @Test
+    void durableStagingReadyExposesOnlyAggregateMetrics() throws Exception {
+        StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.STAGING);
+        health.requireStagingMirrorMetrics(() -> new AiMirrorRecoveryMetrics(
+                18, 17, 1, 0, 0, 14, 2, 1, 0, 0, 3, 1, 0, 0, 0, 0, 1));
+        health.transition(StaffBotHealth.Phase.READY, DiscordRuntimeIdentityValidator.READY);
+        try (StaffBotHealthServer server = new StaffBotHealthServer(
+                loopbackEphemeralAddress(), health)) {
+            server.start();
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://" + host(server.boundAddress())
+                    + ":" + server.boundAddress().getPort());
+            HttpResponse<String> ready = get(client, base.resolve("/ready"));
+            assertEquals(200, ready.statusCode());
+            assertTrue(ready.body().contains("\"mirrorRecovery\":{"));
+            assertTrue(ready.body().contains("\"eligiblePostSend\":18"));
+            assertTrue(ready.body().contains("\"fastConfirmed\":14"));
+            assertTrue(ready.body().contains("\"expiredReceipts\":1"));
+            assertFalse(ready.body().contains("canonicalMessageId"));
+            assertFalse(ready.body().contains("synthetic original text"));
+            assertFalse(get(client, base.resolve("/health")).body()
+                    .contains("mirrorRecovery"));
+        }
+    }
+
+    @Test
+    void productionCannotAttachStagingMirrorTelemetry() {
+        StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.PRODUCTION);
+        assertThrows(IllegalStateException.class,
+                () -> health.requireStagingMirrorMetrics(() ->
+                        new AiMirrorRecoveryMetrics(
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+        assertTrue(health.stagingMirrorMetrics().isEmpty());
     }
 
     private static InetSocketAddress loopbackEphemeralAddress() {
