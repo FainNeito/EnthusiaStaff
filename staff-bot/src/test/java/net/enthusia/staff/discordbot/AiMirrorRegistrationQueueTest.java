@@ -87,11 +87,24 @@ class AiMirrorRegistrationQueueTest {
             publisher.published(receipt());
             assertTrue(freshDelivered.await(3, TimeUnit.SECONDS));
             assertEquals(2, posts.get());
-            publisher.close();
-            publisher.published(receipt());
-            assertEquals(2, posts.get());
         } finally {
             releaseFirst.countDown();
+        }
+    }
+
+    @Test
+    void closeRejectsNewCallbacksEvenAfterResumeIsAttempted() {
+        AtomicInteger posts = new AtomicInteger();
+        AiMirrorRegistrationPublisher publisher = new AiMirrorRegistrationPublisher(
+                configuration(), request -> posts.incrementAndGet());
+        try {
+            publisher.resume();
+            publisher.close();
+            publisher.resume();
+            publisher.published(receipt());
+            assertEquals(0, posts.get());
+        } finally {
+            publisher.close();
         }
     }
 
