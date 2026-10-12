@@ -38,6 +38,31 @@ class AiMirrorActualCatchUpApiContractTest {
     @Test
     void realApiRecoversSeventyBackloggedAliasesBeforeContentTtl(
             @TempDir Path journal) throws Exception {
+        URI endpoint = localEndpoint(journal);
+        var clock = new VirtualClock(Instant.now().toEpochMilli());
+        byte[] key = new byte[32];
+        Arrays.fill(key, (byte) 0x48);
+        var config = new AiMirrorPublicationConfig(
+                endpoint, "synthetic-staffbot-bridge", "synthetic-mirror-only-token",
+                GUILD, Set.of(CHANNEL), "discord_general");
+        AtomicInteger onlineRequests = new AtomicInteger();
+        AtomicBoolean offline = new AtomicBoolean(true);
+
+        try (AiMirrorEncryptedOutbox store = new AiMirrorEncryptedOutbox(
+                journal, key, "staging:synthetic-catchup:127.0.0.1",
+                GUILD, Set.of(CHANNEL), "discord_general", clock)) {
+            for (int index = 0; index < BACKLOG; index++) {
+                store.save(publication(index));
+            }
+            var replay = new AiMirrorReceiptReplay(
+                    store, config, networkPoster(offline, onlineRequests));
+            verifyOutageThenCatchUp(store, replay, clock, offline, onlineRequests);
+        } finally {
+            Arrays.fill(key, (byte) 0);
+        }
+    }
+
+    private static URI localEndpoint(Path journal) throws IOException {
         String configured = System.getenv("ENTHUSIA_AI_SYNTHETIC_MIRROR_URL");
         assumeTrue(configured != null && !configured.isBlank(),
                 "isolated local Python contract fixture must opt in");
@@ -50,62 +75,51 @@ class AiMirrorActualCatchUpApiContractTest {
             Files.setPosixFilePermissions(
                     journal, PosixFilePermissions.fromString("rwx------"));
         }
-        var clock = new VirtualClock(Instant.now().toEpochMilli());
-        byte[] key = new byte[32];
-        Arrays.fill(key, (byte) 0x48);
-        var config = new AiMirrorPublicationConfig(
-                endpoint, "synthetic-staffbot-bridge", "synthetic-mirror-only-token",
-                GUILD, Set.of(CHANNEL), "discord_general");
+        return endpoint;
+    }
+
+    private static AiMirrorRegistrationPublisher.DetailedPoster networkPoster(
+            AtomicBoolean offline, AtomicInteger requests) {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
                 .followRedirects(HttpClient.Redirect.NEVER).build();
-        AtomicInteger onlineRequests = new AtomicInteger();
-        AtomicBoolean offline = new AtomicBoolean(true);
-        AiMirrorRegistrationPublisher.DetailedPoster poster = request -> {
+        return request -> {
             if (offline.get()) {
                 throw new IOException("synthetic disconnected loopback");
             }
-            onlineRequests.incrementAndGet();
+            requests.incrementAndGet();
             HttpResponse<Void> response = client.send(
                     request, HttpResponse.BodyHandlers.discarding());
             return new AiMirrorRegistrationPublisher.PostResult(
                     response.statusCode(),
                     response.headers().firstValue("X-Moderation-Mirror-Error").orElse(""));
         };
+    }
 
-        try (AiMirrorEncryptedOutbox store = new AiMirrorEncryptedOutbox(
-                journal, key, "staging:synthetic-catchup:127.0.0.1",
-                GUILD, Set.of(CHANNEL), "discord_general", clock)) {
-            for (int i = 0; i < BACKLOG; i++) {
-                store.save(publication(i));
+    private static void verifyOutageThenCatchUp(
+            AiMirrorEncryptedOutbox store, AiMirrorReceiptReplay replay,
+            VirtualClock clock, AtomicBoolean offline, AtomicInteger requests)
+            throws Exception {
+        var first = store.recover().getFirst();
+        assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT,
+                replay.attemptOne(first));
+        assertEquals(60_000L, store.recoveryPollMillis());
+        assertEquals(0, requests.get());
+        assertEquals(BACKLOG, store.recover().size());
+        clock.advanceMillis(60_001L);
+        offline.set(false);
+        for (int index = 0; index < BACKLOG; index++) {
+            var selected = store.recover().getFirst();
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED,
+                    replay.attemptOne(selected));
+            assertEquals(CATCH_UP_INTERVAL_MILLIS, store.recoveryPollMillis());
+            if (index + 1 < BACKLOG) {
+                clock.advanceMillis(CATCH_UP_INTERVAL_MILLIS);
             }
-            var replay = new AiMirrorReceiptReplay(store, config, poster);
-            var first = store.recover().getFirst();
-            assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT,
-                    replay.attemptOne(first));
-            assertEquals(60_000L, store.recoveryPollMillis());
-            assertEquals(0, onlineRequests.get());
-            assertEquals(BACKLOG, store.recover().size());
-
-            // The simulated API outage ends after the old conservative
-            // global minute; real HTTP and DB writes resume from here.
-            clock.advanceMillis(60_001L);
-            offline.set(false);
-            for (int i = 0; i < BACKLOG; i++) {
-                var selected = store.recover().getFirst();
-                assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED,
-                        replay.attemptOne(selected));
-                assertEquals(CATCH_UP_INTERVAL_MILLIS, store.recoveryPollMillis());
-                if (i + 1 < BACKLOG) {
-                    clock.advanceMillis(CATCH_UP_INTERVAL_MILLIS);
-                }
-            }
-            assertEquals(BACKLOG, onlineRequests.get());
-            assertEquals(0, store.expiredRecordCount());
-            assertTrue(store.recover().isEmpty());
-        } finally {
-            Arrays.fill(key, (byte) 0);
         }
+        assertEquals(BACKLOG, requests.get());
+        assertEquals(0, store.expiredRecordCount());
+        assertTrue(store.recover().isEmpty());
     }
 
     private static DiscordChatPublication publication(int index) {
