@@ -13,13 +13,15 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Inert, slow recovery scheduler. NOT created by StaffBotRuntime and not
  * attached to JDA or any environment setting. It may only retry pre-existing,
- * authenticated journal receipts. One daemon, one attempt per minute at most.
+ * authenticated journal receipts. One daemon, with a durable 60-second
+ * conservative interval or 5-second interval following a confirmed HTTP 200
+ * and exact ACK. Any failed attempt reverts to conservative pacing.
  *
  * New Discord receipts must eventually be persisted through a separate,
  * bounded, nonblocking off-JDA handoff before this is safe to activate.
  */
 final class AiMirrorRecoveryScheduler implements AutoCloseable {
-    private static final long SLOW_INTERVAL_MINUTES = 1L;
+    private static final long IDLE_POLL_MILLIS = 60_000L;
     private final AiMirrorEncryptedOutbox store;
     private final AiMirrorReceiptReplay replay;
     private final ScheduledThreadPoolExecutor worker;
@@ -132,17 +134,20 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
 
     private void scheduleNext(long expectedGeneration) {
         try {
+            // Authenticate the persisted rate state before deciding when to
+            // poll. Do not spin at 5 seconds with no journal backlog.
+            long delay = store.recoveryPollMillis();
+            if (store.recover().isEmpty()) {
+                delay = IDLE_POLL_MILLIS;
+            }
             ScheduledFuture<?> scheduled = worker.schedule(
-                    () -> recoverOne(expectedGeneration),
-                    SLOW_INTERVAL_MINUTES, TimeUnit.MINUTES);
+                    () -> recoverOne(expectedGeneration), delay, TimeUnit.MILLISECONDS);
             next = scheduled;
             if (!running(expectedGeneration)) {
                 scheduled.cancel(false);
             }
-        } catch (RejectedExecutionException closedWorker) {
-            if (!closed.get()) {
-                stopOnFailure();
-            }
+        } catch (IOException | RuntimeException unavailable) {
+            stopOnFailure();
         }
     }
 
