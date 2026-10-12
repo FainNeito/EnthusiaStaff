@@ -84,17 +84,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     AiMirrorEncryptedOutbox(
             Path directory, byte[] keyMaterial, String destinationBinding,
             long guildId, Set<Long> channels, String profile, Clock clock) throws IOException {
-        Objects.requireNonNull(directory, "directory");
-        Objects.requireNonNull(keyMaterial, "keyMaterial");
-        Objects.requireNonNull(destinationBinding, "destinationBinding");
-        Objects.requireNonNull(channels, "channels");
-        this.clock = Objects.requireNonNull(clock, "clock");
-        if (keyMaterial.length != KEY_BYTES || destinationBinding.isBlank()
-                || destinationBinding.length() > 512 || guildId <= 0
-                || channels.isEmpty() || channels.stream().anyMatch(value -> value <= 0)
-                || (!"discord_general".equals(profile) && !"discord_gaming".equals(profile))) {
-            throw new IllegalArgumentException("invalid isolated receipt store settings");
-        }
+        validateSettings(directory, keyMaterial, destinationBinding,
+                guildId, channels, profile, clock);
+        this.clock = clock;
         this.directory = directory.toAbsolutePath().normalize();
         validateDirectory();
         this.key = new SecretKeySpec(keyMaterial, "AES");
@@ -102,37 +94,87 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         this.guildId = guildId;
         this.channels = Set.copyOf(channels);
         this.profile = profile;
-        FileChannel channel = openFile(this.directory.resolve(LOCK_NAME), false);
-        FileLock acquired = null;
-        try {
-            try {
-                acquired = channel.tryLock();
-            } catch (OverlappingFileLockException busy) {
-                throw new IOException("receipt store already owned");
-            }
-            if (acquired == null) {
-                throw new IOException("receipt store already owned");
-            }
-        } catch (IOException | RuntimeException exception) {
-            channel.close();
-            throw exception;
-        }
-        lockChannel = channel;
-        exclusiveLock = acquired;
+        Ownership ownership = acquireOwnership();
+        lockChannel = ownership.channel();
+        exclusiveLock = ownership.lock();
     }
 
-    synchronized Saved save(DiscordChatPublication publication) throws IOException {
-        ensureOpen();
-        validatePublication(publication);
-        List<Path> current = storedFiles();
+    private record Ownership(FileChannel channel, FileLock lock) {}
+
+    private static void validateSettings(
+            Path directory, byte[] keyMaterial, String destinationBinding,
+            long guildId, Set<Long> channels, String profile, Clock clock) {
+        Objects.requireNonNull(directory, "directory");
+        Objects.requireNonNull(keyMaterial, "keyMaterial");
+        Objects.requireNonNull(destinationBinding, "destinationBinding");
+        Objects.requireNonNull(channels, "channels");
+        Objects.requireNonNull(clock, "clock");
+        if (keyMaterial.length != KEY_BYTES || destinationBinding.isBlank()
+                || destinationBinding.length() > 512 || guildId <= 0) {
+            throw new IllegalArgumentException("invalid isolated receipt store settings");
+        }
+        if (channels.isEmpty() || channels.stream().anyMatch(value -> value <= 0)
+                || (!"discord_general".equals(profile) && !"discord_gaming".equals(profile))) {
+            throw new IllegalArgumentException("invalid staging receipt scope");
+        }
+    }
+
+    private Ownership acquireOwnership() throws IOException {
+        Path lockPath = directory.resolve(LOCK_NAME);
+        validateExistingLockFile(lockPath);
+        FileChannel channel = openFile(lockPath, false);
+        try {
+            FileLock lock = tryExclusiveLock(channel);
+            return new Ownership(channel, lock);
+        } catch (IOException | RuntimeException failure) {
+            channel.close();
+            throw failure;
+        }
+    }
+
+    private FileLock tryExclusiveLock(FileChannel channel) throws IOException {
+        final FileLock lock;
+        try {
+            lock = channel.tryLock();
+        } catch (OverlappingFileLockException busy) {
+            throw new IOException("receipt store already owned");
+        }
+        if (lock == null) {
+            throw new IOException("receipt store already owned");
+        }
+        return lock;
+    }
+
+    private void validateExistingLockFile(Path lockPath) throws IOException {
+        if (Files.exists(lockPath, LinkOption.NOFOLLOW_LINKS)) {
+            if (!Files.isRegularFile(lockPath, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("invalid receipt store lock path");
+            }
+            if (Files.getFileStore(directory).supportsFileAttributeView("posix")
+                    && !Files.getPosixFilePermissions(lockPath, LinkOption.NOFOLLOW_LINKS)
+                            .equals(PosixFilePermissions.fromString("rw-------"))) {
+                throw new IOException("insecure receipt lock permissions");
+            }
+        }
+    }
+
+    Saved save(DiscordChatPublication publication) throws IOException {
+        synchronized (this) {
+            ensureOpen();
+            validatePublication(publication);
+            return writeReceipt(publication, availableCapacity());
+        }
+    }
+
+    private int availableCapacity() throws IOException {
         int totalBytes = 0;
         int count = 0;
-        for (Path file : current) {
-            long bytes = Files.size(file);
-            if (bytes > MAX_FILE_BYTES) {
+        for (Path file : storedFiles()) {
+            long length = Files.size(file);
+            if (length > MAX_FILE_BYTES) {
                 throw new IOException("invalid receipt file size");
             }
-            totalBytes += (int) bytes;
+            totalBytes += (int) length;
             if (totalBytes > MAX_TOTAL_BYTES) {
                 throw new IOException("receipt store capacity reached");
             }
@@ -140,20 +182,33 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 count++;
             }
         }
-        if (count >= MAX_RECORDS || totalBytes >= MAX_TOTAL_BYTES) {
+        if (count >= MAX_RECORDS) {
             throw new IOException("receipt store capacity reached");
         }
+        return MAX_TOTAL_BYTES - totalBytes;
+    }
+
+    private Saved writeReceipt(DiscordChatPublication publication, int availableBytes)
+            throws IOException {
         long now = clock.millis();
         Sealed data = new Sealed(1, now, publication.guildId(), publication.channelId(),
                 publication.discordMessageId(), publication.canonicalMessageId(),
                 publication.canonicalPlainText(), profile);
         byte[] encoded = encrypt(data);
-        if (encoded.length > MAX_FILE_BYTES || encoded.length > MAX_TOTAL_BYTES - totalBytes) {
-            throw new IOException("receipt store capacity reached");
+        try {
+            if (encoded.length > MAX_FILE_BYTES || encoded.length > availableBytes) {
+                throw new IOException("receipt store capacity reached");
+            }
+            String fileName = UUID.randomUUID() + EXTENSION;
+            commitReceipt(fileName, encoded);
+            return new Saved(fileName, publication, now);
+        } finally {
+            Arrays.fill(encoded, (byte) 0);
         }
-        String fileName = UUID.randomUUID() + EXTENSION;
+    }
+
+    private void commitReceipt(String fileName, byte[] encoded) throws IOException {
         Path temporary = directory.resolve(fileName + ".tmp");
-        Path destination = directory.resolve(fileName);
         try {
             try (FileChannel output = openFile(temporary, true)) {
                 ByteBuffer buffer = ByteBuffer.wrap(encoded);
@@ -163,101 +218,119 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 output.force(true);
             }
             try {
-                Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException notAtomic) {
+                Files.move(temporary, directory.resolve(fileName),
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException unavailable) {
                 throw new IOException("atomic receipt commit unavailable");
             }
             syncDirectory();
-            return new Saved(fileName, publication, now);
         } finally {
             Files.deleteIfExists(temporary);
-            Arrays.fill(encoded, (byte) 0);
         }
     }
 
-    synchronized List<Saved> recover() throws IOException {
-        ensureOpen();
-        List<Saved> result = new ArrayList<>();
+    List<Saved> recover() throws IOException {
+        synchronized (this) {
+            ensureOpen();
+            List<Saved> restored = new ArrayList<>();
+            for (Path file : recoveryFiles()) {
+                Saved candidate = readSaved(file);
+                if (clock.millis() - candidate.createdMillis() >= TTL_MILLIS) {
+                    Files.delete(file);
+                    syncDirectory();
+                } else {
+                    restored.add(candidate);
+                }
+            }
+            restored.sort(Comparator.comparingLong(Saved::createdMillis));
+            return List.copyOf(restored);
+        }
+    }
+
+    private List<Path> recoveryFiles() throws IOException {
+        List<Path> records = new ArrayList<>();
         int totalBytes = 0;
-        List<Path> files = storedFiles();
-        for (Path file : files) {
+        for (Path file : storedFiles()) {
             if (file.getFileName().toString().endsWith(".tmp")) {
-                // Only this exclusive-lock owner can encounter an orphan from an
-                // interrupted pre-commit write. It must never be replayed.
+                // A crash-prepared write was never atomically committed.
                 Files.delete(file);
                 syncDirectory();
                 continue;
             }
-            if (result.size() >= MAX_RECORDS) {
-                throw new IOException("receipt record count outside allowed bounds");
+            long bytes = Files.size(file);
+            if (bytes > MAX_FILE_BYTES || bytes < MAGIC.length + NONCE_BYTES + TAG_BITS / 8) {
+                throw new IOException("invalid encrypted receipt size");
             }
-            long size = Files.size(file);
+            totalBytes += (int) bytes;
+            if (totalBytes > MAX_TOTAL_BYTES || records.size() >= MAX_RECORDS) {
+                throw new IOException("receipt store exceeds recovery limit");
+            }
+            records.add(file);
+        }
+        return records;
+    }
+
+    private Saved readSaved(Path file) throws IOException {
+        byte[] contents = readCiphertext(file);
+        Sealed decoded;
+        try {
+            decoded = decrypt(contents);
+        } finally {
+            Arrays.fill(contents, (byte) 0);
+        }
+        if (decoded.version() != 1 || decoded.createdMillis() > clock.millis()
+                || decoded.createdMillis() <= 0 || !profile.equals(decoded.channelProfile())) {
+            throw new IOException("invalid receipt metadata");
+        }
+        return validatedSaved(file, decoded);
+    }
+
+    private Saved validatedSaved(Path file, Sealed decoded) throws IOException {
+        if (decoded.discordMessageId() == null || decoded.canonicalMessageId() == null
+                || decoded.canonicalPlainText() == null) {
+            throw new IOException("invalid authenticated receipt identity");
+        }
+        try {
+            DiscordChatPublication publication = new DiscordChatPublication(
+                    decoded.guildId(), decoded.channelId(), decoded.discordMessageId(),
+                    decoded.canonicalMessageId(), decoded.canonicalPlainText());
+            validatePublication(publication);
+            return new Saved(file.getFileName().toString(), publication,
+                    decoded.createdMillis());
+        } catch (IllegalArgumentException invalid) {
+            throw new IOException("invalid authenticated receipt scope");
+        }
+    }
+
+    private byte[] readCiphertext(Path file) throws IOException {
+        // Open with NOFOLLOW_LINKS, checking size after open to reduce symlink races.
+        try (FileChannel input = FileChannel.open(
+                file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+            long size = input.size();
             if (size > MAX_FILE_BYTES || size < MAGIC.length + NONCE_BYTES + TAG_BITS / 8) {
                 throw new IOException("invalid encrypted receipt size");
             }
-            totalBytes = Math.addExact(totalBytes, (int) size);
-            if (totalBytes > MAX_TOTAL_BYTES) {
-                throw new IOException("receipt store capacity exceeded");
-            }
-            // Open without following a replacement symlink between listing and read.
-            byte[] contents;
-            try (FileChannel input = FileChannel.open(
-                    file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
-                long actualSize = input.size();
-                if (actualSize != size || actualSize > MAX_FILE_BYTES) {
-                    throw new IOException("encrypted receipt changed during read");
+            ByteBuffer buffer = ByteBuffer.allocate((int) size);
+            while (buffer.hasRemaining()) {
+                if (input.read(buffer) < 0) {
+                    throw new IOException("truncated encrypted receipt");
                 }
-                ByteBuffer buffer = ByteBuffer.allocate((int) actualSize);
-                while (buffer.hasRemaining()) {
-                    if (input.read(buffer) < 0) {
-                        throw new IOException("truncated encrypted receipt");
-                    }
-                }
-                contents = buffer.array();
             }
-            Sealed decoded;
-            try {
-                decoded = decrypt(contents);
-            } finally {
-                Arrays.fill(contents, (byte) 0);
-            }
-            if (decoded.version() != 1 || decoded.createdMillis() > clock.millis()
-                    || decoded.createdMillis() <= 0) {
-                throw new IOException("invalid receipt version or timestamp");
-            }
-            final DiscordChatPublication publication;
-            try {
-                publication = new DiscordChatPublication(decoded.guildId(), decoded.channelId(),
-                        decoded.discordMessageId(), decoded.canonicalMessageId(),
-                        decoded.canonicalPlainText());
-                validatePublication(publication);
-            } catch (IllegalArgumentException | NullPointerException invalid) {
-                throw new IOException("invalid authenticated receipt scope");
-            }
-            if (!profile.equals(decoded.channelProfile())) {
-                throw new IOException("receipt profile binding mismatch");
-            }
-            if (clock.millis() - decoded.createdMillis() >= TTL_MILLIS) {
-                Files.delete(file);
-                syncDirectory();
-            } else {
-                result.add(new Saved(file.getFileName().toString(),
-                        publication, decoded.createdMillis()));
-            }
+            return buffer.array();
         }
-        result.sort(Comparator.comparingLong(Saved::createdMillis));
-        return List.copyOf(result);
     }
 
-    synchronized void acknowledge(Saved saved) throws IOException {
-        ensureOpen();
-        Objects.requireNonNull(saved, "saved");
-        if (!saved.fileName().matches(
-                "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.mir")) {
-            throw new IllegalArgumentException("invalid opaque receipt key");
+    void acknowledge(Saved saved) throws IOException {
+        synchronized (this) {
+            ensureOpen();
+            Objects.requireNonNull(saved, "saved");
+            if (!saved.fileName().matches(
+                    "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.mir")) {
+                throw new IllegalArgumentException("invalid opaque receipt key");
+            }
+            Files.deleteIfExists(directory.resolve(saved.fileName()));
+            syncDirectory();
         }
-        Files.deleteIfExists(directory.resolve(saved.fileName()));
-        syncDirectory();
     }
 
     private void validatePublication(DiscordChatPublication receipt) {
@@ -370,13 +443,15 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() throws IOException {
-        if (!closed) {
-            closed = true;
-            try {
-                exclusiveLock.release();
-            } finally {
-                lockChannel.close();
+    public void close() throws IOException {
+        synchronized (this) {
+            if (!closed) {
+                closed = true;
+                try {
+                    exclusiveLock.release();
+                } finally {
+                    lockChannel.close();
+                }
             }
         }
     }
