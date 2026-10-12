@@ -17,6 +17,8 @@ public final class AiMirrorOutboxCrashProbe {
     private static final Clock CLOCK = Clock.fixed(
             Instant.parse("2026-10-12T01:00:00Z"), ZoneOffset.UTC);
     private static final String CANONICAL_ID = "rosechat:synthetic:jvm-crash";
+    private static final String SAVE_PHASE = "save-and-crash";
+    private static final String RECOVER_PHASE = "reopen-and-ack";
 
     private AiMirrorOutboxCrashProbe() {
     }
@@ -26,12 +28,14 @@ public final class AiMirrorOutboxCrashProbe {
         Path directory = preparePrivateDirectory(Path.of(args[1]));
         byte[] key = new byte[32];
         Arrays.fill(key, (byte) 0x48); // Fixed synthetic test-only key.
-        try (AiMirrorEncryptedOutbox journal = new AiMirrorEncryptedOutbox(
+        AiMirrorEncryptedOutbox journal = new AiMirrorEncryptedOutbox(
                 directory, key, DESTINATION, GUILD, Set.of(CHANNEL),
-                "discord_general", CLOCK)) {
-            if ("save-and-crash".equals(args[0])) {
-                crashAfterCommit(journal);
-            } else {
+                "discord_general", CLOCK);
+        if (SAVE_PHASE.equals(args[0])) {
+            // Test intentionally leaves journal unclosed when this JVM fails.
+            crashAfterCommit(journal);
+        } else {
+            try (journal) {
                 recoverAndAcknowledge(journal);
             }
         }
@@ -41,7 +45,7 @@ public final class AiMirrorOutboxCrashProbe {
         if (args.length != 2) {
             throw new IllegalArgumentException("invalid synthetic phase argument count");
         }
-        if (!"save-and-crash".equals(args[0]) && !"reopen-and-ack".equals(args[0])) {
+        if (!SAVE_PHASE.equals(args[0]) && !RECOVER_PHASE.equals(args[0])) {
             throw new IllegalArgumentException("invalid synthetic phase");
         }
     }
@@ -59,8 +63,9 @@ public final class AiMirrorOutboxCrashProbe {
         journal.save(new DiscordChatPublication(
                 GUILD, CHANNEL, "1234567890123456787", CANONICAL_ID,
                 "synthetic message only"));
-        // Deliberately bypass AutoCloseable: verify OS lock release after a hard crash.
-        Runtime.getRuntime().halt(0);
+        // Uncaught synthetic failure: leave the journal open until JVM termination.
+        // The following Gradle recovery phase is authoritative evidence of the write.
+        throw new IllegalStateException("synthetic post-fsync failure");
     }
 
     private static void recoverAndAcknowledge(AiMirrorEncryptedOutbox journal)

@@ -214,9 +214,12 @@ val prepareAiMirrorCrashProbe by tasks.registering(Delete::class) {
 val aiMirrorSaveThenCrash by tasks.registering(JavaExec::class) {
     dependsOn(tasks.testClasses, prepareAiMirrorCrashProbe)
     group = "verification"
-    description = "Persist a synthetic mirror receipt, then abruptly halt the child JVM"
+    description = "Persist a synthetic mirror receipt, then end JVM with unhandled exception"
     classpath = sourceSets.test.get().runtimeClasspath
     mainClass.set("net.enthusia.staff.discordbot.AiMirrorOutboxCrashProbe")
+    // The save phase intentionally throws after fsync without closing the
+    // journal. The dependent recovery phase fails if no valid file survived.
+    isIgnoreExitValue = true
     args("save-and-crash", syntheticJournalDir.get().asFile.absolutePath)
 
 }
