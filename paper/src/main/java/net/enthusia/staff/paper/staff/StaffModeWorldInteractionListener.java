@@ -260,7 +260,8 @@ public final class StaffModeWorldInteractionListener implements Listener {
             // Only non-cancelled attempts that can mutate the top container are audited.
             staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION,
                     top.getType() + " raw-slot=" + event.getRawSlot()
-                            + " action=" + event.getAction());
+                            + " action=" + event.getAction()
+                            + " item=" + StaffModeManager.describe(event.getCurrentItem()));
         }
     }
 
@@ -293,7 +294,8 @@ public final class StaffModeWorldInteractionListener implements Listener {
                 && touchesProtectedContainerSlot(event.getRawSlots(), top.getSize())
                 && shouldAuditCompletedContainerEdit(staffMode.isUnrestricted(player),
                         staffMode.dutyTier(player))) {
-            staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION, top.getType() + " drag");
+            staffMode.logStaffAction(player, CONTAINER_EDIT_ACTION,
+                    top.getType() + " drag cursor=" + StaffModeManager.describe(event.getOldCursor()));
         }
     }
 
@@ -477,7 +479,8 @@ public final class StaffModeWorldInteractionListener implements Listener {
         }
     }
 
-    private static boolean isProtectedContainerInventory(Inventory inventory) {
+    // Shared by StaffModeManager so one permitted top-container edit has one audit owner.
+    static boolean isProtectedContainerInventory(Inventory inventory) {
         if (inventory == null || inventory.getType() == InventoryType.PLAYER) {
             return false;
         }
