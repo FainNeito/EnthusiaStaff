@@ -24,6 +24,7 @@ class AiMirrorImmediateRegistrationTest {
     private static final long GUILD = 1234567890123456789L;
     private static final long CHANNEL = 1234567890123456788L;
     private static final int HTTP_OK = 200;
+    private static final int FIRST_ATTEMPT = 1;
     private static final int HTTP_PENDING = 409;
     private static final int HTTP_MISSING = 404;
     private static final int HTTP_UNAVAILABLE = 503;
@@ -67,7 +68,7 @@ class AiMirrorImmediateRegistrationTest {
         AtomicInteger sent = new AtomicInteger();
         try (AiMirrorEncryptedOutbox store = outbox();
                 AiMirrorImmediateRegistration immediate = new AiMirrorImmediateRegistration(
-                        store, config(), request -> sent.incrementAndGet() == 1
+                        store, config(), request -> sent.incrementAndGet() == FIRST_ATTEMPT
                         ? new AiMirrorRegistrationPublisher.PostResult(
                                 HTTP_PENDING, "canonical_pending")
                         : new AiMirrorRegistrationPublisher.PostResult(
@@ -88,7 +89,7 @@ class AiMirrorImmediateRegistrationTest {
         try (AiMirrorEncryptedOutbox store = outbox();
                 AiMirrorImmediateRegistration immediate = new AiMirrorImmediateRegistration(
                         store, config(), request -> {
-                            if (called.incrementAndGet() == 1) {
+                            if (called.incrementAndGet() == FIRST_ATTEMPT) {
                                 return new AiMirrorRegistrationPublisher.PostResult(
                                         HTTP_MISSING, "canonical_missing");
                             }
@@ -149,6 +150,88 @@ class AiMirrorImmediateRegistrationTest {
             immediate.pause();
             assertFalse(immediate.offer(committed));
             assertEquals(2, immediate.stats().deferredToRecovery());
+            assertEquals(1, store.recover().size());
+        }
+    }
+
+    @Test
+    void typedPermanentStatusesDiscardTheExactReceipts() throws Exception {
+        AiMirrorRegistrationPublisher.PostResult[] results = {
+            new AiMirrorRegistrationPublisher.PostResult(HTTP_PENDING, "mirror_conflict"),
+            new AiMirrorRegistrationPublisher.PostResult(HTTP_UNAVAILABLE, ""),
+            new AiMirrorRegistrationPublisher.PostResult(401, ""),
+            new AiMirrorRegistrationPublisher.PostResult(302, "")
+        };
+        AtomicInteger sent = new AtomicInteger();
+        try (AiMirrorEncryptedOutbox store = outbox();
+                AiMirrorImmediateRegistration immediate = new AiMirrorImmediateRegistration(
+                        store, config(), request -> results[sent.getAndIncrement()])) {
+            immediate.resume();
+            for (int index = 0; index < results.length; index++) {
+                assertTrue(immediate.offer(store.save(receipt(index))));
+            }
+            long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(SECONDS);
+            while (immediate.stats().terminalDiscarded() != results.length
+                    && System.nanoTime() < end) {
+                Thread.sleep(10);
+            }
+            assertEquals(results.length, immediate.stats().terminalDiscarded());
+            assertTrue(store.recover().isEmpty());
+        }
+    }
+
+    @Test
+    void staleAcknowledgementStopsAdmissionAndPreservesOriginal() throws Exception {
+        try (AiMirrorEncryptedOutbox store = outbox();
+                AiMirrorImmediateRegistration immediate = new AiMirrorImmediateRegistration(
+                        store, config(), request ->
+                        new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""))) {
+            AiMirrorEncryptedOutbox.Saved saved = store.save(receipt(1));
+            AiMirrorEncryptedOutbox.Saved stale = new AiMirrorEncryptedOutbox.Saved(
+                    saved.fileName(), saved.publication(), saved.createdMillis(),
+                    saved.recoveryAttempts() + 1, saved.lastAttemptMillis());
+            immediate.resume();
+            assertTrue(immediate.offer(stale));
+            long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(SECONDS);
+            while (!immediate.failed() && System.nanoTime() < end) {
+                Thread.sleep(10);
+            }
+            assertTrue(immediate.failed());
+            assertFalse(immediate.offer(store.save(receipt(2))));
+            assertEquals(1, immediate.stats().storageFailures());
+            assertEquals(2, store.recover().size());
+        }
+    }
+
+    @Test
+    void pauseDrainsQueuedReceiptsEvenWhenResumed() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        try (AiMirrorEncryptedOutbox store = outbox()) {
+            AiMirrorImmediateRegistration immediate = new AiMirrorImmediateRegistration(
+                    store, config(), request -> {
+                        calls.incrementAndGet();
+                        entered.countDown();
+                        release.await(SECONDS, TimeUnit.SECONDS);
+                        return new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, "");
+                    });
+            try {
+                immediate.resume();
+                assertTrue(immediate.offer(store.save(receipt(1))));
+                assertTrue(entered.await(SECONDS, TimeUnit.SECONDS));
+                assertTrue(immediate.offer(store.save(receipt(2))));
+                immediate.pause();
+                assertEquals(1, immediate.stats().deferredToRecovery());
+                immediate.resume();
+                release.countDown();
+                awaitConfirmed(immediate, 1);
+            } finally {
+                release.countDown();
+                immediate.close();
+            }
+            assertTrue(immediate.awaitStopped(java.time.Duration.ofSeconds(SECONDS)));
+            assertEquals(1, calls.get());
             assertEquals(1, store.recover().size());
         }
     }

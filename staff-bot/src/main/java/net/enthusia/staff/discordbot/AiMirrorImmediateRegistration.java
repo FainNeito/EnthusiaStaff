@@ -42,6 +42,7 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
     private final AtomicLong terminalDiscarded = new AtomicLong();
     private final AtomicLong deferredToRecovery = new AtomicLong();
     private final AtomicLong storageFailures = new AtomicLong();
+    private final Object admissionLock = new Object();
 
     AiMirrorImmediateRegistration(AiMirrorEncryptedOutbox store,
             AiMirrorPublicationConfig config,
@@ -61,23 +62,27 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
     }
 
     void resume() {
-        if (!closed.get() && !failed.get()) {
-            accepting.set(true);
+        synchronized (admissionLock) {
+            if (!closed.get() && !failed.get()) {
+                accepting.set(true);
+            }
         }
     }
 
     boolean offer(AiMirrorEncryptedOutbox.Saved receipt) {
         Objects.requireNonNull(receipt, "receipt");
-        if (!accepting.get() || closed.get() || failed.get()) {
-            deferredToRecovery.incrementAndGet();
-            return false;
-        }
-        try {
-            worker.execute(() -> sendCommitted(receipt));
-            return true;
-        } catch (RejectedExecutionException saturated) {
-            deferredToRecovery.incrementAndGet();
-            return false;
+        synchronized (admissionLock) {
+            if (!accepting.get() || closed.get() || failed.get()) {
+                deferredToRecovery.incrementAndGet();
+                return false;
+            }
+            try {
+                worker.execute(() -> sendCommitted(receipt));
+                return true;
+            } catch (RejectedExecutionException saturated) {
+                deferredToRecovery.incrementAndGet();
+                return false;
+            }
         }
     }
 
@@ -106,6 +111,11 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
             transientRetained.incrementAndGet();
             return;
         }
+        acknowledgeResponse(receipt, response);
+    }
+
+    private void acknowledgeResponse(AiMirrorEncryptedOutbox.Saved receipt,
+            AiMirrorRegistrationPublisher.PostResult response) {
         try {
             store.acknowledge(receipt);
             if (response.status() == HTTP_OK) {
@@ -113,7 +123,7 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
             } else {
                 terminalDiscarded.incrementAndGet();
             }
-        } catch (IOException storageFault) {
+        } catch (IOException | RuntimeException storageFault) {
             failClosed();
         }
     }
@@ -134,10 +144,12 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
     }
 
     void pause() {
-        accepting.set(false);
-        List<Runnable> pending = new ArrayList<>();
-        worker.getQueue().drainTo(pending);
-        deferredToRecovery.addAndGet(pending.size());
+        synchronized (admissionLock) {
+            accepting.set(false);
+            List<Runnable> pending = new ArrayList<>();
+            worker.getQueue().drainTo(pending);
+            deferredToRecovery.addAndGet(pending.size());
+        }
     }
 
     Stats stats() {
