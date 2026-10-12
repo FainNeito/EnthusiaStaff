@@ -154,6 +154,10 @@ final class AiMirrorRecoveryScheduler implements AutoCloseable {
         return failed.get();
     }
 
+    boolean awaitStopped(java.time.Duration deadline) throws InterruptedException {
+        return worker.awaitTermination(deadline.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
