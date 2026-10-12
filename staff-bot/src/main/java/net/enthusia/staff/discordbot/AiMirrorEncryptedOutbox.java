@@ -449,20 +449,32 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         byte[] data = readCiphertext(file);
         try {
             RateState state = decrypt(data, RateState.class);
-            boolean legacy = state.version() == LEGACY_RATE_VERSION
-                    && state.catchUpAllowed() == null;
-            boolean current = state.version() == RATE_VERSION
-                    && state.catchUpAllowed() != null;
-            if ((!legacy && !current) || !"mirror-recovery".equals(state.kind())
-                    || state.guildId() != guildId || !profile.equals(state.profile())
-                    || state.lastAttemptMillis() <= 0
-                    || state.lastAttemptMillis() > clock.millis()) {
+            if (!validRateVersion(state) || !validRateScope(state)
+                    || !validRateTimestamp(state)) {
                 throw new IOException("invalid authenticated recovery rate state");
             }
             return state;
         } finally {
             Arrays.fill(data, (byte) 0);
         }
+    }
+
+    private static boolean validRateVersion(RateState state) {
+        boolean legacy = state.version() == LEGACY_RATE_VERSION
+                && state.catchUpAllowed() == null;
+        boolean current = state.version() == RATE_VERSION
+                && state.catchUpAllowed() != null;
+        return legacy || current;
+    }
+
+    private boolean validRateScope(RateState state) {
+        return "mirror-recovery".equals(state.kind())
+                && state.guildId() == guildId && profile.equals(state.profile());
+    }
+
+    private boolean validRateTimestamp(RateState state) {
+        return state.lastAttemptMillis() > 0
+                && state.lastAttemptMillis() <= clock.millis();
     }
 
     private void persistGlobalAttemptClock(long attemptedAt, boolean catchUp)
