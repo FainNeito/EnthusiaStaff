@@ -31,6 +31,7 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
                  long deferredToRecovery, long storageFailures) {}
 
     private final AiMirrorEncryptedOutbox store;
+    private final AiMirrorReceiptClaims claims;
     private final AiMirrorPublicationConfig config;
     private final AiMirrorRegistrationPublisher.DetailedPoster poster;
     private final ThreadPoolExecutor worker;
@@ -47,6 +48,14 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
     AiMirrorImmediateRegistration(AiMirrorEncryptedOutbox store,
             AiMirrorPublicationConfig config,
             AiMirrorRegistrationPublisher.DetailedPoster poster) {
+        this(store, config, poster, new AiMirrorReceiptClaims());
+    }
+
+    AiMirrorImmediateRegistration(AiMirrorEncryptedOutbox store,
+            AiMirrorPublicationConfig config,
+            AiMirrorRegistrationPublisher.DetailedPoster poster,
+            AiMirrorReceiptClaims claims) {
+        this.claims = Objects.requireNonNull(claims, "claims");
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.poster = Objects.requireNonNull(poster, "poster");
@@ -87,6 +96,29 @@ final class AiMirrorImmediateRegistration implements AutoCloseable {
     }
 
     private void sendCommitted(AiMirrorEncryptedOutbox.Saved receipt) {
+        if (!claims.tryClaim(receipt)) {
+            deferredToRecovery.incrementAndGet();
+            return;
+        }
+        try {
+            final boolean current;
+            try {
+                current = store.isCurrent(receipt);
+            } catch (IOException | RuntimeException storageFault) {
+                failClosed();
+                return;
+            }
+            if (!current) {
+                deferredToRecovery.incrementAndGet();
+                return;
+            }
+            sendClaimed(receipt);
+        } finally {
+            claims.release(receipt);
+        }
+    }
+
+    private void sendClaimed(AiMirrorEncryptedOutbox.Saved receipt) {
         if (!accepting.get() || closed.get() || failed.get()) {
             deferredToRecovery.incrementAndGet();
             return;
