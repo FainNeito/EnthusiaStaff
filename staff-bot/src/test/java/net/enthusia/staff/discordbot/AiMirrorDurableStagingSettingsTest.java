@@ -155,6 +155,7 @@ class AiMirrorDurableStagingSettingsTest {
         var validated = AiMirrorDurableStagingSettings.fromEnvironment(
                 StaffBotEnvironment.STAGING, Optional.of(config()), settings(directory, key))
                 .orElseThrow();
+        Files.setPosixFilePermissions(key, PosixFilePermissions.fromString("rw-------"));
         Files.write(key, new byte[31]);
         assertThrows(IOException.class, () -> validated.openOutbox(FIXED));
         assertFalse(Files.exists(directory.resolve(".mirror.lock")));
@@ -173,6 +174,19 @@ class AiMirrorDurableStagingSettingsTest {
         Files.setPosixFilePermissions(replacement, PosixFilePermissions.fromString("r--------"));
         Files.delete(key);
         Files.createSymbolicLink(key, replacement);
+        assertThrows(IOException.class, () -> validated.openOutbox(FIXED));
+        assertFalse(Files.exists(directory.resolve(".mirror.lock")));
+    }
+
+    @Test
+    void permissionsRevokedAfterValidationCannotOpenJournal() throws Exception {
+        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
+        Path directory = provisionDirectory();
+        Path key = provisionKey();
+        var validated = AiMirrorDurableStagingSettings.fromEnvironment(
+                StaffBotEnvironment.STAGING, Optional.of(config()), settings(directory, key))
+                .orElseThrow();
+        Files.setPosixFilePermissions(key, PosixFilePermissions.fromString("rw-r-----"));
         assertThrows(IOException.class, () -> validated.openOutbox(FIXED));
         assertFalse(Files.exists(directory.resolve(".mirror.lock")));
     }

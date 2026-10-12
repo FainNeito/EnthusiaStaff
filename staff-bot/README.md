@@ -202,10 +202,12 @@ and `ENTHUSIA_STAFF_BOT_AI_MIRROR_DURABLE_KEY_FILE` (absolute path, exactly
 32 random binary bytes, POSIX 0400 or 0600, same owner, no symlink). Invalid
 settings fail startup closed. Production cannot select this mode. The
 key must be separate from the existing API/Discord bearer tokens. Key
-loading rechecks provisioning and reads through a no-symlink file handle
-bounded to exactly 32 bytes (without following replacements between the
-first validation and opening). Invalidated keys fail closed with
-sanitized diagnostics. The
+loading rechecks provisioning, rejects symlink final components when opening,
+and reads exactly 32 bytes through a bounded file handle. It also rechecks
+pathname permissions and ownership after reading; Java cannot atomically
+verify those attributes against the open file descriptor, so same-owner
+concurrent path replacement is outside this guarantee. Invalidated keys
+fail closed with sanitized diagnostics. The
 authenticated destination binding covers endpoint, client ID, guild,
 profile and authorized channels, so a change to any of these refuses
 old ciphertext.

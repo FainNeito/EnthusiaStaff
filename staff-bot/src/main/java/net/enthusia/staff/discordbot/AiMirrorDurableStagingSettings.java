@@ -97,15 +97,18 @@ final class AiMirrorDurableStagingSettings {
             }
             ByteBuffer bytes = ByteBuffer.wrap(rawKey);
             while (bytes.hasRemaining()) {
-                if (channel.read(bytes) < 0) {
-                    throw new IOException("truncated durable mirror key");
+                if (channel.read(bytes) <= 0) {
+                    throw new IOException("incomplete durable mirror key read");
                 }
             }
+            // Recheck the pathname after reading. Java's FileChannel cannot
+            // authenticate POSIX ownership/permissions on the opened descriptor.
+            verifyProvisioning(directory, keyFile);
             if (channel.size() != KEY_BYTES) {
                 throw new IOException("durable mirror key size changed during read");
             }
             return rawKey;
-        } catch (IOException failure) {
+        } catch (IOException | RuntimeException failure) {
             Arrays.fill(rawKey, (byte) 0);
             // Never include paths or key bytes in operator-facing failures.
             throw new IOException("unable to securely read durable mirror key");
