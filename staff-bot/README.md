@@ -242,6 +242,25 @@ receipt monopolize the full retry budget. Deterministic synthetic
 three-receipt tests verify the order survives journal reopenings.
 No retrospective deletion or automatic sanctions are authorized.
 
+**Not yet integrated: immediate registration throughput fix.**
+A separate inert `AiMirrorImmediateRegistration` prototype can accept a
+*previously fsynced and validated* receipt from an off-JDA disk worker
+and issue one prompt, bounded registration HTTP attempt through its
+own single daemon with 64 queued requests. HTTP 200 acknowledges that
+exact receipt; an explicitly typed PENDING/temporary unavailable or
+transport error leaves it encrypted for slow retry, while terminal
+404/conflict/auth/unknown statuses discard it. Queue saturation,
+pause and shutdown likewise leave already persisted receipts for
+slow recovery, with aggregate-only counts and no chat identifiers in
+logs. Synthetic tests verify normal throughput above one registration
+per minute, typed failure retention and queue saturation without
+losing committed records. This component **is not constructed or
+used by StaffBotRuntime** and does not change the deployed staging
+mode's current one-per-minute delivery. Issue #541 **blocks**
+staging enablement until the fast path is safely integrated,
+concurrency-stale ACKs are resolved and the actual disposable Python
+API throughput/outage matrix passes. No deletion or sanctions.
+
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
 including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,
