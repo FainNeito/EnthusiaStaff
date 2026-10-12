@@ -315,11 +315,8 @@ class AiMirrorReceiptReplayTest {
                 assertEquals("rosechat:synthetic:fair:" + index,
                         next.publication().canonicalMessageId());
                 assertEquals(0, next.recoveryAttempts());
-                var replay = new AiMirrorReceiptReplay(store, config(), request ->
-                        new AiMirrorRegistrationPublisher.PostResult(
-                                HTTP_UNAVAILABLE, "storage_unavailable"));
                 assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT,
-                        replay.attemptOne(next));
+                        attemptTransientOnce(store, next));
             }
             advanceTime();
         }
@@ -329,6 +326,15 @@ class AiMirrorReceiptReplayTest {
                     next.publication().canonicalMessageId());
             assertEquals(1, next.recoveryAttempts());
         }
+    }
+
+    private static AiMirrorReceiptReplay.Outcome attemptTransientOnce(
+            AiMirrorEncryptedOutbox store, AiMirrorEncryptedOutbox.Saved next)
+            throws IOException, InterruptedException {
+        var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                new AiMirrorRegistrationPublisher.PostResult(
+                        HTTP_UNAVAILABLE, "storage_unavailable"));
+        return replay.attemptOne(next);
     }
 
     private static DiscordChatPublication syntheticReceipt(int index) {
