@@ -30,7 +30,7 @@ record AiMirrorRecoveryMetrics(
 
     String json() {
         StringBuilder body = new StringBuilder(460);
-        body.append("{");
+        body.append('{');
         number(body, "eligiblePostSend", eligiblePostSend);
         number(body, "persisted", persisted);
         number(body, "ingressCapacityDrops", ingressCapacityDrops);
@@ -49,7 +49,7 @@ record AiMirrorRecoveryMetrics(
         number(body, "slowStorageFailures", slowStorageFailures);
         number(body, "expiredReceipts", expiredReceipts);
         body.setLength(body.length() - 1);
-        return body.append("}").toString();
+        return body.append('}').toString();
     }
 
     private static void number(StringBuilder body, String key, long value) {
