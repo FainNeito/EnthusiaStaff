@@ -508,8 +508,13 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         synchronized (this) {
             ensureOpen();
             Path file = receiptPath(saved);
-            return Files.exists(file, LinkOption.NOFOLLOW_LINKS)
-                    && readSaved(file).equals(saved);
+            if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+                return false;
+            }
+            if (!readSaved(file).equals(saved)) {
+                throw new IOException("stale or mismatched authenticated receipt");
+            }
+            return true;
         }
     }
 
