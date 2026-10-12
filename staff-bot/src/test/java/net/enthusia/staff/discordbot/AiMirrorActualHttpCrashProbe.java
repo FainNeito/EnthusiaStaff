@@ -35,6 +35,8 @@ public final class AiMirrorActualHttpCrashProbe {
     private static final int EXPECTED_ARGUMENTS = 2;
     private static final int HTTP_OK = 200;
     private static final int EXPECTED_REFS = 2;
+    private static final String EXPECTED_ACTION = "ALLOW";
+    private static final String EXPECTED_CONTAINMENT = "NONE";
     private static final int KEY_LENGTH = 32;
     private static final Duration HTTP_DEADLINE = Duration.ofSeconds(2);
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -73,13 +75,21 @@ public final class AiMirrorActualHttpCrashProbe {
             throw new IllegalStateException("disposable loopback API fixture is not configured");
         }
         URI uri = URI.create(configured);
-        if (!"http".equals(uri.getScheme())
-                || !"127.0.0.1".equals(uri.getHost()) || uri.getPort() <= 0
-                || !EXPECTED_PATH.equals(uri.getRawPath()) || uri.getRawQuery() != null
-                || uri.getRawFragment() != null || uri.getUserInfo() != null) {
+        if (!validLoopbackAuthority(uri) || !validExactPath(uri)) {
             throw new IllegalArgumentException("non-loopback synthetic HTTP target rejected");
         }
         return uri;
+    }
+
+    private static boolean validLoopbackAuthority(URI uri) {
+        return "http".equals(uri.getScheme())
+                && "127.0.0.1".equals(uri.getHost())
+                && uri.getPort() > 0 && uri.getUserInfo() == null;
+    }
+
+    private static boolean validExactPath(URI uri) {
+        return EXPECTED_PATH.equals(uri.getRawPath())
+                && uri.getRawQuery() == null && uri.getRawFragment() == null;
     }
 
     private static Path privateJournal(Path directory) throws Exception {
@@ -158,10 +168,10 @@ public final class AiMirrorActualHttpCrashProbe {
         if (data.path("related_messages").size() != EXPECTED_REFS) {
             throw new IllegalStateException("synthetic alias reference count mismatch");
         }
-        if (!"ALLOW".equals(data.path("message_action").asText())) {
+        if (!EXPECTED_ACTION.equals(data.path("message_action").asText())) {
             throw new IllegalStateException("synthetic alias action contract mismatch");
         }
-        if (!"NONE".equals(data.path("containment").asText())) {
+        if (!EXPECTED_CONTAINMENT.equals(data.path("containment").asText())) {
             throw new IllegalStateException("synthetic alias containment mismatch");
         }
     }
