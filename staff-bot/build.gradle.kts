@@ -202,6 +202,12 @@ val verifyStaffBotRuntime by tasks.registering(VerifyStaffBotRuntime::class) {
     reportDirectory.set(rootProject.layout.buildDirectory.dir("reports/runtime-jars"))
 }
 
+tasks.test {
+    // The synthetic outbox process-crash regression launches an independent
+    // JVM with exact test runtime dependencies, never a real Discord client.
+    systemProperty("enthusia.ai.mirror.test.classpath", sourceSets.test.get().runtimeClasspath.asPath)
+}
+
 tasks.check {
     dependsOn(verifyStaffBotRuntime)
 }

@@ -75,6 +75,34 @@ class AiMirrorEncryptedOutboxTest {
     }
 
     @Test
+    void hardJVMCrashReleasesLockAndAllowsSeparateProcessRecovery() throws Exception {
+        String classpath = System.getProperty("enthusia.ai.mirror.test.classpath");
+        assertTrue(classpath != null && !classpath.isBlank(),
+                "synthetic process regression requires the Gradle runtime classpath");
+        Path executable = Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT)
+                        .contains("windows") ? "java.exe" : "java");
+        runProcessProbe(executable, classpath, "save-and-crash");
+        runProcessProbe(executable, classpath, "reopen-and-ack");
+        try (AiMirrorEncryptedOutbox reopened = open(key(), BINDING, fixed(TIME))) {
+            assertTrue(reopened.recover().isEmpty());
+        }
+    }
+
+    private void runProcessProbe(Path executable, String classpath, String operation)
+            throws Exception {
+        Process process = new ProcessBuilder(executable.toString(), "-cp", classpath,
+                AiMirrorOutboxCrashProbe.class.getName(), operation, temp.toString())
+                .redirectErrorStream(true).start();
+        boolean exited = process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
+        if (!exited) {
+            process.destroyForcibly();
+        }
+        assertTrue(exited, "synthetic receipt probe did not exit within the time bound");
+        assertEquals(0, process.exitValue(), "synthetic receipt probe failed");
+    }
+
+    @Test
     void replayWithDifferentKeyOrDestinationCannotReadStoredData() throws Exception {
         byte[] key = key();
         try (AiMirrorEncryptedOutbox outbox = open(key, BINDING, fixed(TIME))) {
