@@ -165,7 +165,7 @@ Synthetic tests advance the fake clock across successive restarts
 and verify 8 attempts remain the lifetime cap.
 
 An additional isolated `AiMirrorRecoveryScheduler` prototype now runs
-**one slow recovery attempt per minute, maximum, on one daemon worker** from
+**one slow recovery attempt per minute conservatively, or one every five seconds after an authenticated HTTP 200 and durable ACK, on one daemon worker** from
 already encrypted journal records. It keeps only aggregate counts; a corrupt
 or inaccessible journal stops its processing without HTTP fallback. Synthetic
 tests cover first-attempt success, typed transient recovery across a new
@@ -220,7 +220,7 @@ old ciphertext.
 Exactly **one** JDA post-send observer is installed: either the volatile
 publisher, or the durable session which persists receipts off the JDA
 callback thread, attempts prompt first registration through a separate
-bounded HTTP worker, and uses a one-per-minute slow, nonpunitive HTTP
+bounded HTTP worker, and uses a durable, nonpunitive slow HTTP
 replay worker only for retained receipts. Gateway
 identity readiness gates `resume()`; disconnect pauses admission/retries,
 and shutdown cancels queued work and only releases the store lock after all
@@ -237,8 +237,12 @@ registration test, and safe non-punitive replay under restart stress.
 This follow-up persists a separate ChaCha20-Poly1305 authenticated
 `.mirror-rate` timestamp on disk. The rate update is fsynced **before**
 any HTTP attempt, and remains after an individual receipt is acknowledged.
-Across JVM restarts, attempts against different receipts therefore share
-the same 60-second cooldown. A corrupted or unauthenticated rate file
+Across JVM restarts, an unconfirmed or failed slow attempt requires the
+same 60-second cooldown; after HTTP 200 plus a successful durable journal
+ACK, an authenticated version-3 rate state permits one slow attempt every
+five seconds. Each retry persists a conservative token before HTTP, so any
+409/503/IO failure or crash before the ACK revokes the faster mode. The
+old version-2 rate file remains readable with its conservative limit. A corrupted or unauthenticated rate file
 blocks HTTP with no fallback. Interrupted `.mirror-rate.tmp` files are
 discarded during recovery. The rate record contains no chat text or
 Discord identifiers. Synthetic tests cover ACK followed by a second
@@ -252,7 +256,7 @@ No retrospective deletion or automatic sanctions are authorized.
 
 **Immediate post-persistence registration (code only; no staging activation).**
 The opted-in STAGING durable session now constructs one fast HTTP worker
-with 64 waiting tasks, alongside the original one-per-minute slow replay.
+with 64 waiting tasks, alongside the authenticated, outcome-gated slow replay.
 After authenticated encrypted fsync on the bounded ingress disk worker,
 new receipts are offered to the fast worker without blocking JDA. Fast
 admission claims the opaque record name before queueing. The fast and slow
@@ -268,8 +272,9 @@ typed `503 timeout/storage_unavailable` and transport timeout/IO are
 temporary; they retain ciphertext for bounded slow recovery. Other 404,
 409, auth, schema, redirect or unknown responses are terminal. Saturation,
 pause, shutdown or loss of in-memory claims must never erase a committed
-receipt. Slow recovery alone consumes the persistent global one-minute
-budget and the eight-attempts-per-receipt limit. The fast worker does not.
+receipt. Slow recovery alone consumes the persisted global interval (60 seconds
+conservatively, 5 seconds only after a successful slow HTTP 200+ACK)
+and the eight-attempts-per-receipt limit. The fast worker does not.
 All metrics remain aggregate-only; this feature never reposts to Discord
 or issues any deletion or punishment.
 
@@ -295,6 +300,19 @@ process-lifetime snapshots (not durable across restarts) and cannot
 independently prove complete coverage: compare externally counted
 eligible original and Discord post-send events, restart windows, and
 the journal's eventual pending count before approving any deletion.
+
+**Catch-up limitations and rollback compatibility:** The five-second
+catch-up is bounded to one recovery HTTP request at a time (12/minute),
+and only while the authenticated previous slow attempt was successfully
+acknowledged. It is **not** a zero-loss guarantee: 60-minute receipt TTL,
+128-record capacity, restart delays, privacy exclusions, and permanent
+rejections still apply. The new authenticated rate record is format v3.
+New code reads an existing v2 record conservatively; an older StaffBot
+jar may reject v3 on rollback. Never delete `.mirror-rate` or discard the
+encrypted journal to force startup. Before a real staging deployment,
+review a rollback plan using a compatible jar or a separately approved,
+authenticated rate-state migration. No live key, config or server was
+modified by the redesign.
 
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
