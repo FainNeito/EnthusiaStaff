@@ -146,6 +146,22 @@ Its proposed disk policy, operating-system access control, key provisioning,
 nonblocking I/O pipeline, safe retry orchestration and cross-JVM tests
 remain to be reviewed before any staging activation.
 
+The separate `AiMirrorReceiptReplay` follow-up prototype adds a **single
+synchronous recovery attempt**, invoked only by synthetic tests and never by
+the running bot. It fsyncs a monotonically increasing, authenticated recovery
+attempt count in the encrypted journal **before** attempting HTTP. A maximum
+of eight slow-recovery attempts applies across restarts; exhausted/expired
+records are removed. HTTP 200 confirms an exact alias then acknowledges the
+record. Only explicitly typed pending / storage / timeout responses or
+transport I/O failure retain a record; unknown-canonical 404, collision,
+authorization, malformed responses and other unexpected statuses are terminal.
+A stale journal snapshot cannot remove a newer record.
+
+This is **not a runnable recovery service**: no scheduler, global backoff/rate
+budget, JDA asynchronous-persistence integration, key/ACL provisioning,
+operator controls, or live API replay acceptance is present. It must not be
+enabled for real Discord traffic or used as proof of complete coverage.
+
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
 including PENDING -> 409 -> FINAL -> 200, strict structured IDs, replay,
