@@ -272,6 +272,109 @@ class AiMirrorReceiptReplayTest {
     }
 
     @Test
+    void confirmedRecoveryEnablesOnlyFiveSecondSpacingAcrossRestarts()
+            throws Exception {
+        byte[] key = key();
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            store.save(syntheticReceipt(0));
+            store.save(syntheticReceipt(1));
+            store.save(syntheticReceipt(2));
+            var first = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(first));
+            assertEquals(5_000L, store.recoveryPollMillis());
+        }
+        simulatedTime = simulatedTime.plusSeconds(4);
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            var next = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request -> {
+                throw new AssertionError("cannot bypass durable 5-second quota");
+            });
+            assertEquals(AiMirrorReceiptReplay.Outcome.DEFERRED, replay.attemptOne(next));
+            assertEquals(0, store.recover().getFirst().recoveryAttempts());
+        }
+        simulatedTime = simulatedTime.plusSeconds(1);
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            var next = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(next));
+            assertEquals(1, store.recover().size());
+        }
+        simulatedTime = simulatedTime.plusSeconds(5);
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            var next = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(next));
+            assertTrue(store.recover().isEmpty());
+        }
+    }
+
+    @Test
+    void temporaryOutageRevokesCatchUpForSixtySecondsAcrossRestarts()
+            throws Exception {
+        byte[] key = key();
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            store.save(syntheticReceipt(0));
+            store.save(syntheticReceipt(1));
+            store.save(syntheticReceipt(2));
+            var first = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(first));
+        }
+        simulatedTime = simulatedTime.plusSeconds(5);
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            var second = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(
+                            HTTP_UNAVAILABLE, "storage_unavailable"));
+            assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT, replay.attemptOne(second));
+            assertEquals(60_000L, store.recoveryPollMillis());
+        }
+        simulatedTime = simulatedTime.plusSeconds(5);
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            var next = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request -> {
+                throw new AssertionError("failed retry must revoke catch-up grant");
+            });
+            assertEquals(AiMirrorReceiptReplay.Outcome.DEFERRED, replay.attemptOne(next));
+        }
+        simulatedTime = simulatedTime.plusSeconds(55);
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            var next = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(HTTP_OK, ""));
+            assertEquals(AiMirrorReceiptReplay.Outcome.CONFIRMED, replay.attemptOne(next));
+        }
+    }
+
+    @Test
+    void startupWithoutConfirmedRecoveryAlwaysUsesConservativePacing()
+            throws Exception {
+        byte[] key = key();
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            assertEquals(60_000L, store.recoveryPollMillis());
+            var saved = store.save(receipt());
+            var replay = new AiMirrorReceiptReplay(store, config(), request ->
+                    new AiMirrorRegistrationPublisher.PostResult(
+                            HTTP_UNAVAILABLE, "timeout"));
+            assertEquals(AiMirrorReceiptReplay.Outcome.TRANSIENT, replay.attemptOne(saved));
+        }
+        simulatedTime = simulatedTime.plusSeconds(5);
+        try (AiMirrorEncryptedOutbox store = open(key)) {
+            assertEquals(60_000L, store.recoveryPollMillis());
+            var saved = store.recover().getFirst();
+            var replay = new AiMirrorReceiptReplay(store, config(), request -> {
+                throw new AssertionError("outage should not trigger fast replay");
+            });
+            assertEquals(AiMirrorReceiptReplay.Outcome.DEFERRED, replay.attemptOne(saved));
+        }
+    }
+
+    @Test
     void rapidRestartCannotBypassOneMinuteGlobalRecoveryRate() throws Exception {
         byte[] key = key();
         try (AiMirrorEncryptedOutbox initial = open(key)) {

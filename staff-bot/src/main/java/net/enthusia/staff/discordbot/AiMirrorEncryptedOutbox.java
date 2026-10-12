@@ -48,6 +48,7 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private static final int MAX_RECORDS = 128;
     private static final int MAX_RECOVERY_ATTEMPTS = 8;
     private static final long SLOW_INTERVAL_MILLIS = 60_000L;
+    private static final long CATCH_UP_INTERVAL_MILLIS = 5_000L;
     private static final int MAX_TOTAL_BYTES = 1024 * 1024;
     private static final int MAX_FILE_BYTES = 32 * 1024;
     private static final long TTL_MILLIS = 60 * 60 * 1000L;
@@ -56,7 +57,8 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     private static final String LOCK_NAME = ".mirror.lock";
     private static final String RATE_NAME = ".mirror-rate";
     private static final String RATE_TEMP_NAME = ".mirror-rate.tmp";
-    private static final int RATE_VERSION = 2;
+    private static final int LEGACY_RATE_VERSION = 2;
+    private static final int RATE_VERSION = 3;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Set<PosixFilePermission> PRIVATE_DIRECTORY = Set.of(
             PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
@@ -74,7 +76,8 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
     }
 
     private record RateState(
-            int version, String kind, long guildId, String profile, long lastAttemptMillis) {}
+            int version, String kind, long guildId, String profile,
+            long lastAttemptMillis, Boolean catchUpAllowed) {}
 
     private record Sealed(
             int version, long createdMillis, long guildId, long channelId,
@@ -372,11 +375,15 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 }
                 return new AttemptPreparation(AttemptStatus.EXHAUSTED, null);
             }
-            if (recoveryDeferred(current) || globalRecoveryDeferred()) {
+            RateState global = readGlobalRateState();
+            if (recoveryDeferred(current) || globalRecoveryDeferred(global)) {
                 return new AttemptPreparation(AttemptStatus.DEFERRED, null);
             }
-            persistGlobalAttemptClock();
-            return persistNextRecoveryAttempt(file, current);
+            // Record the budget token before HTTP. If the JVM dies before an
+            // authenticated 200+ACK, the fast catch-up grant is revoked.
+            long attemptAt = clock.millis();
+            persistGlobalAttemptClock(attemptAt, false);
+            return persistNextRecoveryAttempt(file, current, attemptAt);
         }
     }
 
@@ -389,15 +396,47 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 || current.recoveryAttempts() >= MAX_RECOVERY_ATTEMPTS;
     }
 
-    private boolean globalRecoveryDeferred() throws IOException {
-        long last = readGlobalAttemptClock();
-        return last > 0 && clock.millis() - last < SLOW_INTERVAL_MILLIS;
+    private boolean globalRecoveryDeferred(RateState state) {
+        if (state == null) {
+            return false;
+        }
+        long interval = Boolean.TRUE.equals(state.catchUpAllowed())
+                ? CATCH_UP_INTERVAL_MILLIS : SLOW_INTERVAL_MILLIS;
+        return clock.millis() - state.lastAttemptMillis() < interval;
     }
 
-    private long readGlobalAttemptClock() throws IOException {
+    /**
+     * Only a confirmed HTTP 200 followed by a successful journal ACK grants
+     * accelerated recovery; 409, 503, IO, interruption and process death do not.
+     * Grant is authenticated and durable, bound to the exact prior slow attempt.
+     */
+    void noteConfirmedRecovery(Saved counted) throws IOException {
+        synchronized (this) {
+            ensureOpen();
+            RateState current = readGlobalRateState();
+            if (current == null
+                    || current.lastAttemptMillis() != counted.lastAttemptMillis()
+                    || counted.recoveryAttempts() < 1) {
+                throw new IOException("inconsistent recovery acknowledgement");
+            }
+            persistGlobalAttemptClock(current.lastAttemptMillis(), true);
+        }
+    }
+
+    /** Poll frequency after restart also obeys the authenticated rate record. */
+    long recoveryPollMillis() throws IOException {
+        synchronized (this) {
+            ensureOpen();
+            RateState current = readGlobalRateState();
+            return current != null && Boolean.TRUE.equals(current.catchUpAllowed())
+                    ? CATCH_UP_INTERVAL_MILLIS : SLOW_INTERVAL_MILLIS;
+        }
+    }
+
+    private RateState readGlobalRateState() throws IOException {
         Path file = directory.resolve(RATE_NAME);
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
-            return 0L;
+            return null;
         }
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("invalid encrypted recovery rate state");
@@ -410,21 +449,38 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
         byte[] data = readCiphertext(file);
         try {
             RateState state = decrypt(data, RateState.class);
-            if (state.version() != RATE_VERSION || !"mirror-recovery".equals(state.kind())
-                    || state.guildId() != guildId || !profile.equals(state.profile())
-                    || state.lastAttemptMillis() <= 0
-                    || state.lastAttemptMillis() > clock.millis()) {
+            if (!validRateVersion(state) || !validRateScope(state)
+                    || !validRateTimestamp(state)) {
                 throw new IOException("invalid authenticated recovery rate state");
             }
-            return state.lastAttemptMillis();
+            return state;
         } finally {
             Arrays.fill(data, (byte) 0);
         }
     }
 
-    private void persistGlobalAttemptClock() throws IOException {
+    private static boolean validRateVersion(RateState state) {
+        boolean legacy = state.version() == LEGACY_RATE_VERSION
+                && state.catchUpAllowed() == null;
+        boolean current = state.version() == RATE_VERSION
+                && state.catchUpAllowed() != null;
+        return legacy || current;
+    }
+
+    private boolean validRateScope(RateState state) {
+        return "mirror-recovery".equals(state.kind())
+                && state.guildId() == guildId && profile.equals(state.profile());
+    }
+
+    private boolean validRateTimestamp(RateState state) {
+        return state.lastAttemptMillis() > 0
+                && state.lastAttemptMillis() <= clock.millis();
+    }
+
+    private void persistGlobalAttemptClock(long attemptedAt, boolean catchUp)
+            throws IOException {
         byte[] data = encrypt(new RateState(
-                RATE_VERSION, "mirror-recovery", guildId, profile, clock.millis()));
+                RATE_VERSION, "mirror-recovery", guildId, profile, attemptedAt, catchUp));
         Path committed = directory.resolve(RATE_NAME);
         Path temporary = directory.resolve(RATE_TEMP_NAME);
         try {
@@ -452,10 +508,9 @@ final class AiMirrorEncryptedOutbox implements AutoCloseable {
                 && clock.millis() - current.lastAttemptMillis() < SLOW_INTERVAL_MILLIS;
     }
 
-    private AttemptPreparation persistNextRecoveryAttempt(Path file, Saved current)
-            throws IOException {
+    private AttemptPreparation persistNextRecoveryAttempt(
+            Path file, Saved current, long now) throws IOException {
         int nextAttempt = current.recoveryAttempts() + 1;
-        long now = clock.millis();
         Sealed updated = new Sealed(1, current.createdMillis(),
                 current.publication().guildId(), current.publication().channelId(),
                 current.publication().discordMessageId(),

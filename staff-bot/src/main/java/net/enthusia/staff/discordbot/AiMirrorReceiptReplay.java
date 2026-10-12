@@ -94,6 +94,9 @@ final class AiMirrorReceiptReplay {
         }
         if (response.status() == HTTP_OK) {
             store.acknowledge(counted);
+            // No catch-up grant until the real API accepted the scoped alias
+            // and the exact authenticated receipt was durably removed.
+            store.noteConfirmedRecovery(counted);
             return Outcome.CONFIRMED;
         }
         if (retryable(response)) {
