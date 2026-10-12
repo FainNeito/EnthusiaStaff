@@ -10,6 +10,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -26,6 +27,10 @@ class AiMirrorDurableStagingSettingsTest {
     private static final long GUILD = 1410303324745371709L;
     private static final long CHANNEL = 1541286004298752091L;
     private static final String TEST_KEY = "synthetic-fixed-key-content";
+    private static final String ENABLED_VALUE = "true";
+    private static final String POSIX_VIEW = "posix";
+    private static final String JOURNAL_NAME = "journal";
+    private static final String KEY_NAME = "key";
     private static final Clock FIXED = Clock.fixed(
             Instant.parse("2026-10-12T01:00:00Z"), ZoneOffset.UTC);
     @TempDir Path temp;
@@ -41,7 +46,7 @@ class AiMirrorDurableStagingSettingsTest {
     @Test
     void productionOrAbsentRegistrationNeverAcceptsDurableToggle() {
         Map<String, String> enabled = Map.of(
-                AiMirrorDurableStagingSettings.ENABLED, "true");
+                AiMirrorDurableStagingSettings.ENABLED, ENABLED_VALUE);
         assertThrows(IllegalArgumentException.class,
                 () -> AiMirrorDurableStagingSettings.fromEnvironment(
                         StaffBotEnvironment.PRODUCTION, Optional.of(config()), enabled));
@@ -57,27 +62,28 @@ class AiMirrorDurableStagingSettingsTest {
     @Test
     void missingAndRelativePathsFailBeforeAnyJournalWrite() {
         Map<String, String> enabled = Map.of(
-                AiMirrorDurableStagingSettings.ENABLED, "true");
+                AiMirrorDurableStagingSettings.ENABLED, ENABLED_VALUE);
         assertThrows(IllegalArgumentException.class,
                 () -> AiMirrorDurableStagingSettings.fromEnvironment(
                         StaffBotEnvironment.STAGING, Optional.of(config()), enabled));
         assertThrows(IllegalArgumentException.class,
                 () -> AiMirrorDurableStagingSettings.fromEnvironment(
                         StaffBotEnvironment.STAGING, Optional.of(config()), Map.of(
-                                AiMirrorDurableStagingSettings.ENABLED, "true",
+                                AiMirrorDurableStagingSettings.ENABLED, ENABLED_VALUE,
                                 AiMirrorDurableStagingSettings.JOURNAL_DIRECTORY, "relative-dir",
                                 AiMirrorDurableStagingSettings.JOURNAL_KEY_FILE, "relative-key")));
     }
 
     @Test
     void keyFilePermissionsMustBePrivateAndKeySizeExact() throws Exception {
-        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView("posix"));
-        Path directory = temp.resolve("journal");
+        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
+        Path directory = temp.resolve(JOURNAL_NAME);
         Files.createDirectory(directory);
         Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------"));
-        Path key = temp.resolve("key");
+        Path key = temp.resolve(KEY_NAME);
         Files.write(key, fixedKey());
-        Files.setPosixFilePermissions(key, PosixFilePermissions.fromString("rw-r--r--"));
+        Files.setPosixFilePermissions(key, Set.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.GROUP_READ));
         var env = settings(directory, key);
         assertThrows(IOException.class, () -> AiMirrorDurableStagingSettings.fromEnvironment(
                 StaffBotEnvironment.STAGING, Optional.of(config()), env));
@@ -89,11 +95,11 @@ class AiMirrorDurableStagingSettingsTest {
 
     @Test
     void correctPreProvisionedLinuxStorageCanReopenEncryptedReceipts() throws Exception {
-        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView("posix"));
-        Path directory = temp.resolve("journal");
+        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
+        Path directory = temp.resolve(JOURNAL_NAME);
         Files.createDirectory(directory);
         Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------"));
-        Path key = temp.resolve("key");
+        Path key = temp.resolve(KEY_NAME);
         Files.write(key, fixedKey());
         Files.setPosixFilePermissions(key, PosixFilePermissions.fromString("r--------"));
         var settings = AiMirrorDurableStagingSettings.fromEnvironment(
@@ -110,7 +116,7 @@ class AiMirrorDurableStagingSettingsTest {
 
     @Test
     void changedEndpointCannotDecryptExistingJournalOnLinux() throws Exception {
-        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView("posix"));
+        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
         Path directory = provisionDirectory();
         Path key = provisionKey();
         var settings = AiMirrorDurableStagingSettings.fromEnvironment(
@@ -132,7 +138,7 @@ class AiMirrorDurableStagingSettingsTest {
 
     @Test
     void symlinkedKeyIsRejectedBeforeReadingSecretsOnLinux() throws Exception {
-        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView("posix"));
+        Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
         Path directory = provisionDirectory();
         Path key = provisionKey();
         Path link = temp.resolve("link-to-secret");
@@ -142,14 +148,14 @@ class AiMirrorDurableStagingSettingsTest {
     }
 
     private Path provisionDirectory() throws IOException {
-        Path directory = temp.resolve("journal");
+        Path directory = temp.resolve(JOURNAL_NAME);
         Files.createDirectory(directory);
         Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------"));
         return directory;
     }
 
     private Path provisionKey() throws IOException {
-        Path key = temp.resolve("key");
+        Path key = temp.resolve(KEY_NAME);
         Files.write(key, fixedKey());
         Files.setPosixFilePermissions(key, PosixFilePermissions.fromString("r--------"));
         return key;
@@ -158,10 +164,10 @@ class AiMirrorDurableStagingSettingsTest {
     @Test
     void refusingNonPosixACLsIsExplicitRatherThanAssumingSecureStorage()
             throws Exception {
-        Assumptions.assumeFalse(Files.getFileStore(temp).supportsFileAttributeView("posix"));
-        Path directory = temp.resolve("journal");
+        Assumptions.assumeFalse(Files.getFileStore(temp).supportsFileAttributeView(POSIX_VIEW));
+        Path directory = temp.resolve(JOURNAL_NAME);
         Files.createDirectory(directory);
-        Path key = temp.resolve("key");
+        Path key = temp.resolve(KEY_NAME);
         Files.write(key, fixedKey());
         assertThrows(IOException.class, () -> AiMirrorDurableStagingSettings.fromEnvironment(
                 StaffBotEnvironment.STAGING, Optional.of(config()), settings(directory, key)));
@@ -169,7 +175,7 @@ class AiMirrorDurableStagingSettingsTest {
 
     private static Map<String, String> settings(Path directory, Path key) {
         return Map.of(
-                AiMirrorDurableStagingSettings.ENABLED, "true",
+                AiMirrorDurableStagingSettings.ENABLED, ENABLED_VALUE,
                 AiMirrorDurableStagingSettings.JOURNAL_DIRECTORY, directory.toString(),
                 AiMirrorDurableStagingSettings.JOURNAL_KEY_FILE, key.toString());
     }

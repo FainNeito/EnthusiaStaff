@@ -106,16 +106,25 @@ final class AiMirrorDurableStagingSettings {
 
     private static void verifyProvisioning(Path directory, Path keyFile)
             throws IOException {
+        verifyPrivatePaths(directory, keyFile);
+        verifyPrivatePermissions(directory, keyFile);
+        verifyKeyOwnershipAndSize(directory, keyFile);
+    }
+
+    private static void verifyPrivatePaths(Path directory, Path keyFile)
+            throws IOException {
         if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
                 || !Files.isRegularFile(keyFile, LinkOption.NOFOLLOW_LINKS)
                 || !Files.isReadable(keyFile) || !Files.isWritable(directory)) {
             throw new IOException("durable mirror private storage is unavailable");
         }
+    }
+
+    private static void verifyPrivatePermissions(Path directory, Path keyFile)
+            throws IOException {
         if (!Files.getFileStore(directory).supportsFileAttributeView(POSIX_VIEW)
                 || !Files.getFileStore(keyFile).supportsFileAttributeView(POSIX_VIEW)) {
-            // Bloom/Linux is the intended deployment target. On other platforms
-            // use in-memory mode until ACL behavior is explicitly reviewed.
-            throw new IOException("durable mirror storage requires verified POSIX permissions");
+            throw new IOException("durable mirror requires verified POSIX permissions");
         }
         if (!Files.getPosixFilePermissions(directory, LinkOption.NOFOLLOW_LINKS)
                 .equals(DIRECTORY_PERMISSIONS)) {
@@ -126,10 +135,15 @@ final class AiMirrorDurableStagingSettings {
                 && !PRIVATE_KEY_READWRITE.equals(permissions)) {
             throw new IOException("insecure durable mirror key permissions");
         }
+    }
+
+    private static void verifyKeyOwnershipAndSize(Path directory, Path keyFile)
+            throws IOException {
         if (!Files.getOwner(directory, LinkOption.NOFOLLOW_LINKS)
                 .equals(Files.getOwner(keyFile, LinkOption.NOFOLLOW_LINKS))
                 || Files.size(keyFile) != KEY_BYTES) {
             throw new IOException("durable mirror key ownership or size is invalid");
         }
     }
+
 }
