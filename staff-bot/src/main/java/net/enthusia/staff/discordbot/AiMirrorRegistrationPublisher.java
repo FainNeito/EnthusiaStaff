@@ -196,7 +196,7 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
         }
         pending.attempts++;
         try {
-            PostResult result = poster.post(request(pending.publication));
+            PostResult result = poster.post(request(config, pending.publication));
             if (!active(pending)) {
                 pending.finish();
                 return;
@@ -264,7 +264,8 @@ final class AiMirrorRegistrationPublisher implements DiscordChatPostObserver, Au
         pending.schedule(delayMillis);
     }
 
-    private HttpRequest request(DiscordChatPublication publication) throws JsonProcessingException {
+    static HttpRequest request(AiMirrorPublicationConfig config,
+                               DiscordChatPublication publication) throws JsonProcessingException {
         Map<String, String> data = new LinkedHashMap<>();
         data.put("canonical_message_id", publication.canonicalMessageId());
         data.put("canonical_text", publication.canonicalPlainText());
