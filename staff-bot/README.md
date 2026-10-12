@@ -157,10 +157,19 @@ transport I/O failure retain a record; unknown-canonical 404, collision,
 authorization, malformed responses and other unexpected statuses are terminal.
 A stale journal snapshot cannot remove a newer record.
 
-This is **not a runnable recovery service**: no scheduler, global backoff/rate
-budget, JDA asynchronous-persistence integration, key/ACL provisioning,
-operator controls, or live API replay acceptance is present. It must not be
-enabled for real Discord traffic or used as proof of complete coverage.
+An additional isolated `AiMirrorRecoveryScheduler` prototype now runs
+**one slow recovery attempt per minute, maximum, on one daemon worker** from
+already encrypted journal records. It keeps only aggregate counts; a corrupt
+or inaccessible journal stops its processing without HTTP fallback. Synthetic
+tests cover first-attempt success, typed transient recovery across a new
+scheduler/unchanged key and corrupted ciphertext fail-closed.
+
+This remains **inert**: StaffBotRuntime never constructs either class. There
+is still no cross-restart global rate ledger, bounded off-JDA receipt
+persistence handoff, secure key/ACL provisioning, explicit staging-only
+operator switch, actual HTTP replay-after-crash acceptance or production
+authorization. Do not enable for real Discord traffic or use as evidence
+of full mirror coverage or safe cross-bot deletion.
 
 The opt-in zero-cost cross-language test harness in the private repository
 runs a disposable loopback Python API and the actual Java StaffBot HTTP client,
