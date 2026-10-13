@@ -213,39 +213,12 @@ public final class StaffBotRuntime implements AutoCloseable {
             JdaDiscordGateway chatGateway = installedPublicChat.orElse(gateway);
             chatTransport = chatConfiguration.map(
                     current -> StaffBotChatTransport.create(current, chatGateway, chatGateway));
-            Optional<AiMirrorPublicationConfig> mirrorConfig =
-                    AiMirrorPublicationConfig.fromEnvironment(
-                            configuration.environment(), chatConfiguration.orElse(null), System.getenv());
-            Optional<AiMirrorDurableStagingSettings> durableSettings =
-                    AiMirrorDurableStagingSettings.fromEnvironment(
-                            configuration.environment(), mirrorConfig, System.getenv());
-            AiMirrorRegistrationPublisher installedMirror = null;
-            if (durableSettings.isPresent()) {
-                // One JDA post-send observer: durable and volatile cannot coexist.
-                AiMirrorDurableRecoverySession session = AiMirrorDurableRecoverySession.open(
-                        durableSettings.orElseThrow(), mirrorConfig.orElseThrow(),
-                        chatTransport.orElseThrow(), java.time.Clock.systemUTC());
-                durableRecovery = Optional.of(session);
-                health.requireCriticalReadiness(() -> !session.unhealthy());
-                health.requireStagingMirrorMetrics(() -> AiMirrorRecoveryMetrics.capture(session));
-                chatGateway.installChatPublicationObserver(session);
-            } else {
-                mirrorPublisher = mirrorConfig.map(AiMirrorRegistrationPublisher::create);
-                installedMirror = mirrorPublisher.orElse(null);
-                if (installedMirror != null) {
-                    chatGateway.installChatPublicationObserver(installedMirror);
-                }
-            }
-            if (chatConfiguration.map(current -> !current.ingressRoutes().isEmpty()).orElse(false)) {
-                chatGateway.installChatIngress(chatTransport.orElseThrow());
-            }
-            Optional<StaffBotChatLifecycle> chat = durableRecovery.map(
-                    session -> (StaffBotChatLifecycle) session);
-            if (chat.isEmpty()) {
-                AiMirrorRegistrationPublisher activePublisher = installedMirror;
-                chat = chatTransport.map(current -> activePublisher == null
-                        ? current : new AiMirrorChatLifecycle(current, activePublisher));
-            }
+            MirrorSelection selectedMirror = selectMirror(
+                    configuration, chatConfiguration, chatTransport, chatGateway, health);
+            mirrorPublisher = selectedMirror.publisher();
+            durableRecovery = selectedMirror.durable();
+            Optional<StaffBotChatLifecycle> chat = selectedMirror.chat();
+            installChatIngress(chatConfiguration, chatGateway, chatTransport);
             return new StaffBotRuntime(
                     configuration,
                     health,
@@ -291,6 +264,60 @@ public final class StaffBotRuntime implements AutoCloseable {
                     "production shadow chat requires a separate pinned chat Discord application");
         }
         return new ChatConfigurationSelection(bridge, publicApp);
+    }
+
+    private record MirrorSelection(
+            Optional<AiMirrorRegistrationPublisher> publisher,
+            Optional<AiMirrorDurableRecoverySession> durable,
+            Optional<StaffBotChatLifecycle> chat) {}
+
+    private static MirrorSelection selectMirror(
+            StaffBotConfiguration configuration,
+            Optional<StaffBotChatBridgeConfiguration> chatConfiguration,
+            Optional<StaffBotChatTransport> chatTransport,
+            JdaDiscordGateway chatGateway, StaffBotHealth health) throws IOException {
+        Optional<AiMirrorPublicationConfig> mirrorConfig =
+                AiMirrorPublicationConfig.fromEnvironment(
+                        configuration.environment(), chatConfiguration.orElse(null), System.getenv());
+        Optional<AiMirrorDurableStagingSettings> durableSettings =
+                AiMirrorDurableStagingSettings.fromEnvironment(
+                        configuration.environment(), mirrorConfig, System.getenv());
+        if (durableSettings.isPresent()) {
+            AiMirrorDurableRecoverySession session = AiMirrorDurableRecoverySession.open(
+                    durableSettings.orElseThrow(), mirrorConfig.orElseThrow(),
+                    chatTransport.orElseThrow(), java.time.Clock.systemUTC());
+            try {
+                health.requireCriticalReadiness(() -> !session.unhealthy());
+                health.requireStagingMirrorMetrics(() -> AiMirrorRecoveryMetrics.capture(session));
+                chatGateway.installChatPublicationObserver(session);
+                return new MirrorSelection(
+                        Optional.empty(), Optional.of(session), Optional.of(session));
+            } catch (RuntimeException invalid) {
+                session.close();
+                throw invalid;
+            }
+        }
+        Optional<AiMirrorRegistrationPublisher> publisher =
+                mirrorConfig.map(AiMirrorRegistrationPublisher::create);
+        try {
+            publisher.ifPresent(chatGateway::installChatPublicationObserver);
+            Optional<StaffBotChatLifecycle> chat = chatTransport.map(transport ->
+                    publisher.map(selected -> (StaffBotChatLifecycle)
+                            new AiMirrorChatLifecycle(transport, selected)).orElse(transport));
+            return new MirrorSelection(publisher, Optional.empty(), chat);
+        } catch (RuntimeException invalid) {
+            publisher.ifPresent(AiMirrorRegistrationPublisher::close);
+            throw invalid;
+        }
+    }
+
+    private static void installChatIngress(
+            Optional<StaffBotChatBridgeConfiguration> chatConfiguration,
+            JdaDiscordGateway chatGateway,
+            Optional<StaffBotChatTransport> chatTransport) {
+        if (chatConfiguration.map(current -> !current.ingressRoutes().isEmpty()).orElse(false)) {
+            chatGateway.installChatIngress(chatTransport.orElseThrow());
+        }
     }
 
     public void start() throws IOException {
