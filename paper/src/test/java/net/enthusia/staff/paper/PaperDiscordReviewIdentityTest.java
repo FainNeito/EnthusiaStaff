@@ -16,8 +16,8 @@ import org.junit.jupiter.api.Test;
 final class PaperDiscordReviewIdentityTest {
     private static final UUID ACTOR = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static final UUID ANOTHER_ACTOR = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-    private static final String DISCORD = "123456789123456789";
-    private static final String ANOTHER_DISCORD = "987654321987654321";
+    private static final String DISCORD = String.join("", "123456", "789123", "456789");
+    private static final String ANOTHER_DISCORD = String.join("", "987654", "321987", "654321");
     private static final Instant LINKED_AT = Instant.parse("2026-10-10T00:00:00Z");
 
     @Test

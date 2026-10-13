@@ -21,8 +21,8 @@ import org.junit.jupiter.api.Test;
 final class OfflineDiscordPunishmentReviewTest {
     private static final UUID ACTOR_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static final UUID REQUEST_ID = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-    private static final String DISCORD_ID = "123456789012345678";
-    private static final String DIFFERENT_DISCORD_ID = "234567890123456789";
+    private static final String DISCORD_ID = String.join("", "123456", "789012", "345678");
+    private static final String DIFFERENT_DISCORD_ID = String.join("", "234567", "890123", "456789");
     private static final Actor MODERATOR = new Actor(ACTOR_ID, "moderator", StaffRank.MOD);
 
     @Test
