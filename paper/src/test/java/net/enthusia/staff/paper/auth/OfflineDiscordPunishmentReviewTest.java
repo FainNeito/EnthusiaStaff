@@ -1,8 +1,10 @@
 package net.enthusia.staff.paper.auth;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.time.Clock;
@@ -86,6 +88,22 @@ final class OfflineDiscordPunishmentReviewTest {
         assertThrows(SecurityException.class,
                 () -> service.requireReviewerContext(request(DIFFERENT_DISCORD_ID),
                         MODERATOR, activeSessionStore()));
+    }
+
+    @Test
+    void privateHttpJsonReviewRequiresActualDiscordActorField() throws IOException {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var service = service(() -> true, () -> true,
+                (actor, discord) -> actor.equals(ACTOR_ID) && DISCORD_ID.equals(discord));
+        String core = "\"actorId\":\"" + ACTOR_ID
+                + "\",\"requestId\":\"" + REQUEST_ID + "\",\"note\":\"\"";
+        var exact = json.readValue("{" + core + ",\"discordUserId\":\"" + DISCORD_ID + "\"}",
+                StaffWebReviewService.Request.class);
+        assertEquals(DISCORD_ID, exact.discordUserId());
+        assertDoesNotThrow(() -> service.requireReviewerContext(exact, MODERATOR, null));
+        var priorBotVersion = json.readValue("{" + core + "}", StaffWebReviewService.Request.class);
+        assertThrows(SecurityException.class,
+                () -> service.requireReviewerContext(priorBotVersion, MODERATOR, null));
     }
 
     @Test
