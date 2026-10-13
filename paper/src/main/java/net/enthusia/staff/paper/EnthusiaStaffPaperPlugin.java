@@ -1054,7 +1054,8 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                         mode::get, this::effectiveWriteMode,
                         new net.enthusia.staff.paper.auth.ActiveDutyAuthorizationPolicy(
                                 authorizationPolicy,
-                                runtimeComponents.staffMode()::authorityActiveOrUnrestricted), reasonPolicies
+                                runtimeComponents.staffMode()::authorityActiveOrUnrestricted), reasonPolicies,
+                        runtimeComponents.staffMode()::authorityActive
                 ),
                 new PaperIntegrationManager.Stores(
                         () -> storageValue(PaperStorageBindings::punishmentService),

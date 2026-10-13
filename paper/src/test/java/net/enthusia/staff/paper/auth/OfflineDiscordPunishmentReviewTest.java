@@ -52,7 +52,8 @@ final class OfflineDiscordPunishmentReviewTest {
     @Test
     void unknownOrStaleDiscordLinkCannotApproveEvenWhileInStaffMode() {
         var service = service(() -> true, () -> true,
-                (actor, discord) -> actor.equals(ACTOR_ID) && DISCORD_ID.equals(discord));
+                (actor, discord) -> actor.equals(ACTOR_ID) && DISCORD_ID.equals(discord),
+                id -> true);
         StaffSessionStore duty = activeSessionStore();
         assertThrows(SecurityException.class,
                 () -> service.requireReviewerContext(request(DIFFERENT_DISCORD_ID), MODERATOR, duty));
@@ -77,12 +78,23 @@ final class OfflineDiscordPunishmentReviewTest {
     @Test
     void activeMinecraftStaffModeNeedsLinkButNotSeparateOfflinePermission() {
         var service = service(() -> false, () -> false,
-                (actor, discord) -> actor.equals(ACTOR_ID) && DISCORD_ID.equals(discord));
+                (actor, discord) -> actor.equals(ACTOR_ID) && DISCORD_ID.equals(discord),
+                id -> true);
 
         assertDoesNotThrow(() ->
                 service.requireReviewerContext(request(DISCORD_ID), MODERATOR, activeSessionStore()));
         assertThrows(SecurityException.class,
                 () -> service.requireReviewerContext(request(DIFFERENT_DISCORD_ID),
+                        MODERATOR, activeSessionStore()));
+    }
+
+    @Test
+    void persistedStaffModeAfterDisconnectDoesNotBypassOfflineGrant() {
+        var service = service(() -> false, () -> false,
+                (actor, discord) -> DISCORD_ID.equals(discord), id -> false);
+
+        assertThrows(SecurityException.class,
+                () -> service.requireReviewerContext(request(DISCORD_ID),
                         MODERATOR, activeSessionStore()));
     }
 
@@ -95,13 +107,23 @@ final class OfflineDiscordPunishmentReviewTest {
             java.util.function.Supplier<Boolean> permission,
             java.util.function.BiPredicate<UUID, String> verifiedLink
     ) {
+        return service(feature, permission, verifiedLink, id -> false);
+    }
+
+    private static StaffWebReviewService service(
+            java.util.function.Supplier<Boolean> feature,
+            java.util.function.Supplier<Boolean> permission,
+            java.util.function.BiPredicate<UUID, String> verifiedLink,
+            java.util.function.Predicate<UUID> locallyAppliedDuty
+    ) {
         var dependencies = new StaffWebReviewService.Dependencies(
                 Clock.systemUTC(),
                 () -> OperationalMode.ACTIVE,
                 () -> { throw new AssertionError("eligibility must not commit a punishment"); },
                 () -> { throw new AssertionError("use explicit duty fixture"); },
                 feature,
-                verifiedLink
+                verifiedLink,
+                locallyAppliedDuty
         );
         return new StaffWebReviewService(dependencies,
                 id -> MODERATOR, id -> Optional.empty(), id -> permission.get());

@@ -30,7 +30,8 @@ public final class StaffWebReviewService {
             Supplier<PunishmentRequestService> service,
             Supplier<StaffSessionStore> staffSessions,
             Supplier<Boolean> offlineEnabled,
-            BiPredicate<UUID, String> currentVerifiedDiscordLink
+            BiPredicate<UUID, String> currentVerifiedDiscordLink,
+            Predicate<UUID> locallyAppliedStaffMode
     ) {
         public Dependencies {
             Objects.requireNonNull(clock);
@@ -39,13 +40,14 @@ public final class StaffWebReviewService {
             Objects.requireNonNull(staffSessions);
             Objects.requireNonNull(offlineEnabled);
             Objects.requireNonNull(currentVerifiedDiscordLink);
+            Objects.requireNonNull(locallyAppliedStaffMode);
         }
 
         public Dependencies(
                 Clock clock, Supplier<OperationalMode> mode,
                 Supplier<PunishmentRequestService> service, Supplier<StaffSessionStore> sessions
         ) {
-            this(clock, mode, service, sessions, () -> false, (actor, discord) -> false);
+            this(clock, mode, service, sessions, () -> false, (actor, discord) -> false, id -> false);
         }
     }
 
@@ -161,7 +163,10 @@ public final class StaffWebReviewService {
                 || !dependencies.currentVerifiedDiscordLink().test(actor.id(), discord)) {
             throw new SecurityException("current verified Discord account link is required");
         }
-        boolean onDuty = staffSessions != null && staffSessions.active(actor.id())
+        // Persisted Staff Mode intent survives logout and server switch. Only a
+        // locally applied, non-transitioning Staff Mode profile counts as on duty.
+        boolean onDuty = dependencies.locallyAppliedStaffMode().test(actor.id())
+                && staffSessions != null && staffSessions.active(actor.id())
                 .filter(session -> session.state()
                         == net.enthusia.staff.domain.staff.StaffSessionState.ACTIVE).isPresent();
         if (!onDuty && (!dependencies.offlineEnabled().get()
@@ -178,10 +183,10 @@ public final class StaffWebReviewService {
             return;
         }
         AUDIT.log(Level.INFO,
-                "discord_punishment_review_committed actor={0} discord={1} request={2} outcome={3} "
-                        + "case={4} mode={5}",
-                new Object[]{reviewer.id(), request.discordUserId(), request.requestId(), outcome,
-                        caseId, onDuty ? "STAFF_MODE" : "DISCORD_OFFLINE"});
+                "discord_punishment_review_committed actor={0} request={1} outcome={2} "
+                        + "case={3} mode={4}",
+                new Object[]{reviewer.id(), request.requestId(), outcome, caseId,
+                        onDuty ? "STAFF_MODE" : "DISCORD_OFFLINE"});
     }
 
     private static Decision rejected(PunishmentRequestResult result) {

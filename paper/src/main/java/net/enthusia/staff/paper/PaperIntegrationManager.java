@@ -183,7 +183,8 @@ final class PaperIntegrationManager implements Listener {
                         dependencies.stores().staffSessions(),
                         () -> plugin().getConfig().getBoolean(
                                 "punishment-request-discord-offline.enabled", false),
-                        (actorId, discordUserId) -> currentVerifiedDiscordLink(actorId, discordUserId)),
+                        (actorId, discordUserId) -> currentVerifiedDiscordLink(actorId, discordUserId),
+                        dependencies.policy().locallyAppliedStaffMode()),
                 new net.enthusia.staff.paper.auth.StaffWebReportService.Dependencies(
                         clock(), dependencies.policy().writeMode(), dependencies.stores().reportStore(),
                         dependencies.stores().staffSessions()))
@@ -856,7 +857,8 @@ final class PaperIntegrationManager implements Listener {
             Supplier<OperationalMode> authoritativeMode,
             Supplier<OperationalMode> writeMode,
             AuthorizationPolicy authorization,
-            AtomicReasonPolicyRepository reasons
+            AtomicReasonPolicyRepository reasons,
+            java.util.function.Predicate<java.util.UUID> locallyAppliedStaffMode
     ) {
     }
 
