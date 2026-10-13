@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -25,9 +26,11 @@ public final class StaffBotRuntime implements AutoCloseable {
     private final Optional<StaffModerationRuntime> moderationRuntime;
     private final Optional<StagingTunnel> stagingTunnel;
     private final Optional<StaffBotChatLifecycle> chatLifecycle;
+    private final Optional<PublicChatRuntime> publicChatRuntime;
     private final Object startupGate = new Object();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean gatewayStarted = new AtomicBoolean();
+    private final AtomicBoolean publicChatGatewayStarted = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final CompletableFuture<Boolean> readiness = new CompletableFuture<>();
     private final CountDownLatch terminated = new CountDownLatch(1);
@@ -108,19 +111,36 @@ public final class StaffBotRuntime implements AutoCloseable {
         RuntimeServices services = Objects.requireNonNull(runtimeServices, "runtimeServices");
         this.stagingTunnel = services.stagingTunnel();
         this.chatLifecycle = services.chatLifecycle();
+        this.publicChatRuntime = services.publicChatRuntime();
     }
 
     record RuntimeServices(
             Optional<StagingTunnel> stagingTunnel,
-            Optional<StaffBotChatLifecycle> chatLifecycle
+            Optional<StaffBotChatLifecycle> chatLifecycle,
+            Optional<PublicChatRuntime> publicChatRuntime
     ) {
         RuntimeServices {
             Objects.requireNonNull(stagingTunnel, "stagingTunnel");
             Objects.requireNonNull(chatLifecycle, "chatLifecycle");
+            Objects.requireNonNull(publicChatRuntime, "publicChatRuntime");
+        }
+
+        RuntimeServices(Optional<StagingTunnel> stagingTunnel,
+                Optional<StaffBotChatLifecycle> chatLifecycle) {
+            this(stagingTunnel, chatLifecycle, Optional.empty());
         }
 
         static RuntimeServices empty() {
-            return new RuntimeServices(Optional.empty(), Optional.empty());
+            return new RuntimeServices(Optional.empty(), Optional.empty(), Optional.empty());
+        }
+    }
+
+    record PublicChatRuntime(DiscordGateway gateway, long applicationId) {
+        PublicChatRuntime {
+            Objects.requireNonNull(gateway, "gateway");
+            if (applicationId <= 0) {
+                throw new IllegalArgumentException("public chat application id invalid");
+            }
         }
     }
 
@@ -140,13 +160,26 @@ public final class StaffBotRuntime implements AutoCloseable {
             Optional<Path> moderationConfigFile,
             Optional<StaffBotCommandLine.TunnelFiles> tunnelFiles
     ) throws IOException {
+        return create(configuration, moderationConfigFile, tunnelFiles, Optional.empty());
+    }
+
+    static StaffBotRuntime create(
+            StaffBotConfiguration configuration,
+            Optional<Path> moderationConfigFile,
+            Optional<StaffBotCommandLine.TunnelFiles> tunnelFiles,
+            Optional<Path> chatSettingsFile
+    ) throws IOException {
         Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(moderationConfigFile, "moderationConfigFile");
         Objects.requireNonNull(tunnelFiles, "tunnelFiles");
+        Objects.requireNonNull(chatSettingsFile, "chatSettingsFile");
         if (configuration.moderationWebUri().isPresent()
                 && (tunnelFiles.isEmpty() || moderationConfigFile.isEmpty())) {
             throw new IllegalArgumentException("production moderation website requires its private read tunnel");
         }
+        Map<String, String> chatSettings = chatSettingsFile
+                .map(path -> StaffBotChatSettingsFile.overlay(path, System.getenv()))
+                .orElseGet(System::getenv);
         Optional<StagingTunnel> tunnel = tunnelFiles.map(files -> createTunnel(configuration, files));
         StaffBotHealth health = new StaffBotHealth(configuration.environment());
         StaffBotWorkerPool workers = new StaffBotWorkerPool(
@@ -155,6 +188,7 @@ public final class StaffBotRuntime implements AutoCloseable {
                 configuration.interactionCapacity(), configuration.interactionTtl());
         Optional<StaffModerationRuntime> moderation = Optional.empty();
         Optional<StaffBotChatTransport> chatTransport = Optional.empty();
+        Optional<JdaDiscordGateway> publicChatGateway = Optional.empty();
         Optional<AiMirrorRegistrationPublisher> mirrorPublisher = Optional.empty();
         Optional<AiMirrorDurableRecoverySession> durableRecovery = Optional.empty();
         try {
@@ -165,7 +199,20 @@ public final class StaffBotRuntime implements AutoCloseable {
                     configuration.interactionTtl());
             Optional<StaffBotChatBridgeConfiguration> chatConfiguration =
                     StaffBotChatBridgeConfiguration.fromEnvironment(
-                            configuration.environment(), System.getenv());
+                            configuration.environment(), chatSettings);
+            boolean privatePublicChatSelected = chatSettingsFile.isPresent()
+                    || chatSettings.containsKey(PublicChatDiscordConfiguration.TOKEN_ENV)
+                    || chatSettings.containsKey(PublicChatDiscordConfiguration.APPLICATION_ID_ENV);
+            Optional<PublicChatDiscordConfiguration> publicChatConfig =
+                    privatePublicChatSelected
+                    ? PublicChatDiscordConfiguration.fromEnvironment(
+                            chatSettings, chatConfiguration.isPresent())
+                    : Optional.empty();
+            if (configuration.environment() == StaffBotEnvironment.PRODUCTION
+                    && chatConfiguration.isPresent() && publicChatConfig.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "production shadow chat requires a separate pinned chat Discord application");
+            }
             StaffBotHealthServer healthServer = new StaffBotHealthServer(configuration.healthAddress(), health);
             JdaDiscordGateway gateway = new JdaDiscordGateway(
                     configuration, workers, replayGuard, moderation, chatConfiguration);
