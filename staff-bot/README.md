@@ -99,6 +99,47 @@ Optional safe tuning:
 
 See `runtime.env.example` for a placeholder-only inventory.
 
+## Existing production StaffBot plus separate shadow-chat bot
+
+When DiscordSRV remains responsible for live chat, the production StaffBot may
+optionally start a **second, chat-only Discord application** solely for the
+hard-pinned staging test channel. This is not an authoritative cutover. The
+primary Discord application retains all staff commands, authority, database
+reads, moderation roles and enforcement policies; the public-chat token is
+never used for those functions.
+
+The existing Bloom file-backed startup can retain the final argument:
+
+```text
+--environment=production --token-file=tp --moderation-config-file=m --tunnel-binary-file=cloudflared --tunnel-token-file=prod-tunnel --moderation-web-url=https://staff.enthusia.info --chat=c
+```
+
+`--chat=c` or `--chat-bridge-config-file=<private-file>` reads a private
+properties file with only allowlisted chat settings; it rejects duplicate
+keys, symlinks and conflicts with process environment and cannot override
+the main Discord token or environment.
+
+For the opt-in production SHADOW trial, file `c` must contain
+`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_MODE=SHADOW`, the exact
+`ENTHUSIA_STAFF_BOT_CHAT_BRIDGE_MIGRATION_ACK` approval, configured
+Velocity TLS/HMAC secrets, a route pointing **only** at the pinned staging
+Discord channel, and the separate
+`ENTHUSIA_STAFF_BOT_PUBLIC_CHAT_TOKEN` and
+`ENTHUSIA_STAFF_BOT_PUBLIC_CHAT_APPLICATION_ID`. These are private
+values: don't expose them in logs, repository, screenshots or startup flags.
+A standalone secondary JDA session is validated against the separately
+configured application ID and the pinned guild; it never installs staff
+interaction or punishment listeners. Production `AUTHORITATIVE` still
+requires `I_ACKNOWLEDGE_DISCORDSRV_CHAT_CUTOVER` separately, and must not
+be selected while DiscordSRV owns live chat.
+
+A successful primary `staff_bot_ready` log does not prove the secondary
+chat connection. Verify `public_chat_ready` and an actual synthetic
+Minecraft message in the pinned Discord test channel. If the secondary
+session fails, restore the previous working JAR, not an authoritative
+DiscordSRV takeover. The AI mirror durable registration feature remains
+staging-only, independently gated and off by default.
+
 ## Experimental AI mirror-registration reliability (staging only)
 
 The RoseChat -> Discord post-send mirror receipt publisher is **off by default**
