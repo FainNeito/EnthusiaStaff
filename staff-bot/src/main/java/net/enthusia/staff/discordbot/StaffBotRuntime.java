@@ -197,22 +197,10 @@ public final class StaffBotRuntime implements AutoCloseable {
                     configuration.environment().guildId(),
                     configuration.interactionCapacity(),
                     configuration.interactionTtl());
-            Optional<StaffBotChatBridgeConfiguration> chatConfiguration =
-                    StaffBotChatBridgeConfiguration.fromEnvironment(
-                            configuration.environment(), chatSettings);
-            boolean privatePublicChatSelected = chatSettingsFile.isPresent()
-                    || chatSettings.containsKey(PublicChatDiscordConfiguration.TOKEN_ENV)
-                    || chatSettings.containsKey(PublicChatDiscordConfiguration.APPLICATION_ID_ENV);
-            Optional<PublicChatDiscordConfiguration> publicChatConfig =
-                    privatePublicChatSelected
-                    ? PublicChatDiscordConfiguration.fromEnvironment(
-                            chatSettings, chatConfiguration.isPresent())
-                    : Optional.empty();
-            if (configuration.environment() == StaffBotEnvironment.PRODUCTION
-                    && chatConfiguration.isPresent() && publicChatConfig.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "production shadow chat requires a separate pinned chat Discord application");
-            }
+            ChatConfigurationSelection selected =
+                    selectChatConfiguration(configuration, chatSettings, chatSettingsFile.isPresent());
+            Optional<StaffBotChatBridgeConfiguration> chatConfiguration = selected.bridge();
+            Optional<PublicChatDiscordConfiguration> publicChatConfig = selected.publicApp();
             StaffBotHealthServer healthServer = new StaffBotHealthServer(configuration.healthAddress(), health);
             Optional<StaffModerationRuntime> openedModeration = moderation;
             JdaDiscordGateway gateway = new JdaDiscordGateway(
@@ -281,6 +269,28 @@ public final class StaffBotRuntime implements AutoCloseable {
             workers.close();
             throw exception;
         }
+    }
+
+    private record ChatConfigurationSelection(
+            Optional<StaffBotChatBridgeConfiguration> bridge,
+            Optional<PublicChatDiscordConfiguration> publicApp) {}
+
+    private static ChatConfigurationSelection selectChatConfiguration(
+            StaffBotConfiguration configuration, Map<String, String> values, boolean fileSelected) {
+        Optional<StaffBotChatBridgeConfiguration> bridge =
+                StaffBotChatBridgeConfiguration.fromEnvironment(configuration.environment(), values);
+        boolean publicSelected = fileSelected
+                || values.containsKey(PublicChatDiscordConfiguration.TOKEN_ENV)
+                || values.containsKey(PublicChatDiscordConfiguration.APPLICATION_ID_ENV);
+        Optional<PublicChatDiscordConfiguration> publicApp = publicSelected
+                ? PublicChatDiscordConfiguration.fromEnvironment(values, bridge.isPresent())
+                : Optional.empty();
+        if (configuration.environment() == StaffBotEnvironment.PRODUCTION
+                && bridge.isPresent() && publicApp.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "production shadow chat requires a separate pinned chat Discord application");
+        }
+        return new ChatConfigurationSelection(bridge, publicApp);
     }
 
     public void start() throws IOException {
