@@ -214,10 +214,17 @@ public final class StaffBotRuntime implements AutoCloseable {
                         "production shadow chat requires a separate pinned chat Discord application");
             }
             StaffBotHealthServer healthServer = new StaffBotHealthServer(configuration.healthAddress(), health);
+            Optional<StaffModerationRuntime> openedModeration = moderation;
             JdaDiscordGateway gateway = new JdaDiscordGateway(
-                    configuration, workers, replayGuard, moderation, chatConfiguration);
+                    configuration, workers, replayGuard, openedModeration,
+                    publicChatConfig.isPresent() ? Optional.empty() : chatConfiguration);
+            publicChatGateway = publicChatConfig.map(current ->
+                    JdaDiscordGateway.publicChat(
+                            configuration, current, openedModeration, chatConfiguration.orElseThrow()));
+            Optional<JdaDiscordGateway> installedPublicChat = publicChatGateway;
+            JdaDiscordGateway chatGateway = installedPublicChat.orElse(gateway);
             chatTransport = chatConfiguration.map(
-                    current -> StaffBotChatTransport.create(current, gateway, gateway));
+                    current -> StaffBotChatTransport.create(current, chatGateway, chatGateway));
             Optional<AiMirrorPublicationConfig> mirrorConfig =
                     AiMirrorPublicationConfig.fromEnvironment(
                             configuration.environment(), chatConfiguration.orElse(null), System.getenv());
@@ -233,16 +240,16 @@ public final class StaffBotRuntime implements AutoCloseable {
                 durableRecovery = Optional.of(session);
                 health.requireCriticalReadiness(() -> !session.unhealthy());
                 health.requireStagingMirrorMetrics(() -> AiMirrorRecoveryMetrics.capture(session));
-                gateway.installChatPublicationObserver(session);
+                chatGateway.installChatPublicationObserver(session);
             } else {
                 mirrorPublisher = mirrorConfig.map(AiMirrorRegistrationPublisher::create);
                 installedMirror = mirrorPublisher.orElse(null);
                 if (installedMirror != null) {
-                    gateway.installChatPublicationObserver(installedMirror);
+                    chatGateway.installChatPublicationObserver(installedMirror);
                 }
             }
             if (chatConfiguration.map(current -> !current.ingressRoutes().isEmpty()).orElse(false)) {
-                gateway.installChatIngress(chatTransport.orElseThrow());
+                chatGateway.installChatIngress(chatTransport.orElseThrow());
             }
             Optional<StaffBotChatLifecycle> chat = durableRecovery.map(
                     session -> (StaffBotChatLifecycle) session);
@@ -259,13 +266,17 @@ public final class StaffBotRuntime implements AutoCloseable {
                     healthServer,
                     gateway,
                     moderation,
-                    new RuntimeServices(tunnel, chat));
+                    new RuntimeServices(
+                            tunnel, chat,
+                            installedPublicChat.map(current -> new PublicChatRuntime(
+                                    current, publicChatConfig.orElseThrow().applicationId()))));
         } catch (IOException | RuntimeException exception) {
             mirrorPublisher.ifPresent(AiMirrorRegistrationPublisher::close);
             durableRecovery.ifPresent(AiMirrorDurableRecoverySession::close);
             if (durableRecovery.isEmpty()) {
                 chatTransport.ifPresent(StaffBotChatTransport::close);
             }
+            publicChatGateway.ifPresent(JdaDiscordGateway::shutdownNow);
             moderation.ifPresent(StaffModerationRuntime::close);
             workers.close();
             throw exception;
@@ -284,6 +295,7 @@ public final class StaffBotRuntime implements AutoCloseable {
         startTunnel();
         startGateway();
         startChat();
+        startPublicChatGateway();
     }
 
     public boolean awaitReady(Duration timeout) throws InterruptedException {
