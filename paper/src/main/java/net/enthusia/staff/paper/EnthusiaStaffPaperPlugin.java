@@ -1063,6 +1063,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                         () -> storageValue(PaperStorageBindings::staffSessionStore),
                         () -> storageValue(PaperStorageBindings::reportStore),
                         () -> storageValue(PaperStorageBindings::playerDirectory),
+                        () -> storageValue(bindings -> bindings.runtime().discordModerationPersistenceStore()),
                         () -> storageValue(PaperStorageBindings::economyJournalStore),
                         () -> storageValue(PaperStorageBindings::inventoryJournalStore)
                 ),

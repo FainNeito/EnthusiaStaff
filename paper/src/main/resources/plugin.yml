@@ -204,6 +204,9 @@ permissions:
     default: false
   enthusiastaff.punishment.requests.review:
     default: false
+  enthusiastaff.punishment.requests.review.discord-offline:
+    description: Separate permission for reviewing punishments through Discord while not in Minecraft Staff Mode
+    default: false
   enthusiastaff.punish.ip:
     default: false
   enthusiastaff.punish.custom-duration:
