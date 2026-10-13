@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 final class JdbcDiscordOutboxClaimRetryTest {
     private static final Instant NOW = Instant.parse("2026-10-12T12:00:00Z");
+    private static final String CLAIM_FAILURE_MESSAGE = "claim";
 
     @Test
     void recordChangedRetriesOnFreshTransactionsAndPreservesReadCommitted() {
@@ -59,15 +60,15 @@ final class JdbcDiscordOutboxClaimRetryTest {
     @Test
     void onlyDatabaseConflictStatesTriggerRetries() {
         assertTrue(JdbcDiscordOutboxStore.retryableClaimConflict(
-                new ModerationPersistenceException("claim", new SQLException("conflict", "HY000", 1020))));
+                new ModerationPersistenceException(CLAIM_FAILURE_MESSAGE, new SQLException("conflict", "HY000", 1020))));
         assertTrue(JdbcDiscordOutboxStore.retryableClaimConflict(
-                new ModerationPersistenceException("claim", new SQLException("deadlock", "40001", 1213))));
+                new ModerationPersistenceException(CLAIM_FAILURE_MESSAGE, new SQLException("deadlock", "40001", 1213))));
         assertTrue(JdbcDiscordOutboxStore.retryableClaimConflict(
-                new ModerationPersistenceException("claim", new SQLException("serialization", "40001"))));
+                new ModerationPersistenceException(CLAIM_FAILURE_MESSAGE, new SQLException("serialization", "40001"))));
         assertFalse(JdbcDiscordOutboxStore.retryableClaimConflict(
-                new ModerationPersistenceException("claim", new SQLException("permission denied", "28000", 1045))));
+                new ModerationPersistenceException(CLAIM_FAILURE_MESSAGE, new SQLException("permission denied", "28000", 1045))));
         assertFalse(JdbcDiscordOutboxStore.retryableClaimConflict(
-                new ModerationPersistenceException("claim", new SQLException("network", "08006"))));
+                new ModerationPersistenceException(CLAIM_FAILURE_MESSAGE, new SQLException("network", "08006"))));
     }
 
     private static final class FakeSqlStore {
@@ -136,7 +137,7 @@ final class JdbcDiscordOutboxClaimRetryTest {
 
         @SuppressWarnings("unchecked")
         private static <T> T proxy(Class<T> type, InvocationHandler handler) {
-            return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, handler);
+            return (T) Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class<?>[]{type}, handler);
         }
     }
 }

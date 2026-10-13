@@ -27,6 +27,7 @@ public final class JdbcDiscordOutboxStore implements DiscordOutboxStore {
     private static final int MAX_OWNER_LENGTH = 128;
     // Only retry a claim transaction: no Discord request has been sent at this point.
     private static final int MAX_CLAIM_ATTEMPTS = 3;
+    private static final String SERIALIZATION_CONFLICT_SQL_STATE = "40001";
     private static final Pattern DESTINATION_PATTERN = Pattern.compile("[a-z-]{1,32}");
 
     private final DataSource dataSource;
@@ -73,7 +74,7 @@ public final class JdbcDiscordOutboxStore implements DiscordOutboxStore {
                     // (including configuration/authentication) must remain visible.
                     if (cause.getErrorCode() == 1020
                             || cause.getErrorCode() == 1213
-                            || "40001".equals(cause.getSQLState())) {
+                            || SERIALIZATION_CONFLICT_SQL_STATE.equals(cause.getSQLState())) {
                         return true;
                     }
                 }
