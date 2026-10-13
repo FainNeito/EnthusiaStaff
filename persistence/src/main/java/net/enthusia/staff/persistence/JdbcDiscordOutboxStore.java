@@ -25,6 +25,8 @@ public final class JdbcDiscordOutboxStore implements DiscordOutboxStore {
     private static final int MAX_BATCH = 100;
     private static final int MAX_MANUAL_RETRY = 500;
     private static final int MAX_OWNER_LENGTH = 128;
+    // Only retry a claim transaction: no Discord request has been sent at this point.
+    private static final int MAX_CLAIM_ATTEMPTS = 3;
     private static final Pattern DESTINATION_PATTERN = Pattern.compile("[a-z-]{1,32}");
 
     private final DataSource dataSource;
@@ -39,15 +41,45 @@ public final class JdbcDiscordOutboxStore implements DiscordOutboxStore {
     @Override
     public List<DiscordOutboxMessage> claimDue(String owner, int limit, Duration lease, Instant now) {
         validateClaim(owner, limit, lease, now);
-        return JdbcTransactionSupport.execute(
-                dataSource,
-                "Unable to lease Discord outbox messages",
-                connection -> {
-                    List<DiscordOutboxMessage> messages = selectDue(connection, limit, now);
-                    leaseMessages(connection, messages, owner, lease, now);
-                    return List.copyOf(messages);
+        // The competing outbox writers can trigger MariaDB 1020 (record changed),
+        // even under SKIP LOCKED. Re-open the entire rolled-back claim transaction
+        // with a fresh READ COMMITTED view instead of losing a delivery pass.
+        for (int attempt = 1; attempt <= MAX_CLAIM_ATTEMPTS; attempt++) {
+            try {
+                return JdbcTransactionSupport.execute(
+                        dataSource,
+                        "Unable to lease Discord outbox messages",
+                        Connection.TRANSACTION_READ_COMMITTED,
+                        connection -> {
+                            List<DiscordOutboxMessage> messages = selectDue(connection, limit, now);
+                            leaseMessages(connection, messages, owner, lease, now);
+                            return List.copyOf(messages);
+                        }
+                );
+            } catch (ModerationPersistenceException failure) {
+                if (attempt == MAX_CLAIM_ATTEMPTS || !retryableClaimConflict(failure)) {
+                    throw failure;
                 }
-        );
+            }
+        }
+        throw new IllegalStateException("Unreachable Discord claim retry state");
+    }
+
+    static boolean retryableClaimConflict(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof SQLException sql) {
+                for (SQLException cause = sql; cause != null; cause = cause.getNextException()) {
+                    // 1020 = MariaDB record changed; 1213 = deadlock. Other errors
+                    // (including configuration/authentication) must remain visible.
+                    if (cause.getErrorCode() == 1020
+                            || cause.getErrorCode() == 1213
+                            || "40001".equals(cause.getSQLState())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     @Override
