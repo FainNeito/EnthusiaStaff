@@ -567,7 +567,8 @@ final class JdaStaffModerationListener extends ListenerAdapter {
             String decision, String note) {
         var actor = actors.invoker(new DiscordUserId(Long.toUnsignedString(actorId)), actorName);
         var response = reviewAuthority.review(decision, java.util.Map.of(
-                "actorId", actor.id().toString(), "requestId", requestId.toString(), "note", note));
+                "actorId", actor.id().toString(), "requestId", requestId.toString(),
+                "note", note, "discordUserId", Long.toUnsignedString(actorId)));
         return switch (response.path("state").asText()) {
             case "APPROVED" -> "Approved and saved; network enforcement queued. Case: "
                     + response.path("caseId").asText();
@@ -607,7 +608,8 @@ final class JdaStaffModerationListener extends ListenerAdapter {
                     var response = reviewAuthority.review(decision, java.util.Map.of(
                             "actorId", actor.id().toString(),
                             "requestId", java.util.UUID.fromString(id).toString(),
-                            "note", note
+                            "note", note,
+                            "discordUserId", Long.toUnsignedString(actorId)
                     ));
                     String state = response.path("state").asText();
                     if ("APPROVED".equals(state)) {
