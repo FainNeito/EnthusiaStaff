@@ -250,7 +250,7 @@ class StaffBotRuntimeTest {
         StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.PRODUCTION);
         StaffBotConfiguration configuration = new StaffBotConfiguration(
                 StaffBotEnvironment.PRODUCTION, "synthetic-staff-token",
-                new InetSocketAddress("127.0.0.1", 0),
+                new InetSocketAddress("127.0.0.1", 8765),
                 1, 4, 16, Duration.ofMinutes(1));
         return new StaffBotRuntime(
                 configuration, health, new StaffBotWorkerPool(1, 4, health),
