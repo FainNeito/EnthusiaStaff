@@ -54,7 +54,7 @@ final class PaperReasonPolicyBootstrap {
             }
             String packagedVersion = new ReasonPolicyConfigurationLoader()
                     .load(source, "bundled reason-policies.yml").version();
-            if (!installedVersion.equals(packagedVersion)) {
+            if (!installedVersion.equals(packagedVersion) && logger.isLoggable(Level.WARNING)) {
                 logger.warning("Installed punishment policy version " + installedVersion
                         + " differs from bundled version " + packagedVersion
                         + "; review the policy changes before applying a migration. "

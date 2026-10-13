@@ -22,6 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 final class PaperReasonPolicyBootstrapTest {
     private static final String POLICY_RESOURCE = "/reason-policies.yml";
+    private static final String POLICY_FILENAME = "reason-policies.yml";
     private static final String INSTALLED_VERSION = "older-test-version";
     private static final String VERSION_FIELD = "version: ";
 
@@ -34,7 +35,7 @@ final class PaperReasonPolicyBootstrapTest {
         String installed = bundled.replaceFirst(
                 "(?m)^version: .+$", VERSION_FIELD + "\"" + INSTALLED_VERSION + "\""
         );
-        Path file = directory.resolve("reason-policies.yml");
+        Path file = directory.resolve(POLICY_FILENAME);
         Files.writeString(file, installed);
         List<LogRecord> records = new ArrayList<>();
         AtomicReference<String> degraded = new AtomicReference<>();
@@ -56,7 +57,7 @@ final class PaperReasonPolicyBootstrapTest {
     @Test
     void matchingPolicyVersionDoesNotProduceAWarning() throws IOException {
         String bundled = bundledPolicy();
-        Path file = directory.resolve("reason-policies.yml");
+        Path file = directory.resolve(POLICY_FILENAME);
         Files.writeString(file, bundled);
         List<LogRecord> records = new ArrayList<>();
 
@@ -69,7 +70,7 @@ final class PaperReasonPolicyBootstrapTest {
 
     @Test
     void missingPackagedPolicyDoesNotDisableExistingValidConfiguration() throws IOException {
-        Path file = directory.resolve("reason-policies.yml");
+        Path file = directory.resolve(POLICY_FILENAME);
         Files.writeString(file, bundledPolicy());
         List<LogRecord> records = new ArrayList<>();
 
@@ -83,7 +84,7 @@ final class PaperReasonPolicyBootstrapTest {
 
     @Test
     void invalidInstalledPolicyStillDisablesPunishments() throws IOException {
-        Path file = directory.resolve("reason-policies.yml");
+        Path file = directory.resolve(POLICY_FILENAME);
         Files.writeString(file, "invalid yaml: [");
         AtomicReference<String> reason = new AtomicReference<>();
         List<LogRecord> records = new ArrayList<>();
