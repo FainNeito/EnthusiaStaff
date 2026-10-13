@@ -3,6 +3,7 @@ package net.enthusia.staff.discordbot;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -197,6 +198,16 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
             JDABuilder builder = baseBuilder(listener);
             addInteractionListener(builder);
             addChatIngressListener(builder);
+            if (staffInteractionsEnabled && configuration.accountAgeGate().enabled()) {
+                try {
+                    builder.addEventListeners(new DiscordAccountAgeGateListener(
+                            configuration.environment().guildId(), Clock.systemUTC(),
+                            DiscordAccountAgeBypassStore.open(configuration.accountAgeGate().bypassFile()),
+                            workers, moderation.isEmpty() || configuration.uiPreviewEnabled()));
+                } catch (IOException error) {
+                    throw new IllegalStateException("account-age bypass store unavailable; refusing to start gate", error);
+                }
+            }
             jda = builder.build();
         }
     }
@@ -219,7 +230,8 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
                         && moderation.flatMap(StaffModerationRuntime::managedRoleShadow).isPresent(),
                 chatConfiguration.map(configuration -> !configuration.ingressRoutes().isEmpty()).orElse(false),
                 staffInteractionsEnabled
-                        && moderation.map(StaffModerationRuntime::investigationsEnabled).orElse(false)
+                        && moderation.map(StaffModerationRuntime::investigationsEnabled).orElse(false),
+                staffInteractionsEnabled && configuration.accountAgeGate().enabled()
         );
     }
 
@@ -233,8 +245,14 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
 
     static Set<GatewayIntent> gatewayIntents(
             boolean managedRoleShadowEnabled, boolean discordChatIngressEnabled, boolean investigationsEnabled) {
+        return gatewayIntents(managedRoleShadowEnabled, discordChatIngressEnabled, investigationsEnabled, false);
+    }
+
+    static Set<GatewayIntent> gatewayIntents(
+            boolean managedRoleShadowEnabled, boolean discordChatIngressEnabled,
+            boolean investigationsEnabled, boolean accountAgeGateEnabled) {
         EnumSet<GatewayIntent> intents = EnumSet.noneOf(GatewayIntent.class);
-        if (managedRoleShadowEnabled) {
+        if (managedRoleShadowEnabled || accountAgeGateEnabled) {
             intents.add(GatewayIntent.GUILD_MEMBERS);
         }
         if (discordChatIngressEnabled || investigationsEnabled) {
@@ -272,7 +290,8 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
                     configuration.interactionCapacity(),
                     configuration.previewWebConfig(),
                     discordToken,
-                    moderation
+                    moderation,
+                    configuration.accountAgeGate().enabled()
             );
             previewListener.startWeb();
             builder.addEventListeners(previewListener);
@@ -281,7 +300,8 @@ final class JdaDiscordGateway implements DiscordGateway, DiscordChatEgress, Disc
         moderation.ifPresent(runtime -> {
             moderationListener = new JdaStaffModerationListener(
                     configuration.environment().guildId(), workers, interactions, runtime,
-                    configuration.moderationWebUri(), discordToken);
+                    configuration.moderationWebUri(), discordToken,
+                    configuration.accountAgeGate().enabled());
             builder.addEventListeners(moderationListener);
             runtime.investigationService().ifPresent(service -> {
                 investigationEvidenceListener = new JdaDiscordInvestigationEvidenceListener(
