@@ -36,13 +36,19 @@ public final class DiscordRuntimeIdentityValidator {
         if (identity.guildIds().size() != 1 || !identity.guildIds().contains(environment.guildId())) {
             return ValidationResult.failure(GUILD_SCOPE_MISMATCH);
         }
-        if (environment == StaffBotEnvironment.STAGING) {
-            if (!identity.stagingChannelPresent()) {
-                return ValidationResult.failure(STAGING_CHANNEL_MISSING);
-            }
-            if (!identity.stagingChannelOperational()) {
-                return ValidationResult.failure(STAGING_CHANNEL_INACCESSIBLE);
-            }
+        return validateStagingChannel(environment, identity);
+    }
+
+    private static ValidationResult validateStagingChannel(
+            StaffBotEnvironment environment, DiscordRuntimeIdentity identity) {
+        if (environment != StaffBotEnvironment.STAGING) {
+            return ValidationResult.success();
+        }
+        if (!identity.stagingChannelPresent()) {
+            return ValidationResult.failure(STAGING_CHANNEL_MISSING);
+        }
+        if (!identity.stagingChannelOperational()) {
+            return ValidationResult.failure(STAGING_CHANNEL_INACCESSIBLE);
         }
         return ValidationResult.success();
     }
