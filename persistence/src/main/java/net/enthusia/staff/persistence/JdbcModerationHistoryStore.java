@@ -93,7 +93,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
             throw new IllegalArgumentException("case history request is invalid");
         }
         Optional<CaseReview> review = caseReviews.find(caseId);
-        if (review.isEmpty()) {
+        if (review.isEmpty() || NonPunitiveLegacyKick.matches(review.orElseThrow())) {
             return Optional.empty();
         }
         UnionQuery union = caseUnion(options);
@@ -225,7 +225,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "c.sanction_family AS punishment_type, c.state AS status, c.public_reason,",
                 "NULL AS original_expiration, NULL AS resulting_expiration,",
                 "c.actor_id, c.actor_name, c.internal_explanation AS sensitive_reason",
-                "FROM cases c WHERE " + filter
+                "FROM cases c WHERE " + filter + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -250,6 +250,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "s.expiration_at AS resulting_expiration, c.actor_id, c.actor_name,",
                 "c.internal_explanation AS sensitive_reason",
                 "FROM sanctions s JOIN cases c ON c.case_id = s.case_id WHERE " + filter
+                        + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -263,6 +264,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "c.actor_id, c.actor_name, NULL AS sensitive_reason",
                 "FROM sanctions s JOIN cases c ON c.case_id = s.case_id",
                 "WHERE s.activated_at IS NOT NULL AND " + filter
+                        + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -278,6 +280,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "WHERE s.expiration_at IS NOT NULL",
                 "AND (s.status = 'EXPIRED' OR (s.status IN ('PENDING', 'ACTIVE')",
                 "AND s.expiration_at <= CURRENT_TIMESTAMP(6))) AND " + filter
+                        + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -306,6 +309,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "JOIN cases c ON c.case_id = sanction.case_id",
                 "LEFT JOIN players actor ON actor.player_id = event.actor_id",
                 "WHERE event.event_type <> 'CREATED' AND " + filter
+                        + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -344,6 +348,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "FROM website_appeal_requests appeal",
                 "JOIN sanctions sanction ON sanction.sanction_id = appeal.punishment_id",
                 "JOIN cases c ON c.case_id = appeal.case_id WHERE " + filter
+                        + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -361,6 +366,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "JOIN sanctions sanction ON sanction.sanction_id = appeal.punishment_id",
                 "JOIN cases c ON c.case_id = appeal.case_id",
                 "WHERE appeal.state <> 'PREPARED' AND " + filter
+                        + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -375,7 +381,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "FROM punishment_overturn_requests request",
                 "JOIN cases c ON c.case_id = request.case_id",
                 "LEFT JOIN players actor ON actor.player_id = request.requested_by",
-                "WHERE " + filter
+                "WHERE " + filter + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 
@@ -395,6 +401,7 @@ public final class JdbcModerationHistoryStore implements ModerationHistoryStore 
                 "LEFT JOIN players actor ON actor.player_id = request.decided_by",
                 "WHERE request.state <> 'OPEN'",
                 "AND COALESCE(request.decided_at, request.expires_at) IS NOT NULL AND " + filter
+                        + " AND " + NonPunitiveLegacyKick.visibleSql("c")
         );
     }
 

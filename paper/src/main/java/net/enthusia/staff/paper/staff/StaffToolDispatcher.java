@@ -99,7 +99,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
         configured.put(StaffToolDefinition.RANDOM_TELEPORT, (player, ignored) -> randomTeleport.begin(player));
         configured.put(
                 StaffToolDefinition.PLAYER_INSPECTOR,
-                (player, targetId) -> runTargetCommand(player, "inspect", targetId, null)
+                (player, targetId) -> runTargetCommand(player, "enthusiastaff:inspect", targetId, null)
         );
         configured.put(
                 StaffToolDefinition.FREEZE,
@@ -120,11 +120,29 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             return;
         }
         Player player = event.getPlayer();
+        // A staff tool must not hijack a chest/barrel/shulker right-click.
+        // Normal rank-based container permissions still apply downstream.
+        if (prefersContainerOpen(event.getAction(),
+                event.getAction() == Action.RIGHT_CLICK_BLOCK
+                        && StaffModeWorldInteractionListener.isContainer(event.getClickedBlock()))) {
+            return;
+        }
         StaffToolResolution resolution = resolveHeldTool(player);
         if (!resolution.tagged()) {
             return;
         }
         event.setCancelled(true);
+        if (resolution.valid() && resolution.tool() == StaffToolDefinition.SPECTATE
+                && event.getAction() == Action.RIGHT_CLICK_AIR && spectateFlow.stop(player)) {
+            player.sendMessage(StaffMessageStyle.style(Component.text("Stopped following the player.", NamedTextColor.GREEN)));
+            return;
+        }
+        if (resolution.valid()
+                && resolution.tool() == StaffToolDefinition.STAFF_TOOLS
+                && player.isSneaking()) {
+            launch(player);
+            return;
+        }
         if (resolution.valid()
                 && resolution.tool() == StaffToolDefinition.CHEAT_TESTER
                 && player.isSneaking()) {
@@ -132,6 +150,10 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             return;
         }
         dispatchResolved(player, resolution, null);
+    }
+
+    static boolean prefersContainerOpen(Action action, boolean clickedContainer) {
+        return action == Action.RIGHT_CLICK_BLOCK && clickedContainer;
     }
 
     private static boolean isPrimaryToolClick(PlayerInteractEvent event) {
@@ -187,6 +209,12 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
         }
         cancellation.accept(true);
         if (resolution.valid()
+                && resolution.tool() == StaffToolDefinition.STAFF_TOOLS
+                && player.isSneaking()) {
+            launch(player);
+            return;
+        }
+        if (resolution.valid()
                 && resolution.tool() == StaffToolDefinition.CHEAT_TESTER
                 && player.isSneaking()) {
             dispatchCheatConfiguration(player, resolution.tool());
@@ -222,6 +250,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             return;
         }
         action.execute(player, targetId);
+        auditToolInvocation(player, tool, targetId != null);
     }
 
     void dispatchFromMenu(Player player, StaffToolDefinition tool, UUID targetId) {
@@ -257,6 +286,26 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
         runCommand(player, "staff");
     }
 
+    /** Fast movement from the existing dashboard item; keeps the nine protected hotbar slots intact. */
+    void launch(Player player) {
+        if (!hasToolAuthority(player, StaffToolDefinition.STAFF_TOOLS)) {
+            return;
+        }
+        // Prevent accidental repeated propulsion and keep the movement server-authoritative.
+        if (!cooldowns.acquire(player.getUniqueId(), StaffToolDefinition.STAFF_TOOLS,
+                java.time.Duration.ofMillis(350)).allowed()) {
+            return;
+        }
+        org.bukkit.util.Vector direction = player.getEyeLocation().getDirection();
+        if (direction.lengthSquared() < 0.0001) {
+            return;
+        }
+        org.bukkit.util.Vector velocity = direction.normalize().multiply(2.8);
+        velocity.setY(Math.max(0.25, velocity.getY() + 0.25));
+        player.setVelocity(velocity);
+        staffMode.logStaffAction(player, "staff-launch", "Staff dashboard movement boost");
+    }
+
     void dispatchInvestigationAction(Player player, InvestigationMenuAction action, String target) {
         if (!menuAuthorized(player) || !menuToolAvailable(player, StaffToolDefinition.PLAYER_INSPECTOR)
                 || !player.hasPermission(action.permission())) {
@@ -265,6 +314,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
         }
         player.closeInventory();
         runCommand(player, action.command(target));
+        auditToolInvocation(player, StaffToolDefinition.PLAYER_INSPECTOR, target != null && !target.isBlank());
     }
 
     void showMenuHelp(Player player) {
@@ -294,6 +344,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             return;
         }
         cheatTester.showConfiguration(player);
+        auditToolInvocation(player, tool, false);
     }
 
     private void dispatchCheatRun(Player player, Player target, StaffToolDefinition tool) {
@@ -308,6 +359,19 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             return;
         }
         cheatTester.runSelected(player, target);
+        auditToolInvocation(player, tool, true);
+    }
+
+    // This audit means an authorized tool handler was invoked, not that an
+    // asynchronous command, teleport or downstream target operation succeeded.
+    // Never include command arguments, target names/IDs or private case details.
+    private void auditToolInvocation(Player actor, StaffToolDefinition tool, boolean targetSupplied) {
+        staffMode.logStaffAction(actor, "staff-tool-invoked", toolInvocationDetail(tool, targetSupplied));
+    }
+
+    static String toolInvocationDetail(StaffToolDefinition tool, boolean targetSupplied) {
+        return "tool=" + java.util.Objects.requireNonNull(tool, "tool").name()
+                + " target=" + (targetSupplied ? "supplied" : "none");
     }
 
     private boolean hasToolAuthority(Player player, StaffToolDefinition tool) {
@@ -420,7 +484,7 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
     }
 
     private void handlePlayerCommand(Player player, String label, String[] arguments) {
-        if (!staffMode.active(player.getUniqueId())) {
+        if (!staffMode.authorityActiveOrUnrestricted(player.getUniqueId())) {
             player.sendMessage(StaffMessageStyle.style(Component.text("Enter staff mode before using /" + label + '.')));
             return;
         }
@@ -436,12 +500,16 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             dispatch(player, StaffToolDefinition.RANDOM_TELEPORT, null);
             return;
         }
+        if (arguments.length == ACTION_ARGUMENTS && arguments[0].equalsIgnoreCase("launch")) {
+            launch(player);
+            return;
+        }
         if (isFollowCommand(arguments)) {
             beginNamedFollowOrSpectate(player.getUniqueId(), arguments[1]);
             return;
         }
         player.sendMessage(StaffMessageStyle.style(Component.text(
-                "Usage: /" + label + " | /" + label + " help | /" + label + " random | /" + label + " spectate <player>"
+                "Usage: /" + label + " [help | random | launch | spectate <player>]"
         )));
     }
 
@@ -464,14 +532,15 @@ public final class StaffToolDispatcher implements Listener, CommandExecutor, Tab
             String alias,
             String[] arguments
     ) {
-        if (!(sender instanceof Player player) || !staffMode.active(player.getUniqueId())) {
+        if (!(sender instanceof Player player)
+                || !staffMode.authorityActiveOrUnrestricted(player.getUniqueId())) {
             return List.of();
         }
         if (arguments.length != ACTION_ARGUMENTS) {
             return List.of();
         }
         String prefix = arguments[0].toLowerCase(Locale.ROOT);
-        return List.of("help", "random", "spectate", "follow").stream()
+        return List.of("help", "random", "launch", "spectate", "follow").stream()
                 .filter(value -> value.startsWith(prefix))
                 .toList();
     }

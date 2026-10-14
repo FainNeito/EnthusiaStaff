@@ -17,12 +17,14 @@ public final class DiscordPunishmentPersistenceRuntime implements AutoCloseable 
     private final JdbcDiscordPunishmentRepository punishments;
     private final JdbcDiscordModerationPersistenceStore identities;
     private final JdbcMinecraftBanDiscordNotificationStore minecraftBanNotifications;
+    private final JdbcMinecraftWarnMuteDiscordNotificationStore minecraftWarnMuteNotifications;
 
     private DiscordPunishmentPersistenceRuntime(HikariDataSource dataSource) {
         this.dataSource = dataSource;
         this.punishments = new JdbcDiscordPunishmentRepository(dataSource);
         this.identities = new JdbcDiscordModerationPersistenceStore(dataSource);
         this.minecraftBanNotifications = new JdbcMinecraftBanDiscordNotificationStore(dataSource);
+        this.minecraftWarnMuteNotifications = new JdbcMinecraftWarnMuteDiscordNotificationStore(dataSource);
     }
 
     public static DiscordPunishmentPersistenceRuntime open(DatabaseConfig database) {
@@ -42,6 +44,10 @@ public final class DiscordPunishmentPersistenceRuntime implements AutoCloseable 
 
     public JdbcMinecraftBanDiscordNotificationStore minecraftBanNotifications() {
         return minecraftBanNotifications;
+    }
+
+    public JdbcMinecraftWarnMuteDiscordNotificationStore minecraftWarnMuteNotifications() {
+        return minecraftWarnMuteNotifications;
     }
 
     @Override

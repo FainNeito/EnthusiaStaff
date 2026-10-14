@@ -5,10 +5,12 @@ items if an external mutation and its durable journal disagree. EnthusiaStaff
 therefore treats the inventory profile, operation, patch, snapshot, lease, and
 quarantine record as one recovery boundary.
 
-The feature remains pre-release. Automated MariaDB coverage exercises normal,
-replay, fencing, divergence, quarantine, restoration, and privileged retry
-paths, but live multi-backend destructive acceptance is still assigned to
-`ES-V03` before production use.
+EnthusiaStaff is live, but destructive inventory/confiscation workflows keep a
+separate acceptance boundary because a failure can lose or duplicate player
+items. Automated MariaDB coverage exercises normal, replay, fencing,
+divergence, quarantine, restoration, and privileged retry paths. Representative
+multi-backend destructive acceptance is still required before treating every
+inventory path as production-accepted.
 
 ## Durable transition model
 

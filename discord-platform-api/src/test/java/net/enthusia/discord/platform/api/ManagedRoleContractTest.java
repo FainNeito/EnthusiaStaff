@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,22 @@ class ManagedRoleContractTest {
 
         assertTrue(source.isEmpty());
         assertEquals(Set.of(first), claim.desiredMinecraftAccounts());
+    }
+
+    @Test
+    void claimAcceptsOptionalExistingDiscordRoleIdAndRejectsUnsafeValues() {
+        ManagedRoleKey key = new ManagedRoleKey(
+                new ManagedRoleNamespace("playtime-numerals"),
+                "tier:xii");
+        ManagedRoleClaim claim = new ManagedRoleClaim(
+                key,
+                "Playtime XII",
+                Optional.of("1552390213500928122"),
+                Set.of());
+
+        assertEquals(Optional.of("1552390213500928122"), claim.existingDiscordRoleId());
+        assertThrows(IllegalArgumentException.class, () -> new ManagedRoleClaim(
+                key, "Playtime XII", Optional.of("not-a-role"), Set.of()));
     }
 
     @Test

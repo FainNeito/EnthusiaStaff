@@ -33,13 +33,30 @@ sealed interface PunishmentGuiState {
             PlayerIdentity target,
             String commandName,
             PunishmentGuiOverview overview,
-            String family,
+            String categoryId,
             int page
     ) implements PunishmentGuiState {
         public Reasons {
             validate(viewerId, target, commandName, overview, page);
-            if (family == null || family.isBlank()) {
-                throw new IllegalArgumentException("punishment family must be present");
+            if (categoryId == null || categoryId.isBlank()) {
+                throw new IllegalArgumentException("punishment category must be present");
+            }
+        }
+    }
+
+    record Search(
+            UUID viewerId,
+            PlayerIdentity target,
+            String commandName,
+            PunishmentGuiOverview overview,
+            String query,
+            int page
+    ) implements PunishmentGuiState {
+        public Search {
+            validate(viewerId, target, commandName, overview, page);
+            if (query == null || query.codePointCount(0, query.length()) < 2
+                    || query.codePointCount(0, query.length()) > 64) {
+                throw new IllegalArgumentException("punishment search query must be 2–64 characters");
             }
         }
     }

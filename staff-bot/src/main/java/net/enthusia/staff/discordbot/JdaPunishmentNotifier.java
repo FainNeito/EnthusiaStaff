@@ -11,6 +11,7 @@ import net.dv8tion.jda.api.exceptions.ErrorResponseException;
 import net.enthusia.staff.domain.auth.DiscordConsequenceType;
 import net.enthusia.staff.domain.discord.DiscordDeliveryOutcome;
 import net.enthusia.staff.domain.discord.DiscordPunishment;
+import net.enthusia.staff.domain.sanction.SanctionType;
 
 /** Sends player-facing moderation notifications without changing enforcement state. */
 final class JdaPunishmentNotifier {
@@ -18,6 +19,7 @@ final class JdaPunishmentNotifier {
             "https://discord.com/channels/1410303324745371709/1511217148230373568";
     static final String APPEAL_SITE = "https://enthusia.info/appeal";
     private static final String SECTION_BREAK = "\n\n";
+    private static final String PREVIEW_REASON = "Notification test";
     private static final List<String> PRIVATE_EXPLANATION_PREFIXES = List.of(
             "Discord message reference:",
             "External evidence reference:"
@@ -33,23 +35,84 @@ final class JdaPunishmentNotifier {
     }
 
     DiscordDeliveryOutcome notifyApplied(JDA jda, DiscordPunishment punishment) {
-        return notify(jda, punishment.targetUserId().value(), appliedMessage(punishment));
+        return notify(jda, punishment.targetUserId().value(), appliedMessage(punishment),
+                PunishmentNotificationDiscordPresentation.color(punishment.intent().type()));
     }
 
     DiscordDeliveryOutcome notifyRemoved(JDA jda, DiscordPunishment punishment) {
-        return notify(jda, punishment.targetUserId().value(), removalMessage(punishment));
+        return notify(jda, punishment.targetUserId().value(), removalMessage(punishment),
+                PunishmentNotificationDiscordPresentation.UPDATE_COLOR);
     }
 
     DiscordDeliveryOutcome notifyMinecraftBan(JDA jda, MinecraftBanNotification notification) {
-        return notify(jda, notification.discordUserId(), minecraftBanMessage(notification));
+        return notify(jda, notification.discordUserId(), minecraftBanMessage(notification),
+                PunishmentNotificationDiscordPresentation.BAN_COLOR);
     }
 
-    private DiscordDeliveryOutcome notify(JDA jda, String userId, String message) {
+    DiscordDeliveryOutcome notifyMinecraftWarningOrMute(
+            JDA jda,
+            MinecraftWarningOrMuteNotification notification
+    ) {
+        return notify(jda, notification.discordUserId(), minecraftWarningOrMuteMessage(notification),
+                PunishmentNotificationDiscordPresentation.color(notification.type()));
+    }
+
+    static DiscordDeliveryOutcome notifyPreview(
+            JDA jda,
+            String userId,
+            DiscordConsequenceType type,
+            Instant now
+    ) {
+        return notify(jda, userId, previewMessage(type, now),
+                PunishmentNotificationDiscordPresentation.color(type));
+    }
+
+    static DiscordDeliveryOutcome notifyMinecraftPreview(
+            JDA jda,
+            String userId,
+            SanctionType type,
+            Instant now
+    ) {
+        if (type == null || now == null) {
+            throw new IllegalArgumentException("Minecraft notification preview fields must be present");
+        }
+        String message = switch (type) {
+            case WARNING -> minecraftWarningOrMuteMessage(new MinecraftWarningOrMuteNotification(
+                    userId,
+                    "ExamplePlayer",
+                    PREVIEW_REASON,
+                    now,
+                    SanctionType.WARNING,
+                    Optional.empty()
+            ));
+            case MUTE -> minecraftWarningOrMuteMessage(new MinecraftWarningOrMuteNotification(
+                    userId,
+                    "ExamplePlayer",
+                    PREVIEW_REASON,
+                    now,
+                    SanctionType.MUTE,
+                    Optional.of(now.plus(Duration.ofHours(1)))
+            ));
+            case BAN -> minecraftBanMessage(new MinecraftBanNotification(
+                    userId,
+                    "ExamplePlayer",
+                    PREVIEW_REASON,
+                    now,
+                    Optional.of(now.plus(Duration.ofDays(7)))
+            ));
+            default -> throw new IllegalArgumentException("Minecraft notification preview type is unsupported");
+        };
+        return notify(jda, userId, message, PunishmentNotificationDiscordPresentation.color(type));
+    }
+
+    private static DiscordDeliveryOutcome notify(JDA jda, String userId, String message, int color) {
         try {
             User user = jda.retrieveUserById(userId).complete();
             user.openPrivateChannel().complete()
-                    .sendMessage(message)
+                    .sendMessageEmbeds(PunishmentNotificationDiscordPresentation.embed(
+                            message, color, PunishmentNotificationDiscordPresentation.guildIconUrl(jda)))
                     .setAllowedMentions(List.of())
+                    .addComponents(PunishmentNotificationDiscordPresentation.appealRow())
                     .complete();
             return DiscordDeliveryOutcome.DELIVERED;
         } catch (RuntimeException failure) {
@@ -59,15 +122,61 @@ final class JdaPunishmentNotifier {
 
     String appliedMessage(DiscordPunishment punishment) {
         DiscordConsequenceType type = punishment.intent().type();
-        String durationClause = hasExpiry(type) ? " for `%s`".formatted(duration(punishment)) : "";
-        String explanation = playerSafeExplanation(punishment.intent().internalExplanation())
+        return appliedMessage(
+                type,
+                duration(punishment),
+                punishment.intent().publicReason(),
+                punishment.intent().internalExplanation(),
+                punishment.expiresAt()
+        );
+    }
+
+    static String previewMessage(DiscordConsequenceType type, Instant now) {
+        if (type == null || now == null) {
+            throw new IllegalArgumentException("notification preview fields must be present");
+        }
+        return switch (type) {
+            case WARNING -> appliedMessage(
+                    type,
+                    "instant",
+                    PREVIEW_REASON,
+                    "This is a StaffBot preview sent only to you. No punishment was created or applied.",
+                    Optional.empty()
+            );
+            case MUTE -> appliedMessage(
+                    type,
+                    "1 hour",
+                    PREVIEW_REASON,
+                    "This is a StaffBot preview sent only to you. No punishment was created or applied.",
+                    Optional.of(now.plus(Duration.ofHours(1)))
+            );
+            case BAN -> appliedMessage(
+                    type,
+                    "7 days",
+                    PREVIEW_REASON,
+                    "This is a StaffBot preview sent only to you. No punishment was created or applied.",
+                    Optional.of(now.plus(Duration.ofDays(7)))
+            );
+            default -> throw new IllegalArgumentException("notification preview type is unsupported");
+        };
+    }
+
+    private static String appliedMessage(
+            DiscordConsequenceType type,
+            String duration,
+            String publicReason,
+            String internalExplanation,
+            Optional<Instant> expiresAt
+    ) {
+        String durationClause = hasExpiry(type) ? " for `%s`".formatted(duration) : "";
+        String explanation = playerSafeExplanation(internalExplanation)
                 .map(value -> "**Staff explanation:** " + value + SECTION_BREAK)
                 .orElse("");
-        String expiry = hasExpiry(type) ? expiryText(punishment.expiresAt()) : "";
+        String expiry = hasExpiry(type) ? expiryText(expiresAt) : "";
         return "# Punishment Alert" + SECTION_BREAK
                 + "You have been `" + actionName(type) + "` on the Enthusia SMP Discord"
                 + durationClause + "." + SECTION_BREAK
-                + "**Reason:** " + punishment.intent().publicReason() + SECTION_BREAK
+                + "**Reason:** " + publicReason + SECTION_BREAK
                 + explanation
                 + expiry
                 + appealText();
@@ -90,6 +199,24 @@ final class JdaPunishmentNotifier {
                 + "` has been `banned` from the Enthusia SMP" + timing + "." + SECTION_BREAK
                 + "**Reason:** " + notification.publicReason() + SECTION_BREAK
                 + expiryText(notification.expiresAt())
+                + appealText();
+    }
+
+    static String minecraftWarningOrMuteMessage(MinecraftWarningOrMuteNotification notification) {
+        String action = notification.type() == SanctionType.WARNING ? "warned" : "muted";
+        String timing = notification.type() == SanctionType.MUTE
+                ? notification.expiresAt().isPresent()
+                        ? " until the time shown below"
+                        : " permanently"
+                : "";
+        String expiry = notification.type() == SanctionType.MUTE
+                ? expiryText(notification.expiresAt())
+                : "";
+        return "# Punishment Alert" + SECTION_BREAK
+                + "Your Minecraft account `" + notification.minecraftName()
+                + "` has been `" + action + "` on the Enthusia SMP" + timing + "." + SECTION_BREAK
+                + "**Reason:** " + notification.publicReason() + SECTION_BREAK
+                + expiry
                 + appealText();
     }
 
@@ -201,6 +328,27 @@ final class JdaPunishmentNotifier {
                     || publicReason == null || publicReason.isBlank()
                     || issuedAt == null || expiresAt == null) {
                 throw new IllegalArgumentException("Minecraft ban notification is incomplete");
+            }
+        }
+    }
+
+    record MinecraftWarningOrMuteNotification(
+            String discordUserId,
+            String minecraftName,
+            String publicReason,
+            Instant issuedAt,
+            SanctionType type,
+            Optional<Instant> expiresAt
+    ) {
+        MinecraftWarningOrMuteNotification {
+            if (discordUserId == null || discordUserId.isBlank()
+                    || minecraftName == null || minecraftName.isBlank()
+                    || publicReason == null || publicReason.isBlank()
+                    || issuedAt == null || type == null || expiresAt == null
+                    || (type != SanctionType.WARNING && type != SanctionType.MUTE)
+                    || (type == SanctionType.WARNING && expiresAt.isPresent())) {
+                throw new IllegalArgumentException(
+                        "Minecraft warning/mute notification is incomplete");
             }
         }
     }

@@ -34,6 +34,7 @@ import net.enthusia.staff.paper.command.FreezeCommand;
 import net.enthusia.staff.paper.command.HistoryCommand;
 import net.enthusia.staff.paper.command.InspectCommand;
 import net.enthusia.staff.paper.command.InventoryCommand;
+import net.enthusia.staff.paper.command.PolicyV2ShadowAccess;
 import net.enthusia.staff.paper.command.PunishmentCommand;
 import net.enthusia.staff.paper.command.PunishmentRequestCommandHandler;
 import net.enthusia.staff.paper.command.ReportCommand;
@@ -42,14 +43,17 @@ import net.enthusia.staff.paper.command.SanctionChangeCommand;
 import net.enthusia.staff.paper.command.SanctionLifecycleCommand;
 import net.enthusia.staff.paper.command.StaffApiCommand;
 import net.enthusia.staff.paper.command.StaffChatCommand;
+import net.enthusia.staff.paper.command.StaffInventoryCommand;
 import net.enthusia.staff.paper.command.StaffModeCommand;
 import net.enthusia.staff.paper.command.StaffModeVanishEntryCoordinator;
 import net.enthusia.staff.paper.command.StaffWhoCommand;
 import net.enthusia.staff.paper.command.VanishCommand;
+import net.enthusia.staff.paper.config.MessageConfigurationRuntime;
 import net.enthusia.staff.paper.config.ModerationFeatureSettings;
 import net.enthusia.staff.paper.config.ReloadableModerationFeatureSettings;
 import net.enthusia.staff.paper.config.ReportConfigurationRuntime;
 import net.enthusia.staff.paper.config.ReportConfigurationSnapshot;
+import net.enthusia.staff.paper.config.VersionedConfigurationValidator;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadAction;
 import net.enthusia.staff.paper.economy.EconomyCoordinator;
 import net.enthusia.staff.paper.freeze.FreezeManager;
@@ -104,11 +108,17 @@ final class PaperCommandRegistrar {
             ConfigurationReloadAction reloadAction
     ) {
         ConfigurationReloadAction reportAware = ReportConfigurationRuntime.initialize(plugin, reloadAction);
-        registerStatus(plugin, health, new EstaffCommand(plugin, health, reportAware));
+        ConfigurationReloadAction messageAware = MessageConfigurationRuntime.initialize(plugin, reportAware);
+        EstaffCommand executor = new EstaffCommand(plugin, health, messageAware);
+        executor.configureMessages(MessageConfigurationRuntime::catalog);
+        registerStatus(plugin, health, executor);
     }
 
     private static void registerStatus(JavaPlugin plugin, RuntimeHealth health, EstaffCommand executor) {
         Objects.requireNonNull(health, "health");
+        executor.configureConfigurationValidation(
+                new VersionedConfigurationValidator(plugin.getDataFolder().toPath())
+        );
         PluginCommand command = Objects.requireNonNull(
                 plugin.getCommand("estaff"),
                 "estaff command is missing from plugin.yml"
@@ -138,9 +148,11 @@ final class PaperCommandRegistrar {
             throw new IllegalStateException("estaff command executor was not registered before feature commands");
         }
         estaff.configureStorageAvailability(() -> dependencies.storage().get().isPresent());
+        estaff.configurePolicyV2Shadow(dependencies.policyV2());
         estaff.addSuccessfulReloadHook(() -> moderationSettings.reloadFrom(
                 dependencies.environment().moderationFeatures().get()
         ));
+        estaff.addSuccessfulReloadHook(dependencies.policyV2()::reload);
         estaff.configureSanctionLifecycle(new SanctionLifecycleCommand(
                 plugin(),
                 clock(),
@@ -224,8 +236,10 @@ final class PaperCommandRegistrar {
         Supplier<CaseLookup> cases = storage(PaperStorageBindings::caseLookup);
         AuthorizationPolicy activeAuthorization = activeAuthorization();
         SanctionChangeGuiController changeGui = new SanctionChangeGuiController(
-                plugin(), clock(), writeMode(), changes, players, cases,
-                storage(PaperStorageBindings::caseReviewStore), activeAuthorization, workers()
+                plugin(), clock(), writeMode(), changes,
+                new SanctionChangeGuiController.Stores(
+                        players, cases, storage(PaperStorageBindings::caseReviewStore)
+                ), activeAuthorization, workers()
         );
         plugin().getServer().getPluginManager().registerEvents(changeGui, plugin());
         SanctionChangeCommand command = new SanctionChangeCommand(
@@ -240,7 +254,7 @@ final class PaperCommandRegistrar {
             ReportStore loaded = reportStore.get();
             return loaded == null ? null : new net.enthusia.staff.paper.report.ActiveDutyReportStore(
                     loaded,
-                    dependencies.players().staffMode()::authorityActive
+                    dependencies.players().staffMode()::authorityActiveOrUnrestricted
             );
         };
         ReportCommand report = new ReportCommand(
@@ -254,6 +268,8 @@ final class PaperCommandRegistrar {
                 workers()
         );
         bindCompleting("report", report, report);
+        plugin().getServer().getPluginManager().registerEvents(report.reasonMenu(), plugin());
+        plugin().getServer().getPluginManager().registerEvents(report, plugin());
         ClientCommand client = new ClientCommand(
                 plugin(), dependencies.evidence().clientEvidence(),
                 storage(PaperStorageBindings::clientEvidenceStore), workers()
@@ -267,7 +283,8 @@ final class PaperCommandRegistrar {
                 workers()
         );
         plugin().getServer().getPluginManager().registerEvents(reportGui, plugin());
-        ReportsCommand reports = new ReportsCommand(plugin(), clock(), activeReportStore, workers(), reportGui);
+        ReportsCommand reports = new ReportsCommand(plugin(), clock(), activeReportStore,
+                storage(PaperStorageBindings::playerDirectory), workers(), reportGui);
         bindCompleting("reports", reports, reports);
     }
 
@@ -290,10 +307,14 @@ final class PaperCommandRegistrar {
         StaffModeCommand staffMode = new StaffModeCommand(
                 writeMode(),
                 dependencies.players().staffMode(),
-                staffEntry
+                staffEntry,
+                dependencies.players().vanish()
         );
         bindCompleting("staff", staffMode, staffMode);
-        bind("vanish", new VanishCommand(writeMode(), dependencies.players().vanish()));
+        bind("staffinv", new StaffInventoryCommand(dependencies.players().staffMode()));
+        VanishCommand vanish = new VanishCommand(writeMode(), dependencies.players().vanish());
+        vanish.configureMessages(MessageConfigurationRuntime::catalog);
+        bind("vanish", vanish);
         bind("staffchat", new StaffChatCommand(dependencies.integrations().roseChat()));
         bind("staffwho", new StaffWhoCommand(
                 plugin(),
@@ -410,7 +431,7 @@ final class PaperCommandRegistrar {
     private AuthorizationPolicy activeAuthorization() {
         return new ActiveDutyAuthorizationPolicy(
                 authorization(),
-                dependencies.players().staffMode()::authorityActive
+                dependencies.players().staffMode()::authorityActiveOrUnrestricted
         );
     }
 
@@ -424,8 +445,23 @@ final class PaperCommandRegistrar {
             Supplier<Optional<PaperStorageBindings>> storage,
             PlayerComponents players,
             IntegrationSuppliers integrations,
-            EvidenceComponents evidence
+            EvidenceComponents evidence,
+            PolicyV2ShadowAccess policyV2
     ) {
+        Dependencies(
+                Environment environment,
+                Policy policy,
+                Supplier<Optional<PaperStorageBindings>> storage,
+                PlayerComponents players,
+                IntegrationSuppliers integrations,
+                EvidenceComponents evidence
+        ) {
+            this(environment, policy, storage, players, integrations, evidence, PolicyV2ShadowAccess.disabled());
+        }
+
+        Dependencies {
+            policyV2 = Objects.requireNonNull(policyV2, "policyV2");
+        }
     }
 
     record Environment(

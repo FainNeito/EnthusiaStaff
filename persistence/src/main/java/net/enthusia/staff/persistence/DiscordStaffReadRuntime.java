@@ -15,9 +15,12 @@ import net.enthusia.staff.common.CaseId;
 import net.enthusia.staff.domain.casefile.CaseReview;
 import net.enthusia.staff.domain.history.HistoryQueryOptions;
 import net.enthusia.staff.domain.history.ModerationHistoryPage;
+import net.enthusia.staff.domain.investigation.InvestigationNote;
 import net.enthusia.staff.domain.moderation.DiscordUserId;
+import net.enthusia.staff.domain.moderation.ModerationSubjectId;
 import net.enthusia.staff.domain.player.PlayerIdentity;
 import net.enthusia.staff.domain.player.PlayerResolution;
+import net.enthusia.staff.domain.ports.DiscordModerationPersistenceStore.ReconciliationState;
 import net.enthusia.staff.domain.ports.DiscordModerationPersistenceStore.VersionedSubject;
 import net.enthusia.staff.domain.ports.StaffNoteStore.StaffNote;
 import net.enthusia.staff.domain.sanction.ActiveSanction;
@@ -33,24 +36,26 @@ import net.enthusia.staff.domain.sanction.SanctionType;
  */
 public final class DiscordStaffReadRuntime implements AutoCloseable {
     private final HikariDataSource dataSource;
-    private final JdbcDiscordModerationPersistenceStore identities;
+    private final JdbcDiscordIdentityRepository identities;
     private final JdbcPlayerDirectory players;
     private final JdbcModerationHistoryStore history;
     private final JdbcCaseReviewStore cases;
     private final JdbcSanctionLookup sanctions;
     private final JdbcStaffNoteStore notes;
+    private final JdbcDiscordInvestigationNoteStore investigationNotes;
 
     private DiscordStaffReadRuntime(HikariDataSource dataSource, Clock clock) {
         this.dataSource = dataSource;
         ObjectMapper json = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        this.identities = new JdbcDiscordModerationPersistenceStore(dataSource);
+        this.identities = new JdbcDiscordIdentityRepository(dataSource);
         this.players = new JdbcPlayerDirectory(dataSource);
         this.cases = new JdbcCaseReviewStore(dataSource, clock, json);
         this.history = new JdbcModerationHistoryStore(dataSource, cases);
         this.sanctions = new JdbcSanctionLookup(dataSource);
         this.notes = new JdbcStaffNoteStore(dataSource);
+        this.investigationNotes = new JdbcDiscordInvestigationNoteStore(dataSource);
     }
 
     public static DiscordStaffReadRuntime open(DatabaseConfig database, Clock clock) {
@@ -61,12 +66,212 @@ public final class DiscordStaffReadRuntime implements AutoCloseable {
         return new DiscordStaffReadRuntime(dataSource, clock);
     }
 
+    /** A bounded, read-only list for the bot-owned private review queue (no evidence body). */
+    public record PendingReview(UUID requestId, UUID targetId, String reasonId, String requiredRank,
+            UUID requesterId, Instant createdAt) { }
+
+    /** Read-only dashboard pulse; recent alt alerts are not equivalent to unresolved cases. */
+    public record ReviewPulse(long openReports, long claimedReports,
+            long pendingPunishmentRequests, long altSignalsInLastDay) { }
+
+    public ReviewPulse reviewPulse(Instant now) {
+        if (now == null) {
+            throw new IllegalArgumentException("review pulse instant is required");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                    SELECT
+                        (SELECT COUNT(*) FROM reports
+                          WHERE state IN ('OPEN', 'AWAITING_REVIEW')) AS open_reports,
+                        (SELECT COUNT(*) FROM reports WHERE state = 'CLAIMED') AS claimed_reports,
+                        (SELECT COUNT(*) FROM punishment_requests
+                          WHERE status = 'PENDING' AND expires_at > ?) AS pending_punishments,
+                        (SELECT COUNT(*) FROM discord_outbox
+                          WHERE event_type LIKE 'ALT_%' AND created_at >= ?) AS alt_signals
+                    """)) {
+            statement.setTimestamp(1, java.sql.Timestamp.from(now));
+            statement.setTimestamp(2, java.sql.Timestamp.from(now.minus(java.time.Duration.ofDays(1))));
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException("review pulse query was empty");
+                }
+                return new ReviewPulse(result.getLong("open_reports"), result.getLong("claimed_reports"),
+                        result.getLong("pending_punishments"), result.getLong("alt_signals"));
+            }
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Unable to load review pulse", exception);
+        }
+    }
+
+    public List<PendingReview> pendingReviews(Instant now, int limit) {
+        if (now == null || limit < 1 || limit > 10) {
+            throw new IllegalArgumentException("review list bound is invalid");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                    SELECT request_id, target_id, reason_id, required_rank, requester_id, created_at
+                      FROM punishment_requests
+                     WHERE status = 'PENDING' AND expires_at > ?
+                     ORDER BY created_at DESC LIMIT ?
+                    """)) {
+            statement.setTimestamp(1, java.sql.Timestamp.from(now));
+            statement.setInt(2, limit);
+            try (var rows = statement.executeQuery()) {
+                var pending = new java.util.ArrayList<PendingReview>();
+                while (rows.next()) {
+                    pending.add(new PendingReview(
+                            UuidBytes.fromBytes(rows.getBytes("request_id")),
+                            UuidBytes.fromBytes(rows.getBytes("target_id")),
+                            rows.getString("reason_id"), rows.getString("required_rank"),
+                            UuidBytes.fromBytes(rows.getBytes("requester_id")),
+                            rows.getTimestamp("created_at").toInstant()));
+                }
+                return List.copyOf(pending);
+            }
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Unable to read pending punishment reviews", exception);
+        }
+    }
+
+    public List<InvestigationNote> recentInvestigationNotes(ModerationSubjectId subjectId, int limit) {
+        return investigationNotes.recent(subjectId, limit);
+    }
+
+    public List<InvestigationNote> recentInvestigationNotes(
+            ModerationSubjectId subjectId,
+            Optional<InvestigationNote.Visibility> visibility,
+            int limit
+    ) {
+        return investigationNotes.recent(subjectId, visibility, limit);
+    }
+
+    /** Bounded, non-evidentiary report queue for the private Discord review surface. */
+    public record PendingReport(UUID reportId, UUID targetId, String targetName,
+            String reporterName, String reasonId, String state, long revision) { }
+
+    public List<PendingReport> pendingReports(int limit) {
+        if (limit < 1 || limit > 10) {
+            throw new IllegalArgumentException("report queue limit is invalid");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                    SELECT r.report_id, r.target_id, r.reason_id, r.state, r.revision,
+                           target.current_username AS target_name,
+                           reporter.current_username AS reporter_name
+                      FROM reports r
+                      LEFT JOIN players target ON target.player_id = r.target_id
+                      LEFT JOIN players reporter ON reporter.player_id = r.reporter_id
+                     WHERE r.state IN ('OPEN', 'CLAIMED', 'AWAITING_REVIEW')
+                     ORDER BY r.created_at ASC, r.report_id ASC
+                     LIMIT ?
+                    """)) {
+            statement.setInt(1, limit);
+            try (var rows = statement.executeQuery()) {
+                var result = new java.util.ArrayList<PendingReport>();
+                while (rows.next()) {
+                    result.add(new PendingReport(
+                            UuidBytes.fromBytes(rows.getBytes("report_id")),
+                            UuidBytes.fromBytes(rows.getBytes("target_id")),
+                            ReportPlayerNames.display(rows.getString("target_name")),
+                            ReportPlayerNames.display(rows.getString("reporter_name")),
+                            rows.getString("reason_id"), rows.getString("state"),
+                            rows.getLong("revision")));
+                }
+                return List.copyOf(result);
+            }
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Unable to load report review queue", exception);
+        }
+    }
+
+    /** D09-only private alert list. Does not expose raw evidence or the punishment narrative. */
+    public record PendingAltAlert(UUID alertId, long targetDiscordId,
+            UUID triggeringMinecraftId, String punishmentType) { }
+
+    public List<PendingAltAlert> pendingAltAlerts(int limit) {
+        if (limit < 1 || limit > 5) {
+            throw new IllegalArgumentException("alt-alert bound is invalid");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                    SELECT alert_id, target_discord_user_id,
+                           triggering_minecraft_player_id, punishment_type
+                      FROM discord_evasion_alerts
+                     WHERE state = 'OPEN'
+                     ORDER BY triggered_at DESC, alert_id DESC
+                     LIMIT ?
+                    """)) {
+            statement.setInt(1, limit);
+            try (var rows = statement.executeQuery()) {
+                var pending = new java.util.ArrayList<PendingAltAlert>();
+                while (rows.next()) {
+                    pending.add(new PendingAltAlert(
+                            UuidBytes.fromBytes(rows.getBytes("alert_id")),
+                            Long.parseUnsignedLong(rows.getBigDecimal("target_discord_user_id")
+                                    .toBigIntegerExact().toString()),
+                            UuidBytes.fromBytes(rows.getBytes("triggering_minecraft_player_id")),
+                            rows.getString("punishment_type")));
+                }
+                return List.copyOf(pending);
+            }
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Unable to load linked-alt review alerts", exception);
+        }
+    }
+
     public Optional<VersionedSubject> subjectForDiscord(DiscordUserId userId) {
         return identities.subjectForDiscord(userId);
     }
 
+    public Optional<VersionedSubject> subject(ModerationSubjectId subjectId) {
+        return identities.subject(subjectId);
+    }
+
     public Optional<VersionedSubject> subjectForMinecraft(UUID playerId) {
         return identities.subjectForMinecraft(playerId);
+    }
+
+    /**
+     * Reads a bounded snapshot of provider-neutral managed-role claims for StaffBot shadow comparison.
+     * The read-only runtime never mutates reconciliation rows.
+     */
+    public List<ReconciliationState> managedRoleStates(int limit) {
+        if (limit < 1 || limit > 10_001) {
+            throw new IllegalArgumentException("managed-role state limit is outside its safe range");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                     SELECT reconciliation_key, resource_type, resource_id, desired_state_json,
+                            observed_state_json, state, attempt_count, next_attempt_at,
+                            last_error_code, revision
+                     FROM discord_reconciliation_state
+                     WHERE resource_type = 'MANAGED_ROLE'
+                     ORDER BY reconciliation_key
+                     LIMIT ?
+                     """)) {
+            statement.setInt(1, limit);
+            try (var rows = statement.executeQuery()) {
+                java.util.ArrayList<ReconciliationState> states = new java.util.ArrayList<>();
+                while (rows.next()) {
+                    var next = rows.getTimestamp("next_attempt_at");
+                    states.add(new ReconciliationState(
+                            rows.getString("reconciliation_key"),
+                            rows.getString("resource_type"),
+                            rows.getString("resource_id"),
+                            rows.getString("desired_state_json"),
+                            Optional.ofNullable(rows.getString("observed_state_json")),
+                            rows.getString("state"),
+                            rows.getInt("attempt_count"),
+                            Optional.ofNullable(next).map(java.sql.Timestamp::toInstant),
+                            Optional.ofNullable(rows.getString("last_error_code")),
+                            rows.getLong("revision")
+                    ));
+                }
+                return List.copyOf(states);
+            }
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Unable to read managed-role shadow claims", exception);
+        }
     }
 
     public PlayerResolution resolvePlayer(String uuidOrUsername) {
@@ -96,6 +301,10 @@ public final class DiscordStaffReadRuntime implements AutoCloseable {
 
     public List<CaseReview> recentCases(UUID targetId, int limit) {
         return cases.recent(targetId, limit);
+    }
+
+    public List<CaseReview> recentCases(ModerationSubjectId subjectId, int limit) {
+        return cases.recentBySubject(subjectId, limit);
     }
 
     public Optional<CaseReview> caseReview(CaseId caseId) {

@@ -1,7 +1,11 @@
 package net.enthusia.staff.paper.command;
 
+import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 import net.enthusia.staff.domain.OperationalMode;
+import net.enthusia.staff.paper.config.MessageCatalog;
+import net.enthusia.staff.paper.config.MessageKey;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.enthusia.staff.paper.visibility.VanishManager;
 import net.kyori.adventure.text.Component;
@@ -15,23 +19,24 @@ public final class VanishCommand implements CommandExecutor {
 
     private final Supplier<OperationalMode> mode;
     private final VanishManager vanish;
+    private volatile Supplier<MessageCatalog> messages = MessageCatalog::builtIn;
 
     public VanishCommand(Supplier<OperationalMode> mode, VanishManager vanish) {
         this.mode = mode;
         this.vanish = vanish;
     }
 
+    public void configureMessages(Supplier<MessageCatalog> messages) {
+        this.messages = Objects.requireNonNull(messages, "messages");
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] arguments) {
-        if (!CommandPermissionGate.require(
-                sender,
-                PERMISSION,
-                "You do not have permission to change vanish or spectator tab visibility."
-        )) {
+        if (!CommandPermissionGate.require(sender, PERMISSION, message(MessageKey.VANISH_PERMISSION_DENIED))) {
             return true;
         }
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(Component.text("Only a player can change vanish or spectator tab visibility."));
+            sender.sendMessage(message(MessageKey.VANISH_PLAYER_ONLY));
             return true;
         }
         if (arguments.length == 2 && arguments[0].equalsIgnoreCase("tab")) {
@@ -45,20 +50,30 @@ public final class VanishCommand implements CommandExecutor {
             }
         }
         if (arguments.length != 0) {
-            player.sendMessage(StaffMessageStyle.usage(
-                    "Usage: /" + label + " | /" + label + " tab <show|hide>"
+            player.sendMessage(message(
+                    MessageKey.VANISH_USAGE,
+                    Map.of("label", label, "choices", "<show|hide>")
             ));
             return true;
         }
         OperationalMode currentMode = mode.get();
         boolean currentlyVanished = vanish.isVanished(player.getUniqueId());
         if (!StaffOperationalModeGate.vanishChangeAllowed(currentMode, currentlyVanished)) {
-            player.sendMessage(StaffMessageStyle.style(
-                    "Vanish enable is disabled while moderation is " + currentMode + '.'
-            ));
+            player.sendMessage(StaffMessageStyle.warning(message(
+                    MessageKey.VANISH_MODE_DISABLED,
+                    Map.of("mode", currentMode)
+            )));
             return true;
         }
         vanish.toggle(player);
         return true;
+    }
+
+    private Component message(MessageKey key) {
+        return Objects.requireNonNull(messages.get(), "message catalog").component(key);
+    }
+
+    private Component message(MessageKey key, Map<String, ?> values) {
+        return Objects.requireNonNull(messages.get(), "message catalog").component(key, values);
     }
 }

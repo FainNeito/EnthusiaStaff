@@ -35,6 +35,32 @@ class StaffBotRuntimeTest {
     }
 
     @Test
+    void chatTransportFollowsValidatedDiscordIdentityLifecycle() throws Exception {
+        Fixture fixture = new Fixture(true, true);
+        FakeChatLifecycle chat = new FakeChatLifecycle();
+        try (StaffBotRuntime runtime = fixture.runtime(null, chat)) {
+            runtime.start();
+            assertTrue(chat.started);
+            assertEquals(0, chat.resumeCount);
+            assertEquals(0, chat.pauseCount);
+
+            fixture.gateway.emitIdentity(validStagingIdentity());
+            assertTrue(runtime.awaitReady(Duration.ofMillis(100)));
+            assertEquals(1, chat.resumeCount);
+
+            fixture.gateway.emitDisconnect();
+            assertEquals(1, chat.pauseCount);
+
+            fixture.gateway.emitIdentity(validStagingIdentity());
+            assertEquals(2, chat.resumeCount);
+        }
+
+        assertTrue(chat.closed);
+        assertTrue(chat.pauseCount >= 2);
+        assertTrue(fixture.gateway.shutdownRequested);
+    }
+
+    @Test
     void previewRuntimeCreatesWithoutModerationDependencies() throws Exception {
         StaffBotConfiguration configuration = StaffBotConfiguration.fromEnvironment(Map.of(
                 StaffBotConfiguration.ENVIRONMENT_KEY, "staging",
@@ -124,6 +150,23 @@ class StaffBotRuntimeTest {
     }
 
     @Test
+    void chatShutdownStillClosesTransportWhenPauseFails() throws Exception {
+        Fixture fixture = new Fixture(true, true);
+        FakeChatLifecycle chat = new FakeChatLifecycle(true);
+        StaffBotRuntime runtime = fixture.runtime(null, chat);
+        runtime.start();
+        fixture.gateway.emitIdentity(validStagingIdentity());
+
+        assertThrows(IllegalStateException.class, runtime::close);
+
+        assertTrue(chat.closed);
+        assertTrue(fixture.gateway.shutdownRequested);
+        assertTrue(fixture.endpoint.closed);
+        assertEquals(StaffBotHealth.Phase.FAILED, runtime.health().snapshot().phase());
+        assertEquals("chat_transport_shutdown_failed", runtime.health().snapshot().reason());
+    }
+
+    @Test
     void gracefulShutdownEscalatesAfterTimeout() throws Exception {
         Fixture fixture = new Fixture(false, true);
         StaffBotRuntime runtime = fixture.runtime();
@@ -155,6 +198,74 @@ class StaffBotRuntimeTest {
         assertEquals("gateway_shutdown_timeout", runtime.health().snapshot().reason());
     }
 
+    @Test
+    void separatePublicChatAppResumesOnlyAfterItsOwnValidatedIdentity() throws Exception {
+        FakeGateway staffGateway = new FakeGateway(true, true);
+        FakeGateway chatGateway = new FakeGateway(true, true);
+        FakeChatLifecycle chat = new FakeChatLifecycle();
+        long separateApp = 1405605074331373718L;
+        try (StaffBotRuntime runtime = productionRuntime(staffGateway, chatGateway, chat, separateApp)) {
+            runtime.start();
+            assertTrue(staffGateway.started);
+            assertTrue(chatGateway.started);
+            staffGateway.emitIdentity(validProductionIdentity(
+                    StaffBotEnvironment.PRODUCTION.applicationId()));
+            assertTrue(runtime.awaitReady(Duration.ofMillis(100)));
+            assertEquals(0, chat.resumeCount);
+            chatGateway.emitIdentity(validProductionIdentity(separateApp));
+            assertEquals(1, chat.resumeCount);
+            staffGateway.emitDisconnect();
+            assertEquals(0, chat.pauseCount);
+            chatGateway.emitDisconnect();
+            assertEquals(1, chat.pauseCount);
+            chatGateway.emitIdentity(validProductionIdentity(separateApp));
+            assertEquals(2, chat.resumeCount);
+        }
+        assertTrue(chat.closed);
+        assertTrue(staffGateway.shutdownRequested);
+        assertTrue(chatGateway.shutdownRequested);
+    }
+
+    @Test
+    void unexpectedPublicChatApplicationCannotEnableShadowChat() throws Exception {
+        FakeGateway staffGateway = new FakeGateway(true, true);
+        FakeGateway chatGateway = new FakeGateway(true, true);
+        FakeChatLifecycle chat = new FakeChatLifecycle();
+        try (StaffBotRuntime runtime = productionRuntime(
+                staffGateway, chatGateway, chat, 1405605074331373718L)) {
+            runtime.start();
+            chatGateway.emitIdentity(validProductionIdentity(
+                    StaffBotEnvironment.PRODUCTION.applicationId()));
+            assertEquals(0, chat.resumeCount);
+            assertTrue(chatGateway.shutdownNowRequested);
+            staffGateway.emitIdentity(validProductionIdentity(
+                    StaffBotEnvironment.PRODUCTION.applicationId()));
+            assertTrue(runtime.awaitReady(Duration.ofMillis(100)));
+        }
+    }
+
+    private static StaffBotRuntime productionRuntime(
+            FakeGateway staffGateway, FakeGateway chatGateway,
+            FakeChatLifecycle chat, long chatApplicationId) {
+        StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.PRODUCTION);
+        StaffBotConfiguration configuration = new StaffBotConfiguration(
+                StaffBotEnvironment.PRODUCTION, "synthetic-staff-token",
+                new InetSocketAddress("127.0.0.1", 8765),
+                1, 4, 16, Duration.ofMinutes(1));
+        return new StaffBotRuntime(
+                configuration, health, new StaffBotWorkerPool(1, 4, health),
+                new InteractionReplayGuard(16, Duration.ofMinutes(1)),
+                new FakeHealthEndpoint(), staffGateway, Optional.empty(),
+                new StaffBotRuntime.RuntimeServices(Optional.empty(), Optional.of(chat),
+                        Optional.of(new StaffBotRuntime.PublicChatRuntime(
+                                chatGateway, chatApplicationId))));
+    }
+
+    private static DiscordRuntimeIdentity validProductionIdentity(long appId) {
+        return new DiscordRuntimeIdentity(
+                appId, false, Set.of(StaffBotEnvironment.PRODUCTION.guildId()), false, false);
+    }
+
     private static DiscordRuntimeIdentity validStagingIdentity() {
         return new DiscordRuntimeIdentity(
                 StaffBotEnvironment.STAGING.applicationId(),
@@ -174,10 +285,14 @@ class StaffBotRuntimeTest {
         }
 
         private StaffBotRuntime runtime() {
-            return runtime(null);
+            return runtime(null, null);
         }
 
         private StaffBotRuntime runtime(FakeTunnel tunnel) {
+            return runtime(tunnel, null);
+        }
+
+        private StaffBotRuntime runtime(FakeTunnel tunnel, FakeChatLifecycle chat) {
             StaffBotConfiguration configuration = new StaffBotConfiguration(
                     StaffBotEnvironment.STAGING,
                     "test-only-token",
@@ -195,7 +310,48 @@ class StaffBotRuntimeTest {
                     endpoint,
                     gateway,
                     Optional.empty(),
-                    Optional.ofNullable(tunnel));
+                    new StaffBotRuntime.RuntimeServices(
+                            Optional.ofNullable(tunnel),
+                            Optional.ofNullable(chat)));
+        }
+    }
+
+    private static final class FakeChatLifecycle implements StaffBotChatLifecycle {
+        private final boolean failPause;
+        private boolean started;
+        private boolean closed;
+        private int resumeCount;
+        private int pauseCount;
+
+        private FakeChatLifecycle() {
+            this(false);
+        }
+
+        private FakeChatLifecycle(boolean failPause) {
+            this.failPause = failPause;
+        }
+
+        @Override
+        public void start() {
+            started = true;
+        }
+
+        @Override
+        public void resume() {
+            resumeCount++;
+        }
+
+        @Override
+        public void pause() {
+            pauseCount++;
+            if (failPause) {
+                throw new IllegalStateException("test pause failure");
+            }
+        }
+
+        @Override
+        public void close() {
+            closed = true;
         }
     }
 

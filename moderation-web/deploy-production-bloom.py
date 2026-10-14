@@ -9,8 +9,11 @@ import ssl
 import importlib
 import io
 import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +25,7 @@ paramiko: Any = importlib.import_module("paramiko")
 
 TUNNEL_NAME = "enthusia-moderation-read-production"
 REMOTE_NAME = "prod-tunnel"
+REMOTE_BOT_TOKEN_FILE = "tp"
 REMOTE_JAR = "EnthusiaStaff-StaffBot.jar"
 PREVIOUS_JAR_SHA256 = "9a12cefd06b5158829ec8df4c4ed28c2d07bb119b2f1adbe546bc3fd31a7ce01"
 FIRST_WEB_JAR_SHA256 = "0e4a9c7c3cb4bceddd550843578d9b74e184f94c6fd132c3f35a7f9e1bc88ba8"
@@ -31,6 +35,9 @@ HISTORY_WEB_JAR_SHA256 = "8d682c8edc8c7c88bae5441719d19dd10060c3b74b619d1073d35d
 PRE_MODERATION_COMPLETION_JAR_SHA256 = "c330a170de8a1903ed3d0c35d148f5ba77679e45b73049a7def73718ac511693"
 MODERATION_COMPLETION_JAR_SHA256 = "aab7fc41dafa0a7a2f6978db7fa96fd31ba03dea1d2698bceaff7b1bcc264524"
 OWNER_POLICY_LIVE_JAR_SHA256 = "a474873b73c78fe0961be5ca6a2d075a2d1299f19d9157af25f2c34b41789c32"
+MODERATION_NOTIFICATION_LIVE_JAR_SHA256 = "60f5d0021106c8a73ec43f69d0932040473c0be1cc0f0c820f1349c20000cdb1"
+NOTIFICATION_PRESENTATION_JAR_SHA256 = "9a2fa4badd6c41cc16dd9f5811f0c31cc87efb86bf574655ff13ad10632b9b53"
+CUSTOM_HISTORY_LIVE_JAR_SHA256 = "aeb3f5471a34304b7ca56669e0c2b04dd1f43e343156983bffaa250f1a590515"
 KNOWN_JAR_SHA256 = {
     PREVIOUS_JAR_SHA256,
     FIRST_WEB_JAR_SHA256,
@@ -40,8 +47,13 @@ KNOWN_JAR_SHA256 = {
     PRE_MODERATION_COMPLETION_JAR_SHA256,
     MODERATION_COMPLETION_JAR_SHA256,
     OWNER_POLICY_LIVE_JAR_SHA256,
+    MODERATION_NOTIFICATION_LIVE_JAR_SHA256,
+    NOTIFICATION_PRESENTATION_JAR_SHA256,
+    CUSTOM_HISTORY_LIVE_JAR_SHA256,
 }
-LOCAL_JAR = Path(__file__).resolve().parent.parent / "staff-bot/build/libs/EnthusiaStaff-StaffBot-0.1.0-SNAPSHOT.jar"
+MODERATION_WEB_DIR = Path(__file__).resolve().parent
+DEPLOY_PRODUCTION_SCRIPT = MODERATION_WEB_DIR / "deploy-production.ps1"
+LOCAL_JAR = MODERATION_WEB_DIR.parent / "staff-bot/build/libs/EnthusiaStaff-StaffBot-0.1.0-SNAPSHOT.jar"
 DETAILS_FILES = (
     Path.home() / "OneDrive/Desktop/SFTP Details- ENTHUSIA NETWORK.md",
     Path.home() / "OneDrive/Desktop/EnthusiaNetworkCredentials.md",
@@ -264,7 +276,7 @@ def remove_if_present(sftp: Any, path: str) -> None:
 
 def command_mode(argv: list[str]) -> str:
     mode = argv[1] if len(argv) == 2 else "install-token"
-    if mode not in ("install-token", "--audit", "--upload-jar"):
+    if mode not in ("install-token", "--audit", "--upload-jar", "--deploy-web"):
         raise RuntimeError("Unsupported command line argument")
     return mode
 
@@ -349,12 +361,60 @@ def install_connector_token(sftp: Any) -> None:
     secure_installed_token(sftp, token)
 
 
+def deploy_web(sftp: Any) -> None:
+    with sftp.open(REMOTE_BOT_TOKEN_FILE, "rb") as remote:
+        token = remote.read().strip()
+    if not token or not token.isascii() or any(byte in token for byte in b" \t\r\n"):
+        raise RuntimeError("Production bot token file format is invalid")
+
+    fd, raw_path = tempfile.mkstemp(prefix="enthusia-prod-token-", suffix=".txt")
+    token_path = Path(raw_path)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(token)
+            stream.flush()
+            os.fsync(stream.fileno())
+        token = b""
+
+        system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        powershell = system_root / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        if not powershell.is_file():
+            raise RuntimeError("Windows PowerShell is unavailable")
+
+        completed = subprocess.run(
+            [
+                str(powershell),
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", str(DEPLOY_PRODUCTION_SCRIPT),
+                "-TokenFile", str(token_path),
+            ],
+            cwd=str(MODERATION_WEB_DIR),
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("Production website deployment failed")
+    finally:
+        token = b""
+        if token_path.exists():
+            try:
+                size = token_path.stat().st_size
+                with token_path.open("r+b") as stream:
+                    stream.write(b"\x00" * size)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            finally:
+                token_path.unlink(missing_ok=True)
+
+
 def execute_mode(sftp: Any, mode: str) -> None:
     discord_enforcement_enabled(sftp)
     if mode == "--audit":
         audit_remote(sftp)
     elif mode == "--upload-jar":
         upload_jar(sftp)
+    elif mode == "--deploy-web":
+        deploy_web(sftp)
     else:
         install_connector_token(sftp)
 

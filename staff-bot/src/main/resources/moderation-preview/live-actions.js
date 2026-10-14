@@ -1,5 +1,6 @@
 'use strict';
 
+const LIVE_ACTION_TIMEOUT_MS = 12000;
 let liveActionCapabilities = null;
 const actionLoadSession = window.loadSession;
 window.loadSession = async function () {
@@ -35,11 +36,26 @@ function actionRequestOptions(input) {
 
 function requestActionProof(operation, options) {
   switch (operation) {
-    case 'capabilities': return fetch('/api/actions/capabilities', options);
-    case 'prepare': return fetch('/api/actions/prepare', options);
-    case 'confirm': return fetch('/api/actions/confirm', options);
-    case 'status': return fetch('/api/actions/status', options);
+    case 'capabilities': return timedActionFetch('/api/actions/capabilities', options);
+    case 'prepare': return timedActionFetch('/api/actions/prepare', options);
+    case 'confirm': return timedActionFetch('/api/actions/confirm', options);
+    case 'status': return timedActionFetch('/api/actions/status', options);
     default: throw new Error('Session unavailable');
+  }
+}
+
+async function timedActionFetch(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LIVE_ACTION_TIMEOUT_MS);
+  try {
+    return await fetch(url, {...options, signal:controller.signal});
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Moderation service timed out. Retry preparation.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -52,31 +68,50 @@ function requireValidActionProof(proof, operation) {
 
 function submitActionProof(operation, request) {
   switch (operation) {
-    case 'capabilities': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/capabilities', request);
-    case 'prepare': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/prepare', request);
-    case 'confirm': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/confirm', request);
-    case 'status': return fetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/status', request);
+    case 'capabilities': return timedActionFetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/capabilities', request);
+    case 'prepare': return timedActionFetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/prepare', request);
+    case 'confirm': return timedActionFetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/confirm', request);
+    case 'status': return timedActionFetch('https://moderation-read-staging.enthusia.info/v1/moderation/actions/status', request);
     default: throw new Error('Session unavailable');
   }
 }
 
 function moderationActionError(status) {
+  if (status === 403 && selfTargetSelected()) {
+    return new Error('You cannot issue a punishment to your own staff account. Choose another player or test account.');
+  }
   if (status === 403) return new Error('Current staff authority denied this action.');
   if (status === 400) return new Error('Action rejected. Check the target, duration and permissions, then prepare again.');
   return new Error('Moderation service unavailable. Check status before submitting another action.');
+}
+
+function selfTargetSelected() {
+  const actorId = String(state.session?.actorId || '');
+  const targetId = typeof identity === 'undefined' ? '' : String(identity.discordId || '');
+  return Boolean(actorId && targetId && actorId === targetId);
 }
 
 function liveActionInput(w) {
   requireLiveActionContext(w);
   const type = liveConsequenceType(w.actual.action);
   const duration = type === 'WARNING' || type === 'KICK' ? 'instant' : actionDuration(w.duration);
-  const intent = {type, duration, reason:w.offense.label, explanation:liveExplanation(w), restriction:null};
+  const intent = {
+    type,
+    duration,
+    reason:w.custom ? 'Custom punishment' : w.offense.label,
+    explanation:liveExplanation(w),
+    customConsequence:Boolean(w.custom),
+    restriction:null
+  };
   intent.restriction = liveRestriction(w, type);
   return {targetKey:liveModeration.bootstrap?.targetKey, intent};
 }
 
 function requireLiveActionContext(workflow) {
   if (!liveActionCapabilities?.discordEnabled) throw new Error('Discord enforcement is not enabled yet.');
+  if (selfTargetSelected()) {
+    throw new Error('You cannot issue a punishment to your own staff account. Choose another player or test account.');
+  }
   if (workflow.scope !== 'Discord') throw new Error('Minecraft enforcement has not passed activation checks.');
   if (state.deleting.size) throw new Error('Clear deletion selections. Message deletion is not enabled.');
   if (!workflow.dm) throw new Error('Live actions require a target notification.');
@@ -92,7 +127,8 @@ function liveConsequenceType(action) {
 function liveExplanation(workflow) {
   const evidence = [...state.evidence].map(id => 'Discord message reference: ' + id);
   if (workflow.externalEvidence) evidence.push('External evidence reference: ' + workflow.externalEvidence);
-  const explanation = [workflow.reason, ...evidence].filter(Boolean).join('\n');
+  const stated = String(workflow.reason || '').trim();
+  const explanation = [stated || 'No additional staff explanation was provided.', ...evidence].join('\n');
   if (explanation.length > 2000) throw new Error('Evidence references and explanation exceed 2000 characters.');
   return explanation;
 }
@@ -121,30 +157,68 @@ const simulationReviewStep = window.renderReviewStep;
 window.renderReviewStep = function () {
   simulationReviewStep();
   if (state.session?.staging !== false) return;
-  const w = state.workflow;
-  const confirm = $('[data-confirm]');
-  if (confirm) { confirm.disabled = true; confirm.textContent = 'Preparing live action…'; }
-  w.livePrepared = null;
-  try {
-    const input = liveActionInput(w);
-    requestModerationAction('prepare', input).then(prepared => {
-      if (state.workflow !== w || w.step !== 'review') return;
-      w.livePrepared = {...prepared, targetKey:input.targetKey};
-      $('#workflowBody').appendChild(element('div',{className:'alert warning'},
-        element('strong',{text:'Server-prepared live action'}),
-        element('span',{text:`${prepared.intent.type} · ${prepared.targetUserId} · ${prepared.intent.length.kind}. Target notifications are included. Authority is checked again on confirmation.`})));
-      if (confirm) { confirm.disabled = false; confirm.textContent = 'Confirm live action'; }
-    }).catch(error => { if (state.workflow === w) showToast(error.message, true); });
-  } catch (error) {
-    if (confirm) confirm.textContent = 'Live action unavailable';
-    $('#workflowBody').appendChild(element('div',{className:'alert warning',text:error.message}));
-  }
+  prepareLiveAction(state.workflow, $('[data-confirm]'));
 };
+
+function prepareLiveAction(workflow, confirm) {
+  if (!workflow || workflow.step !== 'review') return;
+  if (confirm) {
+    confirm.disabled = true;
+    confirm.textContent = 'Preparing…';
+  }
+  workflow.livePrepared = null;
+  workflow.livePrepareFailed = false;
+  try {
+    const input = liveActionInput(workflow);
+    requestModerationAction('prepare', input).then(prepared => {
+      if (state.workflow !== workflow || workflow.step !== 'review') return;
+      workflow.livePrepared = {...prepared, targetKey:input.targetKey};
+      workflow.livePrepareFailed = false;
+      workflow.livePrepareError = '';
+      removeLivePreparationError();
+      if (confirm) {
+        confirm.disabled = false;
+        confirm.textContent = 'Confirm action';
+      }
+    }).catch(error => livePreparationFailed(workflow, confirm, error));
+  } catch (error) {
+    livePreparationFailed(workflow, confirm, error);
+  }
+}
+
+function livePreparationFailed(workflow, confirm, error) {
+  if (state.workflow !== workflow || workflow.step !== 'review') return;
+  workflow.livePrepared = null;
+  workflow.livePrepareFailed = true;
+  workflow.livePrepareError = error?.message || 'Live action could not be prepared.';
+  if (confirm) {
+    confirm.disabled = false;
+    confirm.textContent = 'Retry preparation';
+  }
+  showLivePreparationError(workflow.livePrepareError);
+}
+
+function showLivePreparationError(message) {
+  removeLivePreparationError();
+  const body = $('#workflowBody');
+  if (!body) return;
+  body.appendChild(element('div',{id:'liveActionPrepareError',className:'alert warning live-action-error'},
+    element('strong',{text:'Action could not be prepared'}),
+    element('span',{text:message})));
+}
+
+function removeLivePreparationError() {
+  $('#liveActionPrepareError')?.remove();
+}
 
 const simulationConfirm = window.confirmSimulation;
 window.confirmSimulation = async function () {
   if (state.session?.staging !== false) return simulationConfirm();
   const workflow = state.workflow;
+  if (workflow?.livePrepareFailed && !workflow.livePrepared) {
+    renderWorkflow();
+    return;
+  }
   if (!readyForLiveConfirmation(workflow)) return;
   await submitLiveConfirmation(workflow);
 };
@@ -204,8 +278,13 @@ window.renderCompleteStep = function () {
     element('p',{text:'Target notification: ' + (result?.dmOutcome || 'Unknown')}),
     element('p',{text:'Punishment ID: ' + (result?.punishmentId || 'Unknown')})));
   replaceChildrenOf($('#workflowFooter'),buttonNode('Done','button primary',{done:''}));
-  $('[data-done]').addEventListener('click',closeWorkflow);
+  $('[data-done]').addEventListener('click',finishLiveAction);
 };
+
+async function finishLiveAction() {
+  closeWorkflow();
+  await loadSession();
+}
 
 const simulationBoundary = window.testEnvironmentBoundary;
 window.testEnvironmentBoundary = function () {

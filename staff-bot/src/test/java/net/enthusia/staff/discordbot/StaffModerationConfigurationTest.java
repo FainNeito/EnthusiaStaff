@@ -42,11 +42,39 @@ class StaffModerationConfigurationTest {
         assertTrue(configuration.authorityUri().toString().startsWith("http://127.0.0.1:"));
         assertTrue(display.contains("authorityTransport=loopback"));
         assertTrue(display.contains("roleSync=<none>"));
+        assertTrue(display.contains("managedRoleShadow=<none>"));
         assertFalse(display.contains("%s"));
         assertFalse(display.contains(DATABASE_PASSWORD));
         assertFalse(display.contains(AUTHORITY_SECRET));
         assertFalse(display.contains(COMPONENT_SECRET));
         assertFalse(display.contains("127.0.0.1"));
+    }
+
+    @Test
+    void managedRoleShadowIsExplicitOptInAndUsesBoundedDefaults() {
+        Map<String, String> values = complete();
+        values.put(ManagedRoleShadowConfiguration.ENABLED_ENV, "true");
+
+        StaffModerationConfiguration configuration =
+                StaffModerationConfiguration.fromEnvironment(values).orElseThrow();
+
+        ManagedRoleShadowConfiguration shadow = configuration.managedRoleShadow().orElseThrow();
+        assertEquals(java.time.Duration.ofMinutes(5), shadow.interval());
+        assertEquals(2_000, shadow.maxClaims());
+        assertTrue(configuration.toString().contains("managedRoleShadow=<configured>"));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                StaffModerationConfiguration.fromEnvironment(Map.of(
+                        ManagedRoleShadowConfiguration.ENABLED_ENV, "true")));
+    }
+
+    @Test
+    void disabledManagedRoleShadowRejectsOrphanTuning() {
+        Map<String, String> values = complete();
+        values.put(ManagedRoleShadowConfiguration.ENABLED_ENV, "false");
+        values.put(ManagedRoleShadowConfiguration.MAX_CLAIMS_ENV, "100");
+        assertThrows(IllegalArgumentException.class,
+                () -> StaffModerationConfiguration.fromEnvironment(values));
     }
 
     @Test

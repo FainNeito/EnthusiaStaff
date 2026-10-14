@@ -29,6 +29,9 @@ final class StaffModerationConfigFile {
     static final String ROLE_SYNC_BATCH_SIZE_PROPERTY = "role-sync.batch-size";
     static final String ROLE_SYNC_DB_USERNAME_PROPERTY = "role-sync.db-username";
     static final String ROLE_SYNC_DB_CREDENTIAL_PROPERTY = "role-sync.db-password";
+    static final String MANAGED_ROLE_SHADOW_ENABLED_PROPERTY = "managed-role-shadow.enabled";
+    static final String MANAGED_ROLE_SHADOW_INTERVAL_PROPERTY = "managed-role-shadow.interval-seconds";
+    static final String MANAGED_ROLE_SHADOW_MAX_CLAIMS_PROPERTY = "managed-role-shadow.max-claims";
     static final String COMMAND_BRIDGE_ENDPOINTS_PROPERTY = "command-bridge.endpoints";
     static final String COMMAND_BRIDGE_CREDENTIAL_PROPERTY = "command-bridge.secret";
     static final String COMMAND_BRIDGE_TIMEOUT_PROPERTY = "command-bridge.timeout-millis";
@@ -60,6 +63,9 @@ final class StaffModerationConfigFile {
             Map.entry(ROLE_SYNC_BATCH_SIZE_PROPERTY, DiscordRoleSyncConfiguration.BATCH_SIZE_ENV),
             Map.entry(ROLE_SYNC_DB_USERNAME_PROPERTY, StaffModerationConfiguration.ROLE_SYNC_DB_USERNAME_ENV),
             Map.entry(ROLE_SYNC_DB_CREDENTIAL_PROPERTY, StaffModerationConfiguration.ROLE_SYNC_DB_CREDENTIAL_ENV),
+            Map.entry(MANAGED_ROLE_SHADOW_ENABLED_PROPERTY, ManagedRoleShadowConfiguration.ENABLED_ENV),
+            Map.entry(MANAGED_ROLE_SHADOW_INTERVAL_PROPERTY, ManagedRoleShadowConfiguration.INTERVAL_SECONDS_ENV),
+            Map.entry(MANAGED_ROLE_SHADOW_MAX_CLAIMS_PROPERTY, ManagedRoleShadowConfiguration.MAX_CLAIMS_ENV),
             Map.entry(COMMAND_BRIDGE_ENDPOINTS_PROPERTY, DiscordCommandBridgeConfiguration.ENDPOINTS_ENV),
             Map.entry(COMMAND_BRIDGE_CREDENTIAL_PROPERTY, DiscordCommandBridgeConfiguration.CREDENTIAL_ENV),
             Map.entry(COMMAND_BRIDGE_TIMEOUT_PROPERTY, DiscordCommandBridgeConfiguration.TIMEOUT_MILLIS_ENV),

@@ -8,8 +8,13 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.staff.paper.RuntimeHealth;
+import net.enthusia.staff.paper.config.ConfigurationValidationAction;
+import net.enthusia.staff.paper.config.ConfigurationValidationReport;
+import net.enthusia.staff.paper.config.MessageCatalog;
+import net.enthusia.staff.paper.config.MessageKey;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadAction;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
@@ -36,7 +41,11 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
     private static final String VERIFY_OPERATION = "verify";
     private static final String FULL_VERIFICATION_ARGUMENT = "full";
     private static final String RELOAD_OPERATION = "reload";
+    private static final String CONFIG_OPERATION = "config";
+    private static final String CONFIG_VALIDATE_ARGUMENT = "validate";
     private static final String SANCTION_OPERATION = "sanction";
+    private static final String POLICY_V2_OPERATION = "policyv2";
+    private static final String PUNISH_PERMISSION = "enthusiastaff.punish";
     private static final int NO_ARGUMENTS = 0;
     private static final int SINGLE_ARGUMENT = 1;
     private static final int FULL_VERIFICATION_ARGUMENTS = 2;
@@ -50,6 +59,13 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
     private final CopyOnWriteArrayList<Runnable> successfulReloadHooks = new CopyOnWriteArrayList<>();
     private volatile BooleanSupplier storagePublished = () -> false;
     private volatile SanctionLifecycleCommand sanctionLifecycle;
+    private volatile PolicyV2ShadowAccess policyV2Shadow = PolicyV2ShadowAccess.disabled();
+    private volatile ConfigurationValidationAction configurationValidation = () ->
+            new ConfigurationValidationReport(
+                    List.of(),
+                    List.of("Versioned configuration validation is unavailable without the Paper runtime")
+            );
+    private volatile Supplier<MessageCatalog> messages = MessageCatalog::builtIn;
 
     public EstaffCommand(RuntimeHealth health) {
         this(
@@ -152,6 +168,18 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         this.storagePublished = Objects.requireNonNull(storagePublished, "storagePublished");
     }
 
+    public void configurePolicyV2Shadow(PolicyV2ShadowAccess access) {
+        policyV2Shadow = Objects.requireNonNull(access, "access");
+    }
+
+    public void configureConfigurationValidation(ConfigurationValidationAction action) {
+        configurationValidation = Objects.requireNonNull(action, "action");
+    }
+
+    public void configureMessages(Supplier<MessageCatalog> messages) {
+        this.messages = Objects.requireNonNull(messages, "messages");
+    }
+
     @Override
     public boolean onCommand(
             @NotNull CommandSender sender,
@@ -159,9 +187,15 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             @NotNull String label,
             @NotNull String[] args
     ) {
+        if (args.length > 0 && args[0].equalsIgnoreCase(CONFIG_OPERATION)) {
+            return executeConfiguration(sender, label, args);
+        }
         SanctionLifecycleCommand lifecycle = sanctionLifecycle;
         if (args.length > 0 && args[0].equalsIgnoreCase(SANCTION_OPERATION) && lifecycle != null) {
             return lifecycle.execute(sender, label, args);
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase(POLICY_V2_OPERATION) && policyV2Shadow.enabled()) {
+            return executePolicyV2(sender, label, args);
         }
 
         String operation = args.length == NO_ARGUMENTS ? STATUS_OPERATION : args[0].toLowerCase(Locale.ROOT);
@@ -170,7 +204,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             if (requirePermission(
                     sender,
                     STATUS_PERMISSION,
-                    "You do not have permission to view EnthusiaStaff status."
+                    messageComponent(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED)
             )) {
                 reportUsage(sender, label);
             }
@@ -196,7 +230,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
                 if (requirePermission(
                         sender,
                         DIAGNOSTICS_PERMISSION,
-                        "You do not have permission to run full EnthusiaStaff diagnostics."
+                        messageComponent(MessageKey.ESTAFF_DIAGNOSTICS_PERMISSION_DENIED)
                 )) {
                     reportFullVerification(sender);
                 }
@@ -224,6 +258,9 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         if (args.length > 0 && args[0].equalsIgnoreCase(SANCTION_OPERATION) && lifecycle != null) {
             return lifecycle.complete(sender, args);
         }
+        if (args.length > 0 && args[0].equalsIgnoreCase(POLICY_V2_OPERATION) && policyV2Shadow.enabled()) {
+            return List.of();
+        }
         if (args.length == FULL_VERIFICATION_ARGUMENTS && args[0].equalsIgnoreCase(VERIFY_OPERATION)) {
             if (allowedWithoutMessage(sender, VERIFY_PERMISSION)
                     && allowedWithoutMessage(sender, DIAGNOSTICS_PERMISSION)
@@ -231,6 +268,20 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
                 return List.of(FULL_VERIFICATION_ARGUMENT);
             }
             return List.of();
+        }
+        if (args.length == FULL_VERIFICATION_ARGUMENTS && args[0].equalsIgnoreCase(CONFIG_OPERATION)) {
+            if (!allowedWithoutMessage(sender, RELOAD_PERMISSION)) {
+                return List.of();
+            }
+            String prefix = args[1].toLowerCase(Locale.ROOT);
+            List<String> matches = new ArrayList<>();
+            if (CONFIG_VALIDATE_ARGUMENT.startsWith(prefix)) {
+                matches.add(CONFIG_VALIDATE_ARGUMENT);
+            }
+            if (RELOAD_OPERATION.startsWith(prefix)) {
+                matches.add(RELOAD_OPERATION);
+            }
+            return List.copyOf(matches);
         }
         if (args.length > SINGLE_ARGUMENT) {
             return List.of();
@@ -240,14 +291,110 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         addCompletion(sender, matches, prefix, STATUS_OPERATION, STATUS_PERMISSION);
         addCompletion(sender, matches, prefix, VERIFY_OPERATION, VERIFY_PERMISSION);
         addCompletion(sender, matches, prefix, RELOAD_OPERATION, RELOAD_PERMISSION);
+        addCompletion(sender, matches, prefix, CONFIG_OPERATION, RELOAD_PERMISSION);
         if (lifecycle != null && SANCTION_OPERATION.startsWith(prefix)
                 && hasAnySanctionPermission(sender)) {
             matches.add(SANCTION_OPERATION);
         }
+        if (policyV2Shadow.enabled() && POLICY_V2_OPERATION.startsWith(prefix)
+                && allowedWithoutMessage(sender, PUNISH_PERMISSION)) {
+            matches.add(POLICY_V2_OPERATION);
+        }
         return List.copyOf(matches);
     }
 
+    private boolean executeConfiguration(CommandSender sender, String label, String[] args) {
+        if (!requirePermission(
+                sender,
+                RELOAD_PERMISSION,
+                messageComponent(MessageKey.ESTAFF_CONFIG_PERMISSION_DENIED)
+        )) {
+            return true;
+        }
+        if (args.length != FULL_VERIFICATION_ARGUMENTS) {
+            reportUsage(sender, label);
+            return true;
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if (action.equals(CONFIG_VALIDATE_ARGUMENT)) {
+            reportConfigurationValidation(sender);
+            return true;
+        }
+        if (action.equals(RELOAD_OPERATION)) {
+            dispatchReload(sender);
+            return true;
+        }
+        reportUsage(sender, label);
+        return true;
+    }
+
+    private void reportConfigurationValidation(CommandSender sender) {
+        ConfigurationValidationReport report;
+        try {
+            report = Objects.requireNonNull(
+                    configurationValidation.validate(),
+                    "configuration validation report"
+            );
+        } catch (RuntimeException exception) {
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(
+                        Level.WARNING,
+                        "Versioned configuration validation failed unexpectedly: "
+                                + exception.getClass().getSimpleName()
+                );
+            }
+            sender.sendMessage(StaffMessageStyle.error(
+                    messageComponent(MessageKey.ESTAFF_CONFIG_VALIDATION_UNEXPECTED)
+            ));
+            return;
+        }
+        if (report.valid()) {
+            sender.sendMessage(StaffMessageStyle.success(
+                    messageComponent(MessageKey.ESTAFF_CONFIG_VALIDATION_PASSED)
+            ));
+            for (ConfigurationValidationReport.Entry entry : report.entries()) {
+                sender.sendMessage(StaffMessageStyle.info(
+                        entry.source() + " • " + entry.version()
+                ));
+            }
+            return;
+        }
+        sender.sendMessage(StaffMessageStyle.error(
+                messageComponent(MessageKey.ESTAFF_CONFIG_VALIDATION_FAILED)
+        ));
+        int shown = Math.min(report.errors().size(), MAX_RELOAD_DETAILS);
+        for (int index = 0; index < shown; index++) {
+            sender.sendMessage(Component.text("  • ", NamedTextColor.DARK_GRAY)
+                    .append(Component.text(report.errors().get(index), NamedTextColor.GRAY)));
+        }
+        if (report.errors().size() > shown) {
+            sender.sendMessage(StaffMessageStyle.info(
+                    messageComponent(MessageKey.ESTAFF_CONFIG_ERRORS_OMITTED)
+            ));
+        }
+    }
+
+    private boolean executePolicyV2(CommandSender sender, String label, String[] args) {
+        if (!requirePermission(
+                sender,
+                PUNISH_PERMISSION,
+                messageComponent(MessageKey.ESTAFF_POLICY_V2_PERMISSION_DENIED)
+        )) {
+            return true;
+        }
+        if (args.length != FULL_VERIFICATION_ARGUMENTS) {
+            reportUsage(sender, label);
+            return true;
+        }
+        policyV2Shadow.open(sender, args[1]);
+        return true;
+    }
+
     static boolean requirePermission(CommandSender sender, String permission, String denialMessage) {
+        return requirePermission(sender, permission, Component.text(denialMessage));
+    }
+
+    static boolean requirePermission(CommandSender sender, String permission, Component denialMessage) {
         if (permission != null && !permission.isBlank() && sender instanceof ConsoleCommandSender) {
             return true;
         }
@@ -262,23 +409,26 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         );
         if (dispatch == ReloadDispatch.SCHEDULED) {
             sender.sendMessage(StaffMessageStyle.warning(
-                    "EnthusiaStaff reload scheduled on the global region thread."
+                    messageComponent(MessageKey.ESTAFF_RELOAD_SCHEDULED)
             ));
         } else if (dispatch == ReloadDispatch.REJECTED) {
             sender.sendMessage(StaffMessageStyle.error(
-                    "EnthusiaStaff reload could not be scheduled; no configuration was changed."
+                    messageComponent(MessageKey.ESTAFF_RELOAD_REJECTED)
             ));
         }
     }
 
     private void reportStatus(CommandSender sender) {
         RuntimeHealth.Snapshot snapshot = health.snapshot();
-        sender.sendMessage(StaffMessageStyle.modeHeader("EnthusiaStaff", snapshot.mode()));
+        sender.sendMessage(StaffMessageStyle.modeHeader(
+                messageComponent(MessageKey.ESTAFF_STATUS_TITLE),
+                snapshot.mode()
+        ));
         if (snapshot.issues().isEmpty()) {
             sender.sendMessage(StaffMessageStyle.statusRow(
-                    "Runtime",
-                    "Healthy",
-                    "No active runtime health issues",
+                    messageComponent(MessageKey.ESTAFF_STATUS_RUNTIME_LABEL),
+                    messageComponent(MessageKey.ESTAFF_STATUS_HEALTHY),
+                    messageComponent(MessageKey.ESTAFF_STATUS_NO_ISSUES),
                     StaffMessageStyle.Tone.SUCCESS
             ));
             return;
@@ -291,8 +441,10 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             );
             sender.sendMessage(StaffMessageStyle.statusRow(
                     humanLabel(issue.getKey()),
-                    tone == StaffMessageStyle.Tone.ERROR ? "Blocked" : "Disabled",
-                    issue.getValue(),
+                    tone == StaffMessageStyle.Tone.ERROR
+                            ? messageComponent(MessageKey.ESTAFF_STATUS_BLOCKED)
+                            : messageComponent(MessageKey.ESTAFF_STATUS_DISABLED),
+                    Component.text(issue.getValue()),
                     tone
             ));
         }
@@ -307,14 +459,18 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         } catch (RuntimeException exception) {
             LOGGER.log(Level.WARNING, "Full EnthusiaStaff verification failed", exception);
             sender.sendMessage(StaffMessageStyle.error(
-                    "Full verification failed; see the sanitized server log."
+                    messageComponent(MessageKey.ESTAFF_FULL_VERIFICATION_FAILED)
             ));
         }
     }
 
-    private static void reportUsage(CommandSender sender, String label) {
-        sender.sendMessage(StaffMessageStyle.usage(
-                "Usage: /" + label + " <status|verify [full]|reload|sanction>"
+    private void reportUsage(CommandSender sender, String label) {
+        String operations = policyV2Shadow.enabled()
+                ? "status|verify [full]|reload|config <validate|reload>|sanction|policyv2 <player>"
+                : "status|verify [full]|reload|config <validate|reload>|sanction";
+        sender.sendMessage(messageComponent(
+                MessageKey.ESTAFF_USAGE,
+                Map.of("label", label, "operations", "<" + operations + ">")
         ));
     }
 
@@ -332,11 +488,11 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         }
         if (result.details().size() > shown) {
             sender.sendMessage(StaffMessageStyle.info(
-                    "Additional sanitized reload details were written to the server log."
+                    messageComponent(MessageKey.ESTAFF_RELOAD_DETAILS_OMITTED)
             ));
         }
         if (result.reasonPoliciesReloaded()) {
-            sender.sendMessage(StaffMessageStyle.success("Reason policies were replaced atomically."));
+            sender.sendMessage(StaffMessageStyle.success(messageComponent(MessageKey.ESTAFF_REASON_POLICIES_RELOADED)));
         }
     }
 
@@ -347,7 +503,7 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
             } catch (RuntimeException exception) {
                 LOGGER.log(Level.WARNING, "Successful reload hook failed", exception);
                 sender.sendMessage(StaffMessageStyle.warning(
-                        "Reload applied, but a presentation-settings hook failed; previous values remain active."
+                        messageComponent(MessageKey.ESTAFF_PRESENTATION_HOOK_FAILED)
                 ));
             }
         }
@@ -386,20 +542,28 @@ public final class EstaffCommand implements CommandExecutor, TabCompleter {
         };
     }
 
-    private static String denialMessage(String operation) {
+    private Component denialMessage(String operation) {
         return switch (operation) {
-            case VERIFY_OPERATION -> "You do not have permission to verify EnthusiaStaff runtime state.";
-            case RELOAD_OPERATION -> "You do not have permission to reload EnthusiaStaff configuration.";
-            default -> "You do not have permission to view EnthusiaStaff status.";
+            case VERIFY_OPERATION -> messageComponent(MessageKey.ESTAFF_VERIFY_PERMISSION_DENIED);
+            case RELOAD_OPERATION -> messageComponent(MessageKey.ESTAFF_RELOAD_PERMISSION_DENIED);
+            default -> messageComponent(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED);
         };
     }
 
-    private static String humanLabel(String value) {
+    private Component humanLabel(String value) {
         String normalized = value == null ? "" : value.trim().replace('-', ' ').replace('_', ' ');
         if (normalized.isBlank()) {
-            return "Runtime";
+            return messageComponent(MessageKey.ESTAFF_STATUS_RUNTIME_LABEL);
         }
-        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
+        return Component.text(Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1));
+    }
+
+    private Component messageComponent(MessageKey key) {
+        return Objects.requireNonNull(messages.get(), "message catalog").component(key);
+    }
+
+    private Component messageComponent(MessageKey key, Map<String, ?> values) {
+        return Objects.requireNonNull(messages.get(), "message catalog").component(key, values);
     }
 
     enum ReloadDispatch {

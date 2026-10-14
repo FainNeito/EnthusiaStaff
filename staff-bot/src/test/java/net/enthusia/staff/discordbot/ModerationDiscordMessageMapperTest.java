@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Proxy;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
@@ -30,6 +31,46 @@ class ModerationDiscordMessageMapperTest {
 
         assertSame(cached, ModerationDiscordMessageMapper.memberIfPresent(guild, 222L));
         assertFalse(restCalled.get());
+    }
+
+    @Test
+    void embedOnlyWebhookContentFallsBackToVisibleEmbedText() {
+        var embed = new EmbedBuilder()
+                .setTitle("Minecraft chat")
+                .setDescription("hello from the webhook")
+                .addField("Server", "SMP", false)
+                .build();
+
+        assertEquals(
+                "Minecraft chat\nhello from the webhook\nServer: SMP",
+                ModerationDiscordMessageMapper.visibleText("", "", java.util.List.of(embed))
+        );
+        assertEquals(
+                "normal Discord text",
+                ModerationDiscordMessageMapper.visibleText(
+                        "normal Discord text", "raw text", java.util.List.of(embed))
+        );
+    }
+
+    @Test
+    void embedImageMediaIsProjectedForGifAndImageRendering() {
+        var embed = new EmbedBuilder()
+                .setImage("https://cdn.discordapp.com/attachments/1/2/animated.gif")
+                .build();
+
+        var media = ModerationDiscordMessageMapper.embedMedia(java.util.List.of(embed));
+
+        assertEquals(1, media.size());
+        assertEquals("image", media.getFirst().kind());
+        assertEquals("https://cdn.discordapp.com/attachments/1/2/animated.gif", media.getFirst().url());
+    }
+
+    @Test
+    void rawMessageContentIsUsedBeforeEmbedFallback() {
+        assertEquals(
+                "raw webhook content",
+                ModerationDiscordMessageMapper.visibleText("", "raw webhook content", java.util.List.of())
+        );
     }
 
     @Test

@@ -21,7 +21,7 @@ class PunishmentGuiSecurityRegressionTest {
 
     @Test
     void historyPageRechecksCurrentSensitiveHistoryPermission() throws IOException {
-        String source = Files.readString(CONTROLLER);
+        String source = readNormalized(CONTROLLER);
         String method = method(source, "private void openHistory(", "private void openUnavailableHistory(");
 
         assertTrue(method.contains(
@@ -34,8 +34,8 @@ class PunishmentGuiSecurityRegressionTest {
 
     @Test
     void overviewNeverCachesSensitiveHistoryPermissionOrEntries() throws IOException {
-        String source = Files.readString(OVERVIEW);
-        String controller = Files.readString(CONTROLLER);
+        String source = readNormalized(OVERVIEW);
+        String controller = readNormalized(CONTROLLER);
 
         assertFalse(source.contains("sensitiveHistory"));
         assertFalse(source.contains("ModerationHistoryEntry"));
@@ -47,7 +47,7 @@ class PunishmentGuiSecurityRegressionTest {
 
     @Test
     void historyResultRechecksSensitivePermissionBeforeRendering() throws IOException {
-        String source = Files.readString(CONTROLLER);
+        String source = readNormalized(CONTROLLER);
         String method = method(source, "private void openState(", "private Actor authorizedActor(");
 
         assertTrue(method.contains("history.sensitiveHistory()"));
@@ -57,7 +57,7 @@ class PunishmentGuiSecurityRegressionTest {
 
     @Test
     void resumedReviewStillShowsTheFullConfiguredLadder() throws IOException {
-        String source = Files.readString(RENDERER);
+        String source = readNormalized(RENDERER);
         String method = method(source, "private void renderReview(", "private void renderHistory(");
 
         assertTrue(method.contains("catalog.find(draft.reasonId())"));
@@ -69,7 +69,7 @@ class PunishmentGuiSecurityRegressionTest {
 
     @Test
     void unavailableHistoryIsNotRenderedAsAnEmptySuccessfulTimeline() throws IOException {
-        String source = Files.readString(RENDERER);
+        String source = readNormalized(RENDERER);
         String method = method(source, "private void renderHistory(", "private void renderHeader(");
 
         assertTrue(method.contains("if (!state.available())"));
@@ -79,13 +79,28 @@ class PunishmentGuiSecurityRegressionTest {
 
     @Test
     void historyBackButtonDoesNotClaimItAlwaysReturnsToCategories() throws IOException {
-        String source = Files.readString(RENDERER);
+        String source = readNormalized(RENDERER);
         String method = method(source, "private void renderHistory(", "private void renderHeader(");
 
         assertTrue(method.contains(
                 "button(Material.ARROW, \"Back\", NamedTextColor.AQUA)"
         ));
         assertFalse(method.contains("Back · Categories"));
+    }
+
+    @Test
+    void searchCancelsChatAndExpiresWithoutPersistingPunishments() throws IOException {
+        String controller = readNormalized(CONTROLLER);
+        String handler = method(controller, "public void onChat(", "public void onQuit(");
+        assertTrue(handler.contains("searchCaptures.remove(viewer.getUniqueId())"));
+        assertTrue(handler.contains("event.setCancelled(true)"));
+        String selection = method(controller, "private void searchClick(", "private void reviewClick(");
+        assertTrue(selection.contains("catalog.search(actor, state.commandName(), state.query())"));
+        assertTrue(selection.contains("prepare(viewer, actor, state, results.get(index))"));
+        String capture = method(controller, "private void startSearch(", "private void reviewClick(");
+        assertTrue(capture.contains("20L * 60L"));
+        assertTrue(capture.contains("searchCaptures.remove(viewer.getUniqueId(), capture)"));
+        assertTrue(capture.contains("targetAllowed(viewer, actor, origin.target().playerId())"));
     }
 
     private static String method(String source, String startMarker, String endMarker) {
@@ -96,4 +111,9 @@ class PunishmentGuiSecurityRegressionTest {
         }
         return source.substring(start, end);
     }
+    private static String readNormalized(Path file) throws IOException {
+        // Source assertions match Java syntax rather than the host's Git checkout line endings.
+        return Files.readString(file).replace("\r\n", "\n");
+    }
+
 }

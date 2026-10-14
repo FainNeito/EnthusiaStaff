@@ -156,9 +156,90 @@ function polishedMessageBodyNode(message) {
   if (message.deleted) body.append(element('div', {className:'message-text'}, element('em', {text:'Message is deleted in Discord'})));
   else if (message.text) body.append(hardenedDiscordMessageContentNode(message.text));
   else body.append(element('div', {className:'message-text'}, element('em', {text:'Text content unavailable from Discord'})));
-  for (const attachment of message.attachments || []) body.append(attachmentNode(attachment));
+  for (const attachment of message.attachments || []) body.append(richAttachmentNode(attachment));
+  for (const media of message.media || []) {
+    const preview = discordMediaNode(media);
+    if (preview) body.append(preview);
+  }
   body.append(hardenedMessageStatusNodes(message));
   return body;
+}
+
+function richAttachmentNode(attachment) {
+  const contentType = String(attachment.contentType || '').toLowerCase();
+  const url = safeDiscordMediaUrl(attachment.url);
+  if (url && contentType.startsWith('image/')) {
+    return imagePreviewNode(url, attachment.name || 'Discord image', attachment.detail || contentType, true);
+  }
+  return attachmentLinkNode(attachment);
+}
+
+function attachmentLinkNode(attachment) {
+  const url = safeDiscordMediaUrl(attachment.url);
+  const content = element('div', {className:'attachment-card'},
+    element('div', {className:'attachment-icon', text:'FILE'}),
+    element('div', {},
+      element('strong', {text:attachment.name || 'Attachment'}),
+      element('span', {text:attachment.detail || 'Discord attachment'})));
+  if (!url) return content;
+  const link = document.createElement('a');
+  link.className = 'attachment-link';
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.append(content);
+  return link;
+}
+
+function discordMediaNode(media) {
+  const url = safeDiscordMediaUrl(media?.url);
+  if (!url) return null;
+  if (media.kind === 'video') {
+    const video = document.createElement('video');
+    video.className = 'message-media-preview message-media-video';
+    video.src = url;
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.controls = true;
+    video.preload = 'metadata';
+    video.addEventListener('error', () => video.remove());
+    return video;
+  }
+  return imagePreviewNode(url, 'Discord media preview', media.contentType || 'Image', false);
+}
+
+function imagePreviewNode(url, alt, detail, includeCaption) {
+  const image = document.createElement('img');
+  image.className = 'message-media-preview message-media-image';
+  image.src = url;
+  image.alt = alt;
+  image.loading = 'lazy';
+  image.referrerPolicy = 'no-referrer';
+  const link = document.createElement('a');
+  link.className = 'message-media-link';
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.append(image);
+  if (includeCaption) {
+    link.append(element('span',{className:'message-media-caption',text:detail}));
+  }
+  image.addEventListener('error', () => link.remove());
+  return link;
+}
+
+function safeDiscordMediaUrl(value) {
+  if (typeof value !== 'string' || !value) return '';
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return '';
+    if (!['cdn.discordapp.com','media.discordapp.net'].includes(url.hostname)) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
 }
 
 function polishedMessageMetaNode(message) {

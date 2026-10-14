@@ -2,6 +2,7 @@ package net.enthusia.staff.discordbot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.InetSocketAddress;
@@ -10,6 +11,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class StaffBotHealthServerTest {
@@ -36,6 +38,45 @@ class StaffBotHealthServerTest {
     }
 
     @Test
+    void durableRecoveryFailureRevokesReadinessWithoutExposingReceiptData()
+            throws Exception {
+        StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.STAGING);
+        AtomicBoolean safe = new AtomicBoolean(true);
+        health.requireCriticalReadiness(safe::get);
+        health.transition(StaffBotHealth.Phase.READY, DiscordRuntimeIdentityValidator.READY);
+        try (StaffBotHealthServer server = new StaffBotHealthServer(
+                loopbackEphemeralAddress(), health)) {
+            server.start();
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://" + host(server.boundAddress())
+                    + ":" + server.boundAddress().getPort());
+            assertEquals(200, get(client, base.resolve("/ready")).statusCode());
+            safe.set(false);
+            HttpResponse<String> unhealthy = get(client, base.resolve("/ready"));
+            assertEquals(503, unhealthy.statusCode());
+            assertTrue(unhealthy.body().contains("mirror_recovery_unavailable"));
+            assertFalse(unhealthy.body().contains("canonicalMessageId"));
+            assertTrue(health.failedEver());
+            assertEquals(200, get(client, base.resolve("/health")).statusCode());
+            safe.set(true);
+            assertEquals(503, get(client, base.resolve("/ready")).statusCode());
+        }
+    }
+
+    @Test
+    void failingReadinessCallbackCannotExposeItsExceptionOrMarkReady() {
+        StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.STAGING);
+        health.requireCriticalReadiness(() -> {
+            throw new IllegalStateException("synthetic sensitive receipt");
+        });
+        health.transition(StaffBotHealth.Phase.READY, DiscordRuntimeIdentityValidator.READY);
+        assertFalse(health.isReady());
+        assertEquals("mirror_recovery_unavailable", health.snapshot().reason());
+        assertTrue(health.failedEver());
+        assertFalse(health.snapshot().reason().contains("sensitive"));
+    }
+
+    @Test
     void escapesAllJsonControlCharactersInHealthReasons() throws Exception {
         StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.STAGING);
         health.transition(
@@ -56,6 +97,41 @@ class StaffBotHealthServerTest {
                             + "slash\\\\quote\\\"\",\"rejectedWork\":0}\n",
                     response.body());
         }
+    }
+
+    @Test
+    void durableStagingReadyExposesOnlyAggregateMetrics() throws Exception {
+        StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.STAGING);
+        health.requireStagingMirrorMetrics(() -> new AiMirrorRecoveryMetrics(
+                18, 17, 1, 0, 0, 14, 2, 1, 0, 0, 3, 1, 0, 0, 0, 0, 1));
+        health.transition(StaffBotHealth.Phase.READY, DiscordRuntimeIdentityValidator.READY);
+        try (StaffBotHealthServer server = new StaffBotHealthServer(
+                loopbackEphemeralAddress(), health)) {
+            server.start();
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://" + host(server.boundAddress())
+                    + ":" + server.boundAddress().getPort());
+            HttpResponse<String> ready = get(client, base.resolve("/ready"));
+            assertEquals(200, ready.statusCode());
+            assertTrue(ready.body().contains("\"mirrorRecovery\":{"));
+            assertTrue(ready.body().contains("\"eligiblePostSend\":18"));
+            assertTrue(ready.body().contains("\"fastConfirmed\":14"));
+            assertTrue(ready.body().contains("\"expiredReceipts\":1"));
+            assertFalse(ready.body().contains("canonicalMessageId"));
+            assertFalse(ready.body().contains("synthetic original text"));
+            assertFalse(get(client, base.resolve("/health")).body()
+                    .contains("mirrorRecovery"));
+        }
+    }
+
+    @Test
+    void productionCannotAttachStagingMirrorTelemetry() {
+        StaffBotHealth health = new StaffBotHealth(StaffBotEnvironment.PRODUCTION);
+        assertThrows(IllegalStateException.class,
+                () -> health.requireStagingMirrorMetrics(() ->
+                        new AiMirrorRecoveryMetrics(
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+        assertTrue(health.stagingMirrorMetrics().isEmpty());
     }
 
     private static InetSocketAddress loopbackEphemeralAddress() {

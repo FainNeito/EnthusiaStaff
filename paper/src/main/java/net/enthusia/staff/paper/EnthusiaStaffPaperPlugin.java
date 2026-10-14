@@ -2,6 +2,7 @@ package net.enthusia.staff.paper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -18,6 +19,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Level;
+import net.enthusia.discord.platform.api.ManagedRolePlatform;
+import net.enthusia.staff.authoritybridge.EmbeddedAuthorityBridge;
+import net.enthusia.staff.authoritybridge.LegacyBridgeConfigMigration;
+import net.enthusia.staff.moderation.api.PunishmentLifecyclePlatform;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.StaffRank;
@@ -43,13 +48,21 @@ import net.enthusia.staff.paper.config.RestartRequiredConfiguration;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadAction;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadCoordinator;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
+import net.enthusia.staff.paper.discordplatform.PaperManagedRolePlatform;
+import net.enthusia.staff.paper.moderationplatform.PaperPunishmentLifecyclePlatform;
 import net.enthusia.staff.paper.enforcement.MuteEnforcementListener;
+import net.enthusia.staff.paper.integration.PolarSpectatorPhaseCompatibility;
+import net.enthusia.staff.paper.punishment.policyv2.PolicyV2ShadowRuntime;
 import net.enthusia.staff.paper.report.ChatContextBuffer;
 import net.enthusia.staff.persistence.DatabaseConfig;
+import net.enthusia.staff.persistence.JdbcPolicyV1BehavioralHistorySource;
+import net.enthusia.staff.persistence.JdbcPolicyV2EnforcementStore;
+import net.enthusia.staff.persistence.JdbcPolicyV2Store;
 import net.enthusia.staff.persistence.MariaDb;
 import net.enthusia.staff.persistence.MariaDbRuntime;
 import net.enthusia.staff.protocol.PersistentChannelClient;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
@@ -78,9 +91,18 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     private PaperConfigurationSnapshot configurationSnapshot;
     private PunishmentRequestAlertController alertController;
     private ConfigurationReloadCoordinator reloadCoordinator;
+    private PolicyV2ShadowRuntime policyV2Runtime;
     private PaperDatabaseConfiguration.Settings databaseSettings;
     private PaperOperationalTaskCoordinator operationalTasks;
     private PaperCommandBridgeRuntime commandBridge;
+    private EmbeddedAuthorityBridge embeddedAuthorityBridge;
+    private Optional<PaperManagedRolePlatform> managedRolePlatform = Optional.empty();
+    private Optional<PaperPunishmentLifecyclePlatform> punishmentLifecyclePlatform = Optional.empty();
+
+    @Override
+    public void onLoad() {
+        PolarSpectatorPhaseCompatibility.prepareOnLoad(this, featureIssues);
+    }
 
     @Override
     public void onEnable() {
@@ -95,7 +117,14 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
             return;
         }
         databaseSettings = PaperDatabaseConfiguration.snapshot(getConfig());
-        saveResource("reason-policies.yml", false);
+        startEmbeddedAuthority();
+        if (Files.notExists(reasonPolicyFile())) {
+            saveResource("reason-policies.yml", false);
+        }
+        Path policyV2File = dataDirectory().resolve("policy-v2.yml");
+        if (Files.notExists(policyV2File)) {
+            saveResource("policy-v2.yml", false);
+        }
         boolean policiesReady = loadReasonPolicies();
         RestartRequiredConfiguration bootstrap = configurationSnapshot.restartRequired();
         workers = BoundedExecutorFactory.create(bootstrap.workerThreads(), bootstrap.workerQueueCapacity());
@@ -144,11 +173,14 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
             integrations.initializeAutomod();
         }
         if (policiesReady) {
+            initializePolicyV2Runtime();
             registerCommands();
         } else {
             PaperCommandRegistrar.registerStatus(this, health, reloadAction());
         }
         runtimeComponents.registerServices(this);
+        registerManagedRolePlatform();
+        registerPunishmentLifecyclePlatform();
         if (policiesReady) {
             muteEnforcement = new MuteEnforcementListener(
                     this,
@@ -157,7 +189,8 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                     mode::get,
                     () -> storageValue(PaperStorageBindings::sanctionLookup),
                     () -> storageValue(PaperStorageBindings::playerDirectory),
-                    workers
+                    workers,
+                    () -> storageValue(PaperStorageBindings::altMuteEvasionAlertStore)
             );
             getServer().getPluginManager().registerEvents(muteEnforcement, this);
             muteEnforcement.start();
@@ -178,6 +211,9 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
     }
 
     private void closeNonDatabaseResources() {
+        PolarSpectatorPhaseCompatibility.close(this);
+        unregisterPunishmentLifecyclePlatform();
+        unregisterManagedRolePlatform();
         resources.close("player activity tracker", getServer().getServicesManager().load(
                 net.enthusia.staff.paper.staff.PlayerActivityListener.class));
         resources.close("investigation join alerts", getServer().getServicesManager().load(
@@ -225,6 +261,49 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                 ),
                 this::publishAlertStatus
         );
+    }
+
+    private void registerManagedRolePlatform() {
+        PaperManagedRolePlatform current = new PaperManagedRolePlatform(
+                () -> storageValue(bindings -> bindings.runtime().dataSource()),
+                workers,
+                json,
+                Clock.systemUTC()
+        );
+        managedRolePlatform = Optional.of(current);
+        getServer().getServicesManager().register(
+                ManagedRolePlatform.class,
+                current,
+                this,
+                ServicePriority.Normal
+        );
+    }
+
+    private void unregisterManagedRolePlatform() {
+        managedRolePlatform.ifPresent(current ->
+                getServer().getServicesManager().unregister(ManagedRolePlatform.class, current));
+        managedRolePlatform = Optional.empty();
+    }
+
+    private void registerPunishmentLifecyclePlatform() {
+        PaperPunishmentLifecyclePlatform current = new PaperPunishmentLifecyclePlatform(
+                () -> storageValue(bindings -> bindings.runtime().dataSource()),
+                workers,
+                Clock.systemUTC()
+        );
+        punishmentLifecyclePlatform = Optional.of(current);
+        getServer().getServicesManager().register(
+                PunishmentLifecyclePlatform.class,
+                current,
+                this,
+                ServicePriority.Normal
+        );
+    }
+
+    private void unregisterPunishmentLifecyclePlatform() {
+        punishmentLifecyclePlatform.ifPresent(current ->
+                getServer().getServicesManager().unregister(PunishmentLifecyclePlatform.class, current));
+        punishmentLifecyclePlatform = Optional.empty();
     }
 
     private Path dataDirectory() {
@@ -519,6 +598,45 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         }
     }
 
+    private void startEmbeddedAuthority() {
+        try {
+            LegacyBridgeConfigMigration.Result result = LegacyBridgeConfigMigration.migrate(dataDirectory());
+            if (result.copied() > 0) {
+                getLogger().log(Level.INFO,
+                        "legacy_bridge_configuration_imported files={0} source_preserved=true features_default_off=true",
+                        result.copied());
+            }
+            embeddedAuthorityBridge = EmbeddedAuthorityBridge.open(this, dataDirectory());
+        } catch (RuntimeException exception) {
+            featureIssues.put("embedded-authority", "Private authority service unavailable; feature disabled");
+            getLogger().log(Level.WARNING,
+                    "embedded_authority_start_failed type={0}", exception.getClass().getSimpleName());
+        }
+    }
+
+    private void startEmbeddedCollector(MariaDbRuntime storage) {
+        if (embeddedAuthorityBridge == null || lifecycle.stopping()) {
+            return;
+        }
+        boolean scheduled = scheduleGlobal(() -> {
+            if (lifecycle.stopping()) {
+                return;
+            }
+            try {
+                DatabaseConfig primary = new PaperDatabaseConfiguration(
+                        databaseSettings, System::getenv).load().orElseThrow();
+                embeddedAuthorityBridge.startCollector(storage.dataSource(), networkServerId(), primary);
+            } catch (RuntimeException exception) {
+                featureIssues.put("embedded-collector", "Transition collection unavailable; feature disabled");
+                getLogger().log(Level.WARNING,
+                        "embedded_collector_start_failed type={0}", exception.getClass().getSimpleName());
+            }
+        });
+        if (!scheduled) {
+            featureIssues.put("embedded-collector", "Collector startup could not be scheduled");
+        }
+    }
+
     private void finishStorageFollowUp(PaperStorageBindings bindings) {
         if (lifecycle.stopping()
                 || lifecycle.storage().filter(current -> current == bindings).isEmpty()) {
@@ -533,6 +651,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                     exception);
         }
         startCommandBridge(bindings.runtime());
+        startEmbeddedCollector(bindings.runtime());
         if (!lifecycle.stopping()) {
             registerOperationalStateTask();
         }
@@ -647,6 +766,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         resources.close("operational task coordinator", operationalTasks);
         resources.close("punishment-request alert controller", alertController);
         resources.close("Discord command bridge", commandBridge);
+        resources.close("embedded authority bridge", embeddedAuthorityBridge);
         cancelOperationalStateTask();
         closeChannelClient();
     }
@@ -665,8 +785,12 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
 
     private void closeChannelClient() {
         channelConnected.set(false);
-        lifecycle.removeChannel()
-                .ifPresent(client -> resources.close("persistent Velocity channel", client));
+        lifecycle.removeChannel().ifPresent(client -> {
+            if (integrations != null) {
+                integrations.unbindChatChannel(client);
+            }
+            resources.close("persistent Velocity channel", client);
+        });
     }
 
     private void shutdownWorkers() {
@@ -866,8 +990,39 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                         integrations::market,
                         integrations::reputation
                 ),
-                new PaperCommandRegistrar.EvidenceComponents(chatContext, clientEvidenceCollector)
+                new PaperCommandRegistrar.EvidenceComponents(chatContext, clientEvidenceCollector),
+                policyV2Runtime
         )).register();
+    }
+
+    private void initializePolicyV2Runtime() {
+        policyV2Runtime = new PolicyV2ShadowRuntime(
+                this,
+                Clock.systemUTC(),
+                getDataFolder().toPath().resolve("policy-v2.yml"),
+                new PolicyV2ShadowRuntime.StoreSuppliers(
+                        () -> storageValue(bindings -> new JdbcPolicyV2Store(bindings.runtime().dataSource())),
+                        () -> storageValue(bindings -> new JdbcPolicyV2EnforcementStore(bindings.runtime().dataSource())),
+                        () -> storageValue(PaperStorageBindings::playerDirectory),
+                        () -> storageValue(bindings ->
+                                new JdbcPolicyV1BehavioralHistorySource(bindings.runtime().dataSource()))
+                ),
+                new PolicyV2ShadowRuntime.RuntimeServices(
+                        new net.enthusia.staff.paper.auth.ActiveDutyAuthorizationPolicy(
+                                authorizationPolicy,
+                                runtimeComponents.staffMode()::authorityActive
+                        ),
+                        workers,
+                        issue -> {
+                            if (issue.isPresent()) {
+                                featureIssues.put("policy-v2", issue.orElseThrow());
+                            } else {
+                                featureIssues.remove("policy-v2");
+                            }
+                            refreshHealth(mode.get());
+                        }
+                )
+        );
     }
 
     private PaperRuntimeComponents createRuntimeComponents() {
@@ -880,6 +1035,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                         () -> storageValue(PaperStorageBindings::reportStore),
                         () -> storageValue(PaperStorageBindings::freezeStore),
                         () -> storageValue(PaperStorageBindings::staffSessionStore),
+                        () -> storageValue(PaperStorageBindings::staffPreferenceStore),
                         () -> storageValue(PaperStorageBindings::vanishStore),
                         () -> storageValue(PaperStorageBindings::inventoryJournalStore),
                         () -> storageValue(PaperStorageBindings::playerDirectory),
@@ -897,12 +1053,18 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
                 new PaperIntegrationManager.Policy(
                         mode::get, this::effectiveWriteMode,
                         new net.enthusia.staff.paper.auth.ActiveDutyAuthorizationPolicy(
-                                authorizationPolicy, runtimeComponents.staffMode()::authorityActive), reasonPolicies
+                                authorizationPolicy,
+                                runtimeComponents.staffMode()::authorityActiveOrUnrestricted), reasonPolicies,
+                        runtimeComponents.staffMode()::authorityActive
                 ),
                 new PaperIntegrationManager.Stores(
                         () -> storageValue(PaperStorageBindings::punishmentService),
                         () -> storageValue(PaperStorageBindings::punishmentDraftWorkflow),
+                        () -> storageValue(PaperStorageBindings::punishmentRequestService),
+                        () -> storageValue(PaperStorageBindings::staffSessionStore),
+                        () -> storageValue(PaperStorageBindings::reportStore),
                         () -> storageValue(PaperStorageBindings::playerDirectory),
+                        () -> storageValue(bindings -> bindings.runtime().discordModerationPersistenceStore()),
                         () -> storageValue(PaperStorageBindings::economyJournalStore),
                         () -> storageValue(PaperStorageBindings::inventoryJournalStore)
                 ),
@@ -978,7 +1140,15 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
         }
         PaperPersistentChannelFactory.start(
                 channel,
-                (backendId, envelope) -> messageHandler.handle(runtime.networkOutboxStore(), backendId, envelope),
+                (backendId, envelope) -> {
+                    if (net.enthusia.staff.protocol.ChatBridgeMessages.HEALTH.equals(envelope.messageType())) {
+                        return integrations.handleChatBridgeHealth(channel.proxyId(), envelope);
+                    }
+                    if (net.enthusia.staff.protocol.ChatBridgeMessages.INBOUND.equals(envelope.messageType())) {
+                        return integrations.handleInboundChat(channel.proxyId(), envelope);
+                    }
+                    return messageHandler.handle(runtime.networkOutboxStore(), backendId, envelope);
+                },
                 state -> channelConnected.set(!lifecycle.stopping() && "CONNECTED".equals(state))
         ).ifPresent(started -> {
             if (!lifecycle.publishChannel(started)) {
@@ -989,6 +1159,7 @@ public final class EnthusiaStaffPaperPlugin extends JavaPlugin {
             // source backend uploads its in-memory vanish/staff-mode snapshot to the proxy
             // over this channel without ever blocking the transfer on it.
             runtimeComponents.transferSnapshots().bindSender(started::send);
+            integrations.bindChatChannel(started);
             runtimeComponents.staffMode().setActiveSessionListener(session -> started.send(
                     UUID.randomUUID(),
                     PaperStaffModeHandoffHandler.READY,

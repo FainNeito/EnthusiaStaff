@@ -14,6 +14,8 @@ softdepend:
   - PolarLoader
   - ProtocolLib
   - DiscordSRV
+  - InteractiveChat
+  - InteractiveChatDiscordSrvAddon
   - LuckPerms
   - EnthusiaCurrency
   - EnthusiaMarket
@@ -73,7 +75,7 @@ commands:
     permission: enthusiastaff.remove
   report:
     description: Submit a private player report with recent context
-    usage: /report <player|uuid> <reason-id> <description>
+    usage: /report <player>
   reports:
     description: Open staff report management
     usage: /reports
@@ -92,12 +94,17 @@ commands:
     permission: enthusiastaff.freeze
   staff:
     description: Enter or exit durable staff mode, recover snapshots, or choose entry visibility
-    usage: /staff [recover|-v|vanish|-nv|visible]
+    usage: /staff [recover|-v|vanish|-nv|visible|inventory|tab <show|hide>]
     aliases: [sm, staffmode]
+    permission: enthusiastaff.staffmode
+  staffinv:
+    description: Toggle the persistent Staff Mode tools inventory on or off
+    usage: /staffinv
+    aliases: [staffinventory]
     permission: enthusiastaff.staffmode
   stafftools:
     description: Use the staff-mode operational tool menu and text fallbacks
-    usage: /stafftools | /stafftools help | /stafftools random | /stafftools spectate <player>
+    usage: /stafftools [help | random | launch | spectate <player>]
     permission: enthusiastaff.stafftools.menu
   cheattester:
     description: Configure and run bounded evidence-only cheat tester probes and virtual fake bases
@@ -197,6 +204,9 @@ permissions:
     default: false
   enthusiastaff.punishment.requests.review:
     default: false
+  enthusiastaff.punishment.requests.review.discord-offline:
+    description: Separate permission for reviewing punishments through Discord while not in Minecraft Staff Mode
+    default: false
   enthusiastaff.punish.ip:
     default: false
   enthusiastaff.punish.custom-duration:
@@ -287,6 +297,9 @@ permissions:
     default: false
   enthusiastaff.owner.recovery:
     default: false
+  enthusiastaff.identity.unrestricted:
+    description: Permanently publishes the active Staff permission context for explicitly trusted identities
+    default: false
   enthusiastaff.identity.helper:
     default: false
   enthusiastaff.identity.mod:
@@ -315,7 +328,6 @@ permissions:
       enthusiastaff.stafftools.teleport: true
       enthusiastaff.stafftools.spectate: true
       enthusiastaff.stafftools.menu: true
-      enthusiastaff.vanish: true
       enthusiastaff.staffchat: true
       enthusiastaff.staffwho: true
       enthusiastaff.inventory.view: true
@@ -355,6 +367,7 @@ permissions:
     default: false
     children:
       enthusiastaff.rank.helper: true
+      enthusiastaff.vanish: true
       enthusiastaff.history.view-sensitive: true
       enthusiastaff.punishment.requests.review: true
       enthusiastaff.punish.ip: true

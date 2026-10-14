@@ -10,6 +10,7 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
+        maven("https://repo.polar.top/repository/polar/")
     }
 }
 
@@ -18,6 +19,7 @@ rootProject.name = "EnthusiaStaff"
 include(
     "common",
     "discord-platform-api",
+    "moderation-platform-api",
     "domain",
     "integration-contracts",
     "persistence",

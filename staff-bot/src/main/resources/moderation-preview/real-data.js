@@ -194,12 +194,28 @@ function mapMessage(message) {
         target:Boolean(message.targetAuthor), channel:firstText(message.channelName, message.channelId), channelId:message.channelId,
         category:optionalText(message.categoryName), time:message.createdAt, text:optionalText(message.content),
         edited:Boolean(message.editedAt), editedAt:nullableText(message.editedAt), attachments:asArray(message.attachments).map(mapAttachment),
+        media:asArray(message.media).map(mapMedia),
         replyTo:nullableText(message.replyToMessageId), deleted:Boolean(message.deletedKnown), authorId:optionalText(author.discordId)
     };
 }
 
 function mapAttachment(attachment) {
-    return {name:firstText(attachment.fileName, 'Attachment'), detail:[firstText(attachment.contentType, 'Attachment'), formatBytes(attachment.size)].filter(Boolean).join(' · '), url:optionalText(attachment.url)};
+    return {
+      name:firstText(attachment.fileName, 'Attachment'),
+      detail:[firstText(attachment.contentType, 'Attachment'), formatBytes(attachment.size)].filter(Boolean).join(' · '),
+      contentType:optionalText(attachment.contentType),
+      url:optionalText(attachment.url)
+    };
+}
+
+function mapMedia(media) {
+    return {
+      kind:firstText(media.kind, 'image'),
+      url:optionalText(media.url),
+      contentType:optionalText(media.contentType),
+      width:Number(media.width) || 0,
+      height:Number(media.height) || 0
+    };
 }
 
 function initials(value) {

@@ -57,10 +57,10 @@ staff-tools:
     no-fall:
       vertical: 0.70
   cooldowns:
-    random-teleport-millis: 2000
-    target-tool-millis: 750
-    toggle-tool-millis: 500
-    menu-millis: 500
+    random-teleport-millis: 250
+    target-tool-millis: 100
+    toggle-tool-millis: 100
+    menu-millis: 100
 
 # Restart-only investigation settings; all new permissions require explicit grants.
 investigation:
@@ -87,6 +87,11 @@ sanction-actions:
 
 # This section is reloadable. Unknown keys inside this section are rejected.
 # The subsystem remains disabled unless explicitly enabled.
+# Offline Discord punishment approvals require current two-way code-based identity
+# verification plus a separate LuckPerms permission. Default disabled until staged.
+punishment-request-discord-offline:
+  enabled: false
+
 punishment-request-alerts:
   enabled: false
 
@@ -143,6 +148,22 @@ rosechat:
   staff-channel: staff
   global-channel: global
   private-channels: []
+
+discord-chat-bridge:
+  # Explicit migration authority mode. Add/uncomment only after the corresponding StaffBot
+  # environment has been configured and validated.
+  # mode: DISABLED
+  #
+  # SHADOW installs the provider-neutral bridge while RoseChat's legacy DiscordSRV chat path remains
+  # active. AUTHORITATIVE installs the same replacement bridge and, only after all required
+  # replacement surfaces are ready, suppresses RoseChat's legacy DiscordSRV chat path.
+  #
+  # Backward-compatible staging fallback: when mode is omitted, shadow-enabled=true selects SHADOW.
+  shadow-enabled: false
+  #
+  # Required only for mode: AUTHORITATIVE. This acknowledgement is intentionally local to Paper;
+  # StaffBot production has a separate explicit environment acknowledgement.
+  # authoritative-cutover-ack: false
 
 channel:
   enabled: false

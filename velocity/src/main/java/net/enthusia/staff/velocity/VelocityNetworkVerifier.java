@@ -67,7 +67,10 @@ final class VelocityNetworkVerifier {
     private NetworkVerificationState.Snapshot snapshot() {
         VelocityConfiguration configuration = dependencies.configuration().get();
         PersistentChannelServer channel = dependencies.channel().get();
-        Set<String> expected = configuration == null ? Set.of() : configuration.backendSecretEnvironments().keySet();
+        Set<String> expected = configuration == null
+                ? Set.of()
+                : VelocityChannelPeerPolicy.paperBackendIds(
+                        configuration.backendSecretEnvironments().keySet());
         Set<String> connected = channel == null ? Set.of() : channel.connectedServers();
         return new NetworkVerificationState.Snapshot(
                 dependencies.mode().get(),

@@ -18,8 +18,11 @@ class StaffModeVanishEntryWiringTest {
         assertTrue(command.contains("if (recoveryRequested(arguments))"));
         assertTrue(command.contains("StaffModeVanishEntryOption.parse(arguments)"));
         assertTrue(command.contains("entry.enter(player, option)"));
-        assertTrue(command.contains("Use /vanish to change visibility before exiting."));
-        assertTrue(command.contains("List.of(\"recover\", \"-v\", \"vanish\", \"-nv\", \"visible\")"));
+        assertTrue(command.contains("vanish.configureSpectatorTab(player, true)"));
+        assertTrue(command.contains("vanish.configureSpectatorTab(player, false)"));
+        assertTrue(command.contains("manager.toggleToolInventory(player)"));
+        assertTrue(command.contains("vanish.toggle(player)"));
+        assertTrue(command.contains("INVENTORY, INVENTORY_SHORT"));
         assertTrue(command.contains("Targeted snapshot recovery is available only from the server console."));
     }
 
@@ -31,6 +34,7 @@ class StaffModeVanishEntryWiringTest {
 
         assertTrue(registrar.contains("new StaffModeVanishEntryCoordinator("));
         assertTrue(registrar.contains("storage(PaperStorageBindings::vanishStore)"));
+        assertTrue(registrar.contains("dependencies.players().vanish()"));
         assertTrue(registrar.contains("bindCompleting(\"staff\", staffMode, staffMode)"));
     }
 

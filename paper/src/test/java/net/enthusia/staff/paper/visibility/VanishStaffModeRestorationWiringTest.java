@@ -40,11 +40,22 @@ class VanishStaffModeRestorationWiringTest {
 
     @Test
     void manualVanishDoesNotForceSpectatorDuringStaffRebind() throws IOException {
-        String method = method("private void finishSet(", "private Set<UUID> hiddenPresenceViewers");
+        String method = method("private void finishSet(", "private Set<UUID> presenceViewers");
 
         assertTrue(method.contains("!staffMode.transitioning(playerId)"));
         assertTrue(method.indexOf("!staffMode.transitioning(playerId)")
                 < method.indexOf("reconcileVanishedGameMode(player)"));
+    }
+
+    @Test
+    void vanishPresenceTargetsEveryOtherOnlinePlayerRegardlessOfVisibility() throws IOException {
+        String method = method(
+                "private Set<UUID> presenceViewers",
+                "private void publishPresenceTransition"
+        );
+
+        assertTrue(method.contains("!viewerId.equals(subjectId)"));
+        assertFalse(method.contains("visibility.canSee"));
     }
 
     @Test
@@ -53,7 +64,9 @@ class VanishStaffModeRestorationWiringTest {
                 "public void onGameModeChange",
                 "@EventHandler(priority = EventPriority.HIGHEST)\n    public void onJoin"
         );
-        assertTrue(change.contains("!isSelectableGameMode(rank, event.getNewGameMode())"));
+        assertTrue(change.contains(
+                "!isSelectableGameMode(rank, event.getNewGameMode(), unrestricted)"
+        ));
 
         String reconcile = method(
                 "private void reconcileVanishedGameMode",
@@ -71,7 +84,9 @@ class VanishStaffModeRestorationWiringTest {
                 "/**\n     * Cross-server transfer hook"
         );
 
-        assertTrue(method.contains("!isSelectableGameMode(rank, selected)"));
+        assertTrue(method.contains(
+                "!isSelectableGameMode(rank, selected, isUnrestricted(player))"
+        ));
         assertTrue(method.contains("persistSelectedGameMode(playerId, rank, selected)"));
         assertTrue(method.contains("player.setGameMode(selected)"));
         assertFalse(method.contains("GameMode.SPECTATOR;"));

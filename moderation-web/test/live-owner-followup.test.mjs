@@ -26,7 +26,8 @@ test('channel browse keeps no player selected until staff chooses an author', as
 
   assert.match(source, /No player selected/);
   assert.match(source, /workspaceChannelPicker/);
-  assert.match(source, /workspacePlayerPicker/);
+  assert.match(source, /playerPickerDialog/);
+  assert.match(source, /data-open-player-picker|openPlayerPicker/);
   assert.match(source, /data-select-player|selectPlayer/);
   assert.match(source, /fetchBrowseBootstrap\(\{browse:true,channel:currentBrowseChannel\(\)\}\)/);
   assert.match(source, /fetchBrowseBootstrap\(\{target:userId,channel:currentBrowseChannel\(\)\}\)/);

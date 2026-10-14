@@ -18,12 +18,22 @@ class StaffModeAccessPolicyTest {
         assertTrue(StaffModeAccessPolicy.blocksEnderChestOpen(StaffRank.HELPER));
         assertTrue(StaffModeAccessPolicy.blocksEnderChestMutation(StaffRank.HELPER));
         assertFalse(StaffModeAccessPolicy.hasAdvancedStaffTools(StaffRank.HELPER));
-        assertEquals(GameMode.SPECTATOR, StaffModeAccessPolicy.initialGameMode(StaffRank.HELPER));
+        assertEquals(GameMode.SURVIVAL, StaffModeAccessPolicy.initialGameMode(StaffRank.HELPER));
         // Helpers choose between Survival and Spectator while on duty.
         assertTrue(StaffModeAccessPolicy.allowsGameMode(StaffRank.HELPER, GameMode.SURVIVAL));
         assertTrue(StaffModeAccessPolicy.allowsGameMode(StaffRank.HELPER, GameMode.SPECTATOR));
         assertFalse(StaffModeAccessPolicy.allowsGameMode(StaffRank.HELPER, GameMode.CREATIVE));
         assertFalse(StaffModeAccessPolicy.allowsGameMode(StaffRank.HELPER, GameMode.ADVENTURE));
+    }
+
+    @Test
+    void deniedGameModeAuditRecordsOnlyRequestedMode() {
+        assertEquals("requested=CREATIVE",
+                StaffModeManager.deniedGameModeAuditDetail(GameMode.CREATIVE));
+        assertEquals("requested=ADVENTURE",
+                StaffModeManager.deniedGameModeAuditDetail(GameMode.ADVENTURE));
+        assertFalse(StaffModeAccessPolicy.allowsGameMode(StaffRank.HELPER, GameMode.CREATIVE));
+        assertTrue(StaffModeAccessPolicy.allowsGameMode(StaffRank.HELPER, GameMode.SPECTATOR));
     }
 
     @Test

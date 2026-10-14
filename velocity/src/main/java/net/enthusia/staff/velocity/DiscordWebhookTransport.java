@@ -13,6 +13,10 @@ import java.time.Duration;
 interface DiscordWebhookTransport {
     Delivery send(DiscordWebhookRoute route, String content);
 
+    default Delivery send(DiscordWebhookRoute route, String content, boolean allowRolePing) {
+        return send(route, content);
+    }
+
     record Delivery(boolean success, String errorCode) {
         public Delivery {
             if (errorCode == null || errorCode.isBlank()) {
@@ -35,6 +39,7 @@ interface DiscordWebhookTransport {
         private static final int HTTP_CLIENT_ERROR_MINIMUM = 400;
         private static final int HTTP_TOO_MANY_REQUESTS = 429;
         private static final int HTTP_SERVER_ERROR_MINIMUM = 500;
+        private static final String ALERTS_DESTINATION = "alerts";
 
         @FunctionalInterface
         interface HttpExchange {
@@ -45,20 +50,26 @@ interface DiscordWebhookTransport {
         private final ObjectMapper json;
         private final HttpExchange exchange;
         private final Runnable closeAction;
+        private final String alertRoleId;
 
         Jdk(Duration requestTimeout) {
             this(requestTimeout, createClient(requestTimeout));
         }
 
         private Jdk(Duration requestTimeout, HttpClient client) {
-            this(requestTimeout, exchangeFor(client), client::close);
+            this(requestTimeout, exchangeFor(client), client::close,
+                    System.getProperty("enthusiastaff.discord.alertRoleId", ""));
         }
 
         Jdk(Duration requestTimeout, HttpExchange exchange) {
-            this(requestTimeout, exchange, () -> { });
+            this(requestTimeout, exchange, () -> { }, "");
         }
 
-        private Jdk(Duration requestTimeout, HttpExchange exchange, Runnable closeAction) {
+        Jdk(Duration requestTimeout, HttpExchange exchange, String alertRoleId) {
+            this(requestTimeout, exchange, () -> { }, alertRoleId);
+        }
+
+        private Jdk(Duration requestTimeout, HttpExchange exchange, Runnable closeAction, String alertRoleId) {
             if (requestTimeout == null || requestTimeout.isZero() || requestTimeout.isNegative()
                     || exchange == null || closeAction == null) {
                 throw new IllegalArgumentException("Discord request timeout and HTTP exchange must be valid");
@@ -67,17 +78,32 @@ interface DiscordWebhookTransport {
             this.json = new ObjectMapper();
             this.exchange = exchange;
             this.closeAction = closeAction;
+            if (alertRoleId == null || (!alertRoleId.isEmpty()
+                    && !alertRoleId.matches("[1-9][0-9]{16,19}"))) {
+                throw new IllegalArgumentException("Discord alert role ID must be a valid snowflake or disabled");
+            }
+            if (!alertRoleId.isEmpty()) {
+                try {
+                    Long.parseUnsignedLong(alertRoleId);
+                } catch (NumberFormatException invalid) {
+                    throw new IllegalArgumentException("Discord alert role ID is out of range", invalid);
+                }
+            }
+            this.alertRoleId = alertRoleId;
         }
 
         @Override
         public Delivery send(DiscordWebhookRoute route, String content) {
+            return send(route, content, true);
+        }
+
+        @Override
+        public Delivery send(DiscordWebhookRoute route, String content, boolean allowRolePing) {
             if (route == null || content == null || content.isBlank()) {
                 return Delivery.failed("INVALID_DELIVERY_INPUT");
             }
             try {
-                ObjectNode body = json.createObjectNode();
-                body.put("content", content);
-                body.putObject("allowed_mentions").putArray("parse");
+                ObjectNode body = buildEmbedBody(route, content, allowRolePing);
                 int statusCode = exchange.post(
                         route.endpoint(),
                         requestTimeout,
@@ -90,6 +116,125 @@ interface DiscordWebhookTransport {
             } catch (IOException | RuntimeException exception) {
                 return Delivery.failed("IO_OR_ENCODING_FAILURE");
             }
+        }
+
+        /**
+         * Existing durable destination routing remains authoritative; presentation alone
+         * cannot introduce new destinations or mass mentions; an explicit role ping
+         * is allowed only for the private alerts destination and a configured role.
+         */
+        private ObjectNode buildEmbedBody(DiscordWebhookRoute route, String rendered, boolean allowRolePing) {
+            String[] lines = rendered.split("\\n");
+            ObjectNode body = json.createObjectNode();
+            ObjectNode mentions = body.putObject("allowed_mentions");
+            mentions.putArray("parse");
+            appendConfiguredStaffRoleMention(body, mentions, route, allowRolePing);
+            var embeds = body.putArray("embeds");
+            ObjectNode embed = embeds.addObject();
+            boolean report = "reports".equals(route.destination());
+            embed.put("title", report ? reportTitle(lines[0]) : prettyTitle(lines[0]));
+            embed.put("color", report ? reportColor(lines[0]) : color(route.destination()));
+            if (report) {
+                embed.put("description", "Private staff report • Treat the report as an investigation lead, not proof.");
+                embed.putObject("footer").put("text", "Enthusia • Staff reports");
+            }
+            var fields = embed.putArray("fields");
+            for (int index = 1; index < lines.length; index++) {
+                int separator = lines[index].indexOf('=');
+                if (separator < 1 || fields.size() >= 20) {
+                    continue;
+                }
+                String name = lines[index].substring(0, separator);
+                String value = lines[index].substring(separator + 1);
+                if (!name.matches("[a-zA-Z][a-zA-Z0-9_-]{0,63}") || value.isBlank()) {
+                    continue;
+                }
+                ObjectNode field = fields.addObject();
+                field.put("name", report ? reportFieldLabel(name) : prettyTitle(name));
+                field.put("value", value.length() > 950 ? value.substring(0, 949) + "…" : value);
+                field.put("inline", report ? reportCompact(name) : isCompact(name));
+            }
+            return body;
+        }
+
+        private void appendConfiguredStaffRoleMention(
+                ObjectNode body, ObjectNode mentions, DiscordWebhookRoute route, boolean allowed
+        ) {
+            if (allowed && ALERTS_DESTINATION.equals(route.destination()) && !alertRoleId.isEmpty()) {
+                body.put("content", "<@&" + alertRoleId + ">");
+                mentions.putArray("roles").add(alertRoleId);
+            }
+        }
+
+        private static String reportTitle(String eventType) {
+            return switch (eventType) {
+                case "REPORT_CREATED" -> "New Player Report";
+                case "REPORT_CLAIMED" -> "Player Report Claimed";
+                case "REPORT_AWAITING_REVIEW" -> "Player Report Awaiting Review";
+                case "REPORT_CLOSED" -> "Player Report Closed";
+                case "REPORT_NO_VIOLATION" -> "Player Report — No Violation";
+                default -> prettyTitle(eventType);
+            };
+        }
+
+        private static int reportColor(String eventType) {
+            return switch (eventType) {
+                case "REPORT_CLAIMED" -> 0x4688D5;
+                case "REPORT_AWAITING_REVIEW" -> 0x8968C6;
+                case "REPORT_CLOSED" -> 0x3F9C75;
+                case "REPORT_NO_VIOLATION" -> 0x7B8796;
+                default -> 0xD69C42;
+            };
+        }
+
+        private static String reportFieldLabel(String name) {
+            return switch (name) {
+                case "targetName" -> "Reported Player";
+                case "reporterName" -> "Reported By";
+                case "reason" -> "Reason";
+                case "reportId" -> "Report ID";
+                case "serverId" -> "Server";
+                case "status", "state" -> "Status";
+                default -> prettyTitle(name);
+            };
+        }
+
+        private static boolean reportCompact(String name) {
+            return switch (name) {
+                case "targetName", "reporterName", "serverId", "status", "state" -> true;
+                default -> false;
+            };
+        }
+
+        private static String prettyTitle(String raw) {
+            String safe = raw.replaceAll("([a-z])([A-Z])", "$1 $2")
+                    .replace('_', ' ').replace('-', ' ')
+                    .replaceAll("[^a-zA-Z0-9 :./]", "");
+            String title = safe.isBlank() ? "Staff notification"
+                    : Character.toUpperCase(safe.charAt(0)) + safe.substring(1);
+            title = title.replace(" Id", " ID");
+            if (title.length() > 130) {
+                return title.substring(0, 129) + "…";
+            }
+            return title;
+        }
+
+        private static boolean isCompact(String field) {
+            return switch (field) {
+                case "staffId", "actorId", "rank", "server", "serverId", "state",
+                        "staffMode", "vanished", "active", "sanctionType", "status" -> true;
+                default -> false;
+            };
+        }
+
+        private static int color(String destination) {
+            return switch (destination) {
+                case "punishments" -> 0xCD4A4A;
+                case "logs-staffmode" -> 0x5382B4;
+                case "reports" -> 0xD69C42;
+                case ALERTS_DESTINATION -> 0xC87A39;
+                default -> 0x697586;
+            };
         }
 
         static Delivery classify(int statusCode) {

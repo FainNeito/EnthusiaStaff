@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class HelperObserverProtectionWiringTest {
     @Test
     void paperRuntimeRegistersHelperObserverProtectionListener() throws IOException {
-        String runtime = Files.readString(paperModule().resolve(
+        String runtime = readNormalized(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/PaperRuntimeComponents.java"
         ));
 
@@ -23,7 +23,7 @@ class HelperObserverProtectionWiringTest {
 
     @Test
     void staffModeManagerUsesRankAwareAllowedGameModes() throws IOException {
-        String manager = Files.readString(paperModule().resolve(
+        String manager = readNormalized(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/StaffModeManager.java"
         ));
 
@@ -39,7 +39,7 @@ class HelperObserverProtectionWiringTest {
 
     @Test
     void helperAirItemGuardDoesNotSkipPreCancelledAirInteractions() throws IOException {
-        String listener = Files.readString(paperModule().resolve(
+        String listener = readNormalized(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
         ));
 
@@ -55,8 +55,26 @@ class HelperObserverProtectionWiringTest {
     }
 
     @Test
+    void helperProjectilePassThroughUsesModernProjectileHitEventOnly() throws IOException {
+        String listener = readNormalized(paperModule().resolve(
+                "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
+        ));
+
+        assertTrue(
+                listener.contains("public void onProjectileHit(ProjectileHitEvent event)")
+                        && listener.contains("event.setCancelled(true)"),
+                "Helper projectile pass-through must remain implemented through cancellable ProjectileHitEvent"
+        );
+        assertFalse(
+                listener.contains("import com.destroystokyo.paper.event.entity.ProjectileCollideEvent;")
+                        || listener.contains("public void onFireworkCollision("),
+                "The deprecated Paper ProjectileCollideEvent compatibility hook must not be registered"
+        );
+    }
+
+    @Test
     void retainedMobTargetsAreReconciledThroughEntitySchedulers() throws IOException {
-        String listener = Files.readString(paperModule().resolve(
+        String listener = readNormalized(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
         ));
 
@@ -76,10 +94,10 @@ class HelperObserverProtectionWiringTest {
 
     @Test
     void helperObserverAuthorityUsesAppliedSessionRankInsteadOfLivePermissionResolution() throws IOException {
-        String manager = Files.readString(paperModule().resolve(
+        String manager = readNormalized(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/StaffModeManager.java"
         ));
-        String listener = Files.readString(paperModule().resolve(
+        String listener = readNormalized(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
         ));
 
@@ -89,8 +107,9 @@ class HelperObserverProtectionWiringTest {
                 "Helper observer authority must remain bound to the applied Staff Mode rank snapshot"
         );
         assertTrue(
-                listener.contains("return staffMode.helperObserverActive(player.getUniqueId());"),
-                "Helper protections must use Staff Mode's authoritative cached profile"
+                listener.contains("staffMode.helperObserverActive(player.getUniqueId())")
+                        && listener.contains("!staffMode.isUnrestricted(player)"),
+                "Helper protections must use Staff Mode's authoritative cached profile while exempting explicit unrestricted identities"
         );
         assertFalse(
                 listener.contains("PaperStaffRankResolver"),
@@ -100,14 +119,14 @@ class HelperObserverProtectionWiringTest {
 
     @Test
     void queuedMobTargetClearRevalidatesObserverProfileAtMutationTime() throws IOException {
-        String listener = Files.readString(paperModule().resolve(
+        String listener = readNormalized(paperModule().resolve(
                 "src/main/java/net/enthusia/staff/paper/staff/HelperObserverProtectionListener.java"
         ));
 
         assertTrue(
                 listener.contains("targetMob.getScheduler().run(plugin, ignoredMob -> {\n"
-                        + "            if (!staffMode.helperObserverActive(targetId))"),
-                "A queued mob target clear must be abandoned after Helper observer mode ends or changes rank"
+                        + "            if (!staffMode.helperObserverActive(targetId) || staffMode.unrestricted(targetId))"),
+                "A queued mob target clear must be abandoned after Helper observer mode ends, changes rank, or becomes unrestricted"
         );
     }
 
@@ -122,4 +141,9 @@ class HelperObserverProtectionWiringTest {
         }
         throw new IllegalStateException("Could not locate the Paper module from " + current);
     }
+    private static String readNormalized(Path file) throws IOException {
+        // Source assertions match Java syntax rather than the host's Git checkout line endings.
+        return Files.readString(file).replace("\r\n", "\n");
+    }
+
 }

@@ -1,10 +1,8 @@
 package net.enthusia.staff.paper.staff;
 
-import com.destroystokyo.paper.event.entity.ProjectileCollideEvent;
 import com.destroystokyo.paper.event.player.PlayerPickupExperienceEvent;
 import java.util.Objects;
 import java.util.UUID;
-import org.bukkit.entity.Firework;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
@@ -68,25 +66,11 @@ public final class HelperObserverProtectionListener implements Listener {
         if (!HelperObserverPolicy.blocksProjectileCollision(activeHelper(player), true)) {
             return;
         }
+        // Paper 26.2+ checks ProjectileHitEvent cancellation before dispatching an entity hit.
+        // This therefore keeps arrows, tridents, fireworks, and other projectiles moving through
+        // an active Helper without relying on the deprecated ProjectileCollideEvent compatibility event.
         event.setCancelled(true);
         clearMobTarget(event.getEntity(), player);
-    }
-
-    /**
-     * Paper's modern ProjectileHitEvent has a documented firework exception. This deprecated event is
-     * intentionally isolated to that one compatibility case because cancelling it explicitly lets the
-     * firework continue flying instead of colliding with the Helper observer.
-     */
-    @SuppressWarnings("deprecation")
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onFireworkCollision(ProjectileCollideEvent event) {
-        if (!(event.getEntity() instanceof Firework)
-                || !(event.getCollidedWith() instanceof Player player)) {
-            return;
-        }
-        if (HelperObserverPolicy.blocksProjectileCollision(activeHelper(player), true)) {
-            event.setCancelled(true);
-        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -168,7 +152,8 @@ public final class HelperObserverProtectionListener implements Listener {
     }
 
     private boolean activeHelper(Player player) {
-        return staffMode.helperObserverActive(player.getUniqueId());
+        return !staffMode.isUnrestricted(player)
+                && staffMode.helperObserverActive(player.getUniqueId());
     }
 
     private void clearMobTarget(Object damager, Player target) {
@@ -187,7 +172,7 @@ public final class HelperObserverProtectionListener implements Listener {
         }
         Mob targetMob = mob;
         targetMob.getScheduler().run(plugin, ignoredMob -> {
-            if (!staffMode.helperObserverActive(targetId)) {
+            if (!staffMode.helperObserverActive(targetId) || staffMode.unrestricted(targetId)) {
                 return;
             }
             var currentTarget = targetMob.getTarget();

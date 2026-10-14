@@ -65,10 +65,8 @@ function hardenedCommunicationOptionsNode(w) {
   if (w.approvalConfirmed === undefined) w.approvalConfirmed = false;
   const children = [
     element('label',{className:'checkbox-control prominent'},element('input',{id:'dmUserOption',type:'checkbox',checked:w.dm}),' Include a DM with this action'),
-    fieldLabel('Staff explanation / case note',element('textarea',{id:'reasonInput',text:w.reason,placeholder:'Required: explain what happened and why this action fits',attrs:{rows:'3',maxlength:'300'}})),
-    element('p',{className:'field-help',text:'Required before Final review; use at least 10 characters.'}),
-    fieldLabel('Outside-Discord evidence reference',element('textarea',{id:'externalEvidenceInput',text:w.externalEvidence,placeholder:'Ticket, recording, game log, screenshot set, or other evidence location',attrs:{rows:'2',maxlength:'300'}})),
-    element('p',{className:'field-help',text:'Use this when the incident evidence is not a Discord message. A reference is required for most non-warning actions when no Discord evidence is selected.'})
+    fieldLabel('Staff explanation / case note',element('textarea',{id:'reasonInput',text:w.reason,placeholder:'Enter a clear explanation of why this punishment is being issued',attrs:{rows:'3',maxlength:'300'}})),
+    fieldLabel('Outside-Discord evidence reference',element('textarea',{id:'externalEvidenceInput',text:w.externalEvidence,placeholder:'Add a ticket, recording, screenshot, game log, or other evidence reference',attrs:{rows:'2',maxlength:'300'}}))
   ];
   if (workflowApprovalRequired(w)) children.push(approvalConfirmationNode(w));
   return element('section',{className:'card option-section'},children);
@@ -133,21 +131,31 @@ function focusFirstMissingReviewField(status) {
 }
 
 function hardenedReviewGridNode(w, recommendation) {
+  const evidence = reviewEvidenceCountText(w);
   const items = [
     ['Target',`${identity.displayName} · ${identity.minecraft}`],
     ['Offense',w.offense.label],
-    ['Ladder recommendation',`${recommendation.action} · ${recommendation.duration}`],
     ['Action',`${w.actual.action}${w.custom ? ' · Custom override' : ''}`],
-    ['Scope / platform',w.scope],
-    ['Discord evidence',String(state.evidence.size)],
-    ['Outside-Discord evidence',workflowExternalEvidenceReady(w) ? 'Referenced' : 'None'],
-    ['Messages to delete',String(state.deleting.size)],
-    ['DM',w.dm ? 'Included' : 'Not included'],
-    ['Approval',approvalReviewText(w)]
+    ['Platform',w.scope],
+    ['Evidence',evidence],
+    ['Player notification',w.dm ? 'Included' : 'Not included']
   ];
-  if (w.exactReasonId) items.splice(2,0,['Configured reason ID',w.exactReasonId]);
-  if (w.duration !== '—') items.splice(w.exactReasonId ? 6 : 5,0,['Duration',w.duration]);
+  if (w.duration !== '—') items.splice(3,0,['Duration',w.duration]);
+  if (w.custom) {
+    const duration = recommendation.duration && recommendation.duration !== '—'
+      ? ' · ' + recommendation.duration : '';
+    items.splice(2,0,['Recommended',recommendation.action + duration]);
+  }
+  if (state.deleting.size) items.push(['Messages to delete',String(state.deleting.size)]);
+  if (workflowApprovalRequired(w)) items.push(['Approval',approvalReviewText(w)]);
   return element('div',{className:'review-grid'},items.map(([label,value]) => reviewItemNode(label,value)));
+}
+
+function reviewEvidenceCountText(workflow) {
+  const parts = [];
+  if (state.evidence.size) parts.push(`${state.evidence.size} Discord message${state.evidence.size === 1 ? '' : 's'}`);
+  if (workflowExternalEvidenceReady(workflow)) parts.push('Outside reference');
+  return parts.length ? parts.join(' + ') : 'None';
 }
 
 function approvalReviewText(w) {
@@ -185,7 +193,7 @@ function reviewEvidenceSummaryNode(w) {
 function staffExplanationNode(w) {
   const reason = String(w.reason || '').trim();
   return element('div',{className:'staff-reason'},element('span',{text:'Staff explanation'}),
-    element('p',{text:reason || 'Missing — return to Punishment options and add an explanation.'}));
+    element('p',{text:reason || 'No additional staff explanation was provided.'}));
 }
 
 function dmPreviewNode(w) {
@@ -209,7 +217,8 @@ function punishmentNotificationPreview(w) {
 }
 
 function notificationPreviewAction(w) {
-  return String(w.actual?.action || 'action').toLowerCase();
+  const actions = {Warning:'warned',Mute:'muted',Kick:'kicked',Ban:'banned',Restrict:'restricted'};
+  return actions[w.actual?.action] || String(w.actual?.action || 'action').toLowerCase();
 }
 
 function notificationPreviewDuration(w) {
@@ -219,11 +228,11 @@ function notificationPreviewDuration(w) {
 
 function notificationPreviewReason(w) {
   return element('p',{},element('strong',{text:'Reason: '}),
-    document.createTextNode(w.offense?.label || 'Custom'));
+    document.createTextNode(w.custom ? 'Custom punishment' : (w.offense?.label || 'Custom punishment')));
 }
 
 function notificationPreviewExplanation(w) {
-  const explanation = String(w.reason || '').trim() || 'None provided';
+  const explanation = String(w.reason || '').trim() || 'No additional staff explanation was provided.';
   return element('p',{},element('strong',{text:'Staff explanation: '}),
     document.createTextNode(explanation));
 }
