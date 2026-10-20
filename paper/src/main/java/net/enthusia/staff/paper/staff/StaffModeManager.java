@@ -573,48 +573,60 @@ public final class StaffModeManager implements Listener {
     }
 
     private void finishInactiveRecovery(UUID playerId, StaffRank rankSnapshot, Object recoveryAttempt) {
-        onEntity(playerId, player -> {
-            try {
-                // Ownership, player mutation and fence release are atomic with respect
-                // to clear/retry/new recovery; the callback never runs database work.
-                AtomicBoolean completedExit = new AtomicBoolean();
-                boolean completed = recoveryGate.complete(playerId, recoveryAttempt, () -> {
-                    UUID closedSession = closedToolCleanups.get(playerId);
-                    boolean localState = active.containsKey(playerId) || pendingLocalSessions.containsKey(playerId)
-                            || toolSessions.containsKey(playerId);
-                    if (localState && (closedSession == null || !ownsClosingSession(playerId, closedSession))) {
-                        return false;
-                    }
-                    removeStaffTools(player);
-                    if (closedSession != null) {
-                        removeCompletedRuntimeState(playerId);
-                        completedExit.set(true);
-                    }
-                    return true;
+        onEntity(playerId,
+                player -> finishInactiveRecoveryOnEntity(playerId, rankSnapshot, recoveryAttempt, player),
+                () -> finishRetiredInactiveRecovery(playerId, recoveryAttempt),
+                exception -> {
+                    recoveryGate.retry(playerId, recoveryAttempt);
+                    plugin.getLogger().log(Level.SEVERE, "Inactive Staff tool cleanup could not be scheduled", exception);
                 });
-                if (completed && completedExit.get()) {
-                    notifyRuntimeExit(playerId);
-                }
-                if (completed && handoffGaps.contains(playerId) && rankSnapshot != null) {
-                    enter(player, rankSnapshot);
-                }
-            } catch (RuntimeException exception) {
-                recoveryGate.retry(playerId, recoveryAttempt);
-                plugin.getLogger().log(Level.SEVERE, "Inactive Staff tool cleanup failed", exception);
-            }
-        }, () -> {
-            AtomicBoolean abandonedGap = new AtomicBoolean();
-            boolean completed = recoveryGate.complete(playerId, recoveryAttempt, () -> {
-                abandonedGap.set(handoffGaps.remove(playerId));
-                return true;
-            });
-            if (completed && abandonedGap.get()) {
+    }
+
+    private void finishInactiveRecoveryOnEntity(UUID playerId, StaffRank rankSnapshot, Object recoveryAttempt,
+                                                Player player) {
+        try {
+            // Ownership, player mutation and fence release are atomic with respect
+            // to clear/retry/new recovery; the callback never runs database work.
+            AtomicBoolean completedExit = new AtomicBoolean();
+            boolean completed = recoveryGate.complete(playerId, recoveryAttempt,
+                    () -> cleanInactiveState(playerId, player, completedExit));
+            if (completed && completedExit.get()) {
                 notifyRuntimeExit(playerId);
             }
-        }, exception -> {
+            if (completed && handoffGaps.contains(playerId) && rankSnapshot != null) {
+                enter(player, rankSnapshot);
+            }
+        } catch (RuntimeException exception) {
             recoveryGate.retry(playerId, recoveryAttempt);
-            plugin.getLogger().log(Level.SEVERE, "Inactive Staff tool cleanup could not be scheduled", exception);
+            plugin.getLogger().log(Level.SEVERE, "Inactive Staff tool cleanup failed", exception);
+        }
+    }
+
+    // Invoked inside recoveryGate.complete so eligibility and mutation share its monitor.
+    private boolean cleanInactiveState(UUID playerId, Player player, AtomicBoolean completedExit) {
+        UUID closedSession = closedToolCleanups.get(playerId);
+        boolean localState = active.containsKey(playerId) || pendingLocalSessions.containsKey(playerId)
+                || toolSessions.containsKey(playerId);
+        if (localState && (closedSession == null || !ownsClosingSession(playerId, closedSession))) {
+            return false;
+        }
+        removeStaffTools(player);
+        if (closedSession != null) {
+            removeCompletedRuntimeState(playerId);
+            completedExit.set(true);
+        }
+        return true;
+    }
+
+    private void finishRetiredInactiveRecovery(UUID playerId, Object recoveryAttempt) {
+        AtomicBoolean abandonedGap = new AtomicBoolean();
+        boolean completed = recoveryGate.complete(playerId, recoveryAttempt, () -> {
+            abandonedGap.set(handoffGaps.remove(playerId));
+            return true;
         });
+        if (completed && abandonedGap.get()) {
+            notifyRuntimeExit(playerId);
+        }
     }
 
     private void recoverDetachedSession(

@@ -1,6 +1,7 @@
 package net.enthusia.staff.paper.staff;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -103,7 +104,7 @@ class StaffOrphanToolRecoveryTest {
         Fixture fixture = new Fixture();
         fixture.manager.recover(PLAYER_ID, null);
         fixture.workers.runNext();
-        fixture.runtimeMap("active").put(PLAYER_ID, fixture.session(UUID.randomUUID()));
+        fixture.activeSessions().put(PLAYER_ID, fixture.session(UUID.randomUUID()));
         fixture.runEntityTasks();
 
         assertSame(fixture.tool, fixture.contents[0]);
@@ -149,11 +150,11 @@ class StaffOrphanToolRecoveryTest {
         StaffSessionSnapshot old = fixture.startExit();
         fixture.completeVerifiedExit(old);
         StaffSessionSnapshot replacement = fixture.session(UUID.randomUUID());
-        fixture.runtimeMap("active").put(PLAYER_ID, replacement);
+        fixture.activeSessions().put(PLAYER_ID, replacement);
         fixture.runEntityTasks();
 
         assertSame(fixture.tool, fixture.contents[0]);
-        assertSame(replacement, fixture.runtimeMap("active").get(PLAYER_ID));
+        assertSame(replacement, fixture.activeSessions().get(PLAYER_ID));
     }
 
     @Test
@@ -236,14 +237,14 @@ class StaffOrphanToolRecoveryTest {
         gate.clear(PLAYER_ID);
         Object replacementAttempt = gate.beginAttempt(PLAYER_ID);
         StaffSessionSnapshot replacement = fixture.session(UUID.randomUUID());
-        fixture.runtimeMap("active").put(PLAYER_ID, replacement);
+        fixture.activeSessions().put(PLAYER_ID, replacement);
 
         fixture.completeVerifiedExit(old);
         fixture.runEntityTasks();
 
         assertTrue(fixture.closed);
         assertSame(fixture.tool, fixture.contents[0]);
-        assertSame(replacement, fixture.runtimeMap("active").get(PLAYER_ID));
+        assertSame(replacement, fixture.activeSessions().get(PLAYER_ID));
         assertTrue(gate.owns(PLAYER_ID, replacementAttempt));
     }
 
@@ -256,13 +257,13 @@ class StaffOrphanToolRecoveryTest {
         gate.clear(PLAYER_ID);
         Object replacementAttempt = gate.beginAttempt(PLAYER_ID);
         StaffSessionSnapshot replacement = fixture.session(UUID.randomUUID());
-        fixture.runtimeMap("active").put(PLAYER_ID, replacement);
+        fixture.activeSessions().put(PLAYER_ID, replacement);
         fixture.throwEntity = true;
 
         fixture.runEntityTasks();
 
         assertSame(fixture.tool, fixture.contents[0]);
-        assertSame(replacement, fixture.runtimeMap("active").get(PLAYER_ID));
+        assertSame(replacement, fixture.activeSessions().get(PLAYER_ID));
         assertTrue(gate.owns(PLAYER_ID, replacementAttempt));
     }
 
@@ -346,6 +347,7 @@ class StaffOrphanToolRecoveryTest {
         private Object storeCall(Method method, Object[] args) {
             return switch (method.getName()) {
                 case "active" -> {
+                    assertEquals(PLAYER_ID, args[0], "durable absence must be checked for the affected player");
                     if (failRead) {
                         throw new IllegalStateException("injected unavailable storage");
                     }
@@ -413,12 +415,14 @@ class StaffOrphanToolRecoveryTest {
         @SuppressWarnings("unchecked")
         private StaffSessionSnapshot startExit() throws Exception {
             StaffSessionSnapshot session = session(UUID.randomUUID());
-            runtimeMap("active").put(PLAYER_ID, session);
+            activeSessions().put(PLAYER_ID, session);
             field("transitions", Set.class).add(PLAYER_ID);
             exitAttempt = field("recoveryGate", StaffModeRecoveryGate.class).ensureAttempt(PLAYER_ID);
             return session;
         }
 
+        // Fixed manager completion boundary in a synthetic unit fixture, with no runtime input.
+        @SuppressWarnings("PMD.AvoidAccessibilityAlteration")
         private void completeVerifiedExit(StaffSessionSnapshot session) throws Exception {
             for (Method method : StaffModeManager.class.getDeclaredMethods()) {
                 if (method.getName().equals("completeRestoration")) {
@@ -431,10 +435,12 @@ class StaffOrphanToolRecoveryTest {
         }
 
         @SuppressWarnings("unchecked")
-        private Map<UUID, StaffSessionSnapshot> runtimeMap(String name) throws Exception {
-            return field(name, Map.class);
+        private Map<UUID, StaffSessionSnapshot> activeSessions() throws Exception {
+            return field("active", Map.class);
         }
 
+        // Test-only access to known manager state avoids exposing mutable production internals.
+        @SuppressWarnings("PMD.AvoidAccessibilityAlteration")
         private <T> T field(String name, Class<T> type) throws Exception {
             var field = StaffModeManager.class.getDeclaredField(name);
             field.setAccessible(true);
@@ -474,6 +480,8 @@ class StaffOrphanToolRecoveryTest {
         @Override public boolean awaitTermination(long timeout, TimeUnit unit) { return false; }
     }
 
+    // Paper/JUnit is not J2EE; the interface's defining loader guarantees proxy visibility.
+    @SuppressWarnings("PMD.J2EEUseProperClassLoader")
     private static <T> T proxy(Class<T> type, BiFunction<Method, Object[], Object> call) {
         return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type},
                 (instance, method, args) -> call.apply(method, args)));

@@ -134,9 +134,65 @@ refine without claiming an unavailable helper passed.
 
 ## Exact next action
 
-Publish the reviewed local branch as a draft repair PR, preserving existing
-PR #476 and unrelated package state. Complete applicable full repository and
-hosted checks before any merge. Map the TEST Staff artifact to its source before
-attributing the live symptom or planning separately authorized TEST activation.
-The branch is a reviewed, source-tested candidate; it does not claim Market
-client acceptance, a merged repair, or runtime activation.
+Continue review of draft PR #647 on the existing branch, preserving PR #476 and
+unrelated package state. Complete applicable full repository and hosted checks
+before any merge. Map the TEST Staff artifact to its source before attributing
+the live symptom or planning separately authorized TEST activation. The branch
+does not claim Market client acceptance, a merged repair, or runtime activation.
+
+## Codacy refinement of PR #647
+
+### Spec and evidence
+
+The owner authorized the coordinator's next work, including resolution of PR
+#647's Codacy findings. This follow-up starts from the clean implementation
+commit `ed023bcf79527f3cccb581a4fbc8ce04bfe2d9ff` and remains within MARKET-02.
+The coordinator retrieved all 17 exact GitHub annotations on that head. The
+annotation JSON SHA-256 is
+`e442710b4f2c14c72c1f8356f36ad98e3d17729900efb23bc0b645c1a77f9f9e`.
+
+The refinement must preserve exact attempt identity, atomic ownership checks
+through cleanup and fence release, entity ownership for inventory mutation,
+post-completion listener timing, and all saved-state safety conditions already
+specified above. Static-analysis remediation must not replace those contracts
+with value equality, expose mutable production state for test convenience, or
+relax repository-wide rules.
+
+### Finding dispositions and implementation
+
+Original line numbers below refer to `ed023bcf`.
+
+| Location | Count | Finding | Disposition |
+| --- | ---: | --- | --- |
+| `StaffModeManager.java:575` | 2 | Cyclomatic complexity 15 and NPath 291 | Extract scheduler dispatch, entity completion, guarded cleanup, and retirement handlers. Cleanup remains inside `recoveryGate.complete`; listener notification and entry remain afterward. |
+| `StaffModeRecoveryGate.java:22,32,36,40,44,52,60,68,75` | 9 | Method-level synchronization | Use one private final `attemptLock` for block synchronization. Every original critical section remains intact, including nested ownership/cleanup/clear operations. |
+| `StaffModeRecoveryGate.java:41` | 1 | Prefer object value equality | Intentional identity capability. Preserve `==` and narrowly suppress only `PMD.CompareObjectsWithEquals` on `owns`, with an explanatory comment. |
+| `StaffOrphanToolRecoveryTest.java:106` | 1 | Repeated `active` string | Replace generic repeated field-name lookups with the fixture's `activeSessions` helper. |
+| `StaffOrphanToolRecoveryTest.java:346` | 1 | Unused store-call arguments | Assert that the durable absence query addresses the affected player, strengthening the existing test adapter. |
+| `StaffOrphanToolRecoveryTest.java:425,440` | 2 | Reflection changes accessibility | Fixed-target synthetic fixture access to this manager's private completion boundary and state. Narrowly suppress `PMD.AvoidAccessibilityAlteration` on those two test helpers only. No user input or production call path reaches them. |
+| `StaffOrphanToolRecoveryTest.java:478` | 1 | J2EE context-class-loader advice | This is a Paper/JUnit fixture outside J2EE. Preserve the interface's defining loader so the generated proxy can see that interface; narrowly suppress `PMD.J2EEUseProperClassLoader` on the proxy helper. |
+
+The four context-specific suppressions are method-scoped and name exact rules.
+The identity disposition follows an existing repository pattern in
+`StaffToolSpectateFlow`. No class/file exclusion, Codacy configuration, quality
+gate, production visibility, or authorization rule was changed. The security
+category annotations concern test reflection; they do not establish an
+exploitable production path.
+
+### Architecture review and validation
+
+The independent reviewer agreed with the bounded plan and the four contextual
+dispositions, then reviewed candidate patch SHA-256
+`9d7381d1b5b1fecaa6cd81adf19637e26296bf72391305e1da146600409cb483`
+with no remaining actionable findings. The source/test-only patch SHA-256 is
+`3c2e8981cf13413848ef668b45626d48864124a8779699c99013a5886885f554`.
+The coordinator's Java 25.0.3 lifecycle run on that frozen candidate passed all
+273 tests with 0 failures, 0 errors, and 0 skips in 38.0 seconds. Its first JUnit
+timestamp is `2026-10-20T17:01:22.479Z`. The command was
+`gradlew.bat --no-daemon :paper:test --tests net.enthusia.staff.paper.staff.*`.
+The existing concurrency race test and listener-reentrancy test remain
+unchanged. The original RED and prior 273-test GREEN evidence above is preserved
+separately. `git diff --check` passes locally.
+
+Local Lizard is unavailable. Actual hosted Codacy reanalysis remains required;
+the source refactor alone is not recorded as a passing Codacy result.

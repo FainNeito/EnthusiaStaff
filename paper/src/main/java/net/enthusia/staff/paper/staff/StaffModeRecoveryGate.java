@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 
 final class StaffModeRecoveryGate {
+    private final Object attemptLock = new Object();
     private final Set<UUID> transitions;
     private final Set<UUID> retryable = ConcurrentHashMap.newKeySet();
     private final java.util.Map<UUID, Object> attempts = new ConcurrentHashMap<>();
@@ -19,62 +20,82 @@ final class StaffModeRecoveryGate {
         return beginAttempt(playerId) != null;
     }
 
-    synchronized Object beginAttempt(UUID playerId) {
-        Objects.requireNonNull(playerId, "playerId");
-        if (transitions.add(playerId) || retryable.remove(playerId)) {
-            Object attempt = new Object();
-            attempts.put(playerId, attempt);
-            return attempt;
+    Object beginAttempt(UUID playerId) {
+        synchronized (attemptLock) {
+            Objects.requireNonNull(playerId, "playerId");
+            if (transitions.add(playerId) || retryable.remove(playerId)) {
+                Object attempt = new Object();
+                attempts.put(playerId, attempt);
+                return attempt;
+            }
+            return null;
         }
-        return null;
     }
 
-    synchronized Object attempt(UUID playerId) {
-        return attempts.get(playerId);
-    }
-
-    synchronized Object ensureAttempt(UUID playerId) {
-        return transitions.contains(playerId) ? attempts.computeIfAbsent(playerId, ignored -> new Object()) : null;
-    }
-
-    synchronized boolean owns(UUID playerId, Object attempt) {
-        return attempt != null && attempts.get(playerId) == attempt && transitions.contains(playerId);
-    }
-
-    synchronized boolean withAttempt(UUID playerId, Object attempt, Runnable operation) {
-        if (!owns(playerId, attempt)) {
-            return false;
+    Object attempt(UUID playerId) {
+        synchronized (attemptLock) {
+            return attempts.get(playerId);
         }
-        operation.run();
-        return true;
     }
 
-    synchronized boolean complete(UUID playerId, Object attempt, BooleanSupplier cleanup) {
-        if (!owns(playerId, attempt) || !cleanup.getAsBoolean()) {
-            return false;
+    Object ensureAttempt(UUID playerId) {
+        synchronized (attemptLock) {
+            return transitions.contains(playerId) ? attempts.computeIfAbsent(playerId, ignored -> new Object()) : null;
         }
-        clear(playerId);
-        return true;
     }
 
-    synchronized boolean retry(UUID playerId, Object attempt) {
-        if (!owns(playerId, attempt)) {
-            return false;
+    // An attempt is an opaque identity capability; value equality must never grant ownership.
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
+    boolean owns(UUID playerId, Object attempt) {
+        synchronized (attemptLock) {
+            return attempt != null && attempts.get(playerId) == attempt && transitions.contains(playerId);
         }
-        retry(playerId);
-        return true;
     }
 
-    synchronized void retry(UUID playerId) {
-        Objects.requireNonNull(playerId, "playerId");
-        attempts.remove(playerId);
-        transitions.add(playerId);
-        retryable.add(playerId);
+    boolean withAttempt(UUID playerId, Object attempt, Runnable operation) {
+        synchronized (attemptLock) {
+            if (!owns(playerId, attempt)) {
+                return false;
+            }
+            operation.run();
+            return true;
+        }
     }
 
-    synchronized void clear(UUID playerId) {
-        attempts.remove(playerId);
-        retryable.remove(playerId);
-        transitions.remove(playerId);
+    boolean complete(UUID playerId, Object attempt, BooleanSupplier cleanup) {
+        synchronized (attemptLock) {
+            if (!owns(playerId, attempt) || !cleanup.getAsBoolean()) {
+                return false;
+            }
+            clear(playerId);
+            return true;
+        }
+    }
+
+    boolean retry(UUID playerId, Object attempt) {
+        synchronized (attemptLock) {
+            if (!owns(playerId, attempt)) {
+                return false;
+            }
+            retry(playerId);
+            return true;
+        }
+    }
+
+    void retry(UUID playerId) {
+        synchronized (attemptLock) {
+            Objects.requireNonNull(playerId, "playerId");
+            attempts.remove(playerId);
+            transitions.add(playerId);
+            retryable.add(playerId);
+        }
+    }
+
+    void clear(UUID playerId) {
+        synchronized (attemptLock) {
+            attempts.remove(playerId);
+            retryable.remove(playerId);
+            transitions.remove(playerId);
+        }
     }
 }
