@@ -481,7 +481,7 @@ class StaffOrphanToolRecoveryTest {
     }
 
     // Paper/JUnit is not J2EE; the interface's defining loader guarantees proxy visibility.
-    @SuppressWarnings("PMD.J2EEUseProperClassLoader")
+    @SuppressWarnings("PMD.UseProperClassLoader")
     private static <T> T proxy(Class<T> type, BiFunction<Method, Object[], Object> call) {
         return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type},
                 (instance, method, args) -> call.apply(method, args)));

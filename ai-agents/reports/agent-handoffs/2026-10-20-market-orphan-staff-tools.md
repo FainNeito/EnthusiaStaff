@@ -134,7 +134,7 @@ refine without claiming an unavailable helper passed.
 
 ## Exact next action
 
-Continue review of draft PR #647 on the existing branch, preserving PR #476 and
+Continue review of PR #647 on the existing branch, preserving PR #476 and
 unrelated package state. Complete applicable full repository and hosted checks
 before any merge. Map the TEST Staff artifact to its source before attributing
 the live symptom or planning separately authorized TEST activation. The branch
@@ -170,7 +170,7 @@ Original line numbers below refer to `ed023bcf`.
 | `StaffOrphanToolRecoveryTest.java:106` | 1 | Repeated `active` string | Replace generic repeated field-name lookups with the fixture's `activeSessions` helper. |
 | `StaffOrphanToolRecoveryTest.java:346` | 1 | Unused store-call arguments | Assert that the durable absence query addresses the affected player, strengthening the existing test adapter. |
 | `StaffOrphanToolRecoveryTest.java:425,440` | 2 | Reflection changes accessibility | Fixed-target synthetic fixture access to this manager's private completion boundary and state. Narrowly suppress `PMD.AvoidAccessibilityAlteration` on those two test helpers only. No user input or production call path reaches them. |
-| `StaffOrphanToolRecoveryTest.java:478` | 1 | J2EE context-class-loader advice | This is a Paper/JUnit fixture outside J2EE. Preserve the interface's defining loader so the generated proxy can see that interface; narrowly suppress `PMD.J2EEUseProperClassLoader` on the proxy helper. |
+| `StaffOrphanToolRecoveryTest.java:478` | 1 | J2EE context-class-loader advice | This is a Paper/JUnit fixture outside J2EE. Preserve the interface's defining loader so the generated proxy can see that interface; narrowly suppress `PMD.UseProperClassLoader` on the proxy helper. |
 
 The four context-specific suppressions are method-scoped and name exact rules.
 The identity disposition follows an existing repository pattern in
@@ -196,3 +196,25 @@ separately. `git diff --check` passes locally.
 
 Local Lizard is unavailable. Actual hosted Codacy reanalysis remains required;
 the source refactor alone is not recorded as a passing Codacy result.
+
+### Hosted follow-up: class-loader rule identifier
+
+The published refinement head `d100e6b6748880279591645a3bbc5fff2dcee038`
+received one remaining annotation in [Codacy check 118769023867](https://github.com/wsg138/EnthusiaStaff/runs/118769023867),
+completed at `2026-10-20T17:09:27Z` with `action_required`. The annotation at
+`StaffOrphanToolRecoveryTest.java:486` repeats the J2EE class-loader advisory.
+The prior annotation used `PMD.J2EEUseProperClassLoader`, which is not the
+[documented PMD rule name](https://docs.pmd-code.org/latest/pmd_rules_java_errorprone.html#useproperclassloader).
+The correction changes that one method-scoped identifier to
+`PMD.UseProperClassLoader`; the defining class loader, test behavior, and
+production code remain unchanged. Hosted reanalysis on the corrected head is
+still required before claiming this finding is cleared.
+
+PR #647 became ready for review at `2026-10-20T17:11:26Z`.
+[CodeRabbit's comment](https://github.com/wsg138/EnthusiaStaff/pull/647#issuecomment-6292435605)
+reports that automatic review is unavailable for this repository. Its status
+description is `Review skipped: manual review required for this OSS repository`,
+updated at `2026-10-20T17:11:50Z`; the successful status flag is not an executed
+review. No CodeRabbit review submission or inline review comment was present.
+No trigger comment was posted. Independent source review and hosted build/test
+checks remain separate evidence.
