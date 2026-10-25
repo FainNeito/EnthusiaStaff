@@ -229,7 +229,7 @@ and canonical main `958e2ace71358bf57e7f60e261eb3c7a1fe60870` were reconciled by
 a normal merge. No other checkout was reset. This source slice does not authorize
 live recovery, ranks, TEST/client use, deployment, restart, or product merge.
 
-### Requirements and proof
+### Transition-recovery requirements and proof
 
 - A rankless ACTIVE detached lease shall retire only after the store compares its
   exact session, revision, detached ownership, state and checksum under the same
@@ -259,7 +259,7 @@ These synthetic tests use no private snapshot or player identity. MariaDB tests
 cover exact close, stale revision and destination rebind; database execution and
 hosted results must be recorded separately from compilation and local units.
 
-### Engine and architecture
+### Transition-recovery engine and architecture
 
 `StaffSessionStore.retireDetached` is a default fail-closed capability for older
 adapters. JDBC implements it transactionally without a schema or migration change,
@@ -301,3 +301,26 @@ head `1d44dc533fda` and canonical base `958e2ace` were rechecked unchanged befor
 publication. Hosted results must be attributed to the resulting exact PR head;
 old green checks do not certify this continuation. Merge, deployment and live
 recovery remain unauthorized.
+
+
+### Publication-head review refinements
+
+Codacy on `e0c38aaa` reported five findings: a duplicate heading, oversized test
+file, repeated recovery-gate and exit-event literals, and JDBC method complexity.
+The refinement renames the continuation heading, extracts the unchanged synthetic
+scheduler/inventory fixture into a package-local test helper, and decomposes JDBC
+validation/transaction/state-update operations while retaining the row lock and
+single commit. No analysis rule is suppressed or weakened. All 31 manager/gate
+regressions pass after this refactoring; integration test compilation passes.
+New database checks read the persisted snapshot bytes/checksum after closure and
+inject an audit-insert failure to prove closure/revision rollback when executed.
+The unavailable local Docker gate is not retried or reported passing. Updated
+hosted results must certify the new executable/test head independently.
+
+
+The refined executable/test tree passed another clean local Java 25 run of
+`clean test check runtimeJars :integration-tests:compileTestJava` with local
+`:integration-tests:test` explicitly excluded. All 2,678 tests were reported
+again with zero failures/errors and 16 disclosed skips; all 31 focused recovery
+cases passed. Wiki/diff validation passed. Database execution remains a hosted
+gate, not a local pass. No additional live permissions or operations were used.
