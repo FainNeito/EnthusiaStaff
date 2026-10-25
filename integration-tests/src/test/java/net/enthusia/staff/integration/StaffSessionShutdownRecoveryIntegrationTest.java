@@ -31,6 +31,40 @@ class StaffSessionShutdownRecoveryIntegrationTest extends PunishmentRequestMaria
             "Paper runtime disabled before normal staff-mode exit";
 
     @Test
+    void exactDetachedRetirementClosesWithoutRebindingOrReplacingSnapshot() {
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            UUID staffId = identifier("rankless-detached-retirement");
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 6);
+            StaffSessionSnapshot detached = store.detach(staffId, source.sessionId(), source.revision(),
+                    OTHER_SERVER, source.checksum(), NOW.plusSeconds(1)).orElseThrow();
+            assertTrue(store.retireDetached(detached, NOW.plusSeconds(2)));
+            assertTrue(store.active(staffId).isEmpty());
+            assertFalse(store.retireDetached(detached, NOW.plusSeconds(3)));
+            assertTrue(java.util.Arrays.equals(source.snapshot(), detached.snapshot()));
+        }
+    }
+
+    @Test
+    void staleDetachedRetirementCannotCloseReboundOrRevisedSession() {
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            StaffSessionStore store = runtime.staffSessionStore();
+            UUID staffId = identifier("stale-detached-retirement");
+            StaffSessionSnapshot source = begin(runtime, staffId, OTHER_SERVER, 6);
+            StaffSessionSnapshot detached = store.detach(staffId, source.sessionId(), source.revision(),
+                    OTHER_SERVER, source.checksum(), NOW.plusSeconds(1)).orElseThrow();
+            assertTrue(store.setVanish(staffId, true, NOW.plusSeconds(2)));
+            assertFalse(store.retireDetached(detached, NOW.plusSeconds(3)));
+            StaffSessionSnapshot revised = store.active(staffId).orElseThrow();
+            assertTrue(revised.vanishActive());
+            store.begin(staffId, SCOPED_SERVER, 1, "9".repeat(64), new byte[]{9}, NOW.plusSeconds(4));
+            assertFalse(store.retireDetached(revised, NOW.plusSeconds(5)));
+            assertEquals(SCOPED_SERVER, store.active(staffId).orElseThrow().serverId());
+            assertEquals("9".repeat(64), store.active(staffId).orElseThrow().checksum());
+        }
+    }
+
+    @Test
     void detachedNetworkSessionRebindsWithDestinationLocalSnapshot() {
         UUID staffId = identifier("staff-detach-rebind");
         byte[] destinationSnapshot = new byte[]{9};

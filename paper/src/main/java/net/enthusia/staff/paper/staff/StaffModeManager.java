@@ -377,6 +377,9 @@ public final class StaffModeManager implements Listener {
     public void enter(Player player, StaffRank rank) {
         java.util.Objects.requireNonNull(rank, "rank");
         UUID playerId = player.getUniqueId();
+        if (retryHeldRecovery(player)) {
+            return;
+        }
         if (!transitions.add(playerId)) {
             player.sendMessage(StaffMessageStyle.style(Component.text("A staff-mode transition is already in progress.")));
             return;
@@ -454,6 +457,9 @@ public final class StaffModeManager implements Listener {
 
     public void exit(Player player) {
         UUID playerId = player.getUniqueId();
+        if (retryHeldRecovery(player)) {
+            return;
+        }
         StaffSessionSnapshot localSession = active.get(playerId);
         if (localSession == null
                 || localSession.state() != StaffSessionState.ACTIVE
@@ -468,6 +474,17 @@ public final class StaffModeManager implements Listener {
             return;
         }
         beginDurableExit(playerId, "Staff mode exit");
+    }
+
+    private boolean retryHeldRecovery(Player player) {
+        if (!recoveryGate.retryable(player.getUniqueId())) {
+            return false;
+        }
+        recover(player);
+        player.sendMessage(StaffMessageStyle.style(Component.text(
+                "Retrying your saved Staff Mode session; wait for recovery before toggling again."
+        )));
+        return true;
     }
 
     // Handoff resume must snapshot the destination backend's native player state before
@@ -526,7 +543,7 @@ public final class StaffModeManager implements Listener {
                     return;
                 }
                 if (StaffSessionOwnership.detached(session.serverId())) {
-                    recoverDetachedSession(playerId, session, loaded);
+                    recoverDetachedSession(playerId, session, loaded, recoveryAttempt);
                     return;
                 }
                 if (!session.serverId().equalsIgnoreCase(serverId)) {
@@ -560,7 +577,7 @@ public final class StaffModeManager implements Listener {
                     return;
                 }
                 rememberToolInventoryPreference(playerId);
-                onEntity(playerId, current -> finishActiveRecovery(playerId, session, loaded, current));
+                onRecoveryEntity(playerId, recoveryAttempt, current -> finishActiveRecovery(playerId, session, loaded, current));
             } catch (RuntimeException exception) {
                 recoveryGate.retry(playerId, recoveryAttempt);
                 plugin.getLogger().log(Level.SEVERE, "Staff session recovery failed", exception);
@@ -632,20 +649,21 @@ public final class StaffModeManager implements Listener {
     private void recoverDetachedSession(
             UUID playerId,
             StaffSessionSnapshot session,
-            StaffSessionStore loaded
+            StaffSessionStore loaded,
+            Object attempt
     ) {
         switch (DetachedStaffSessionRecoveryPolicy.decide(session.state())) {
-            case REBIND -> onEntity(
-                    playerId,
-                    current -> resumeDetachedSession(playerId, loaded, current)
+            case REBIND -> onRecoveryEntity(
+                    playerId, attempt,
+                    current -> resumeDetachedSession(playerId, session, loaded, current, attempt)
             );
             case RETIRE_RESTORED_LEASE -> retireRestoredDetachedSession(
                     playerId,
                     session,
-                    loaded
+                    loaded, attempt
             );
             case HOLD_INVALID_TRANSITION -> {
-                recoveryGate.retry(playerId);
+                recoveryGate.retry(playerId, attempt);
                 plugin.getLogger().warning(
                         "Detached Staff Mode session has invalid transitional state"
                                 + " staff=" + playerId
@@ -659,7 +677,7 @@ public final class StaffModeManager implements Listener {
                                 + " contact an administrator."
                 );
             }
-            case CLEAR_CLOSED -> recoveryGate.clear(playerId);
+            case CLEAR_CLOSED -> recoveryGate.complete(playerId, attempt, () -> true);
             default -> throw new IllegalStateException(
                     "Unsupported detached Staff session recovery action for " + session.state()
             );
@@ -669,56 +687,70 @@ public final class StaffModeManager implements Listener {
     private void retireRestoredDetachedSession(
             UUID playerId,
             StaffSessionSnapshot session,
-            StaffSessionStore loaded
+            StaffSessionStore loaded,
+            Object attempt
     ) {
+        if (!recoveryGate.owns(playerId, attempt)) {
+            return;
+        }
         try {
-            StaffSessionSnapshot exiting = session.state() == StaffSessionState.RECOVERY_REQUIRED
-                    ? loaded.beginExit(playerId, clock.instant()).orElseThrow(() ->
-                            new IllegalStateException(
-                                    "detached recovery-required Staff Mode session disappeared during closure"
-                            ))
-                    : session;
-            if (!loaded.completeExit(exiting.sessionId(), exiting.checksum(), clock.instant())) {
-                recoveryGate.retry(playerId);
-                safeMessage(
-                        playerId,
-                        "Your detached Staff Mode session could not be closed safely; contact an administrator."
-                );
+            // DETACHED is published only after the source restored and verified its native state.
+            // The store must compare the exact lease under its row lock; never restore it here.
+            if (!loaded.retireDetached(session, clock.instant())) {
+                recoveryGate.retry(playerId, attempt);
+                safeMessage(playerId, "Your detached Staff Mode session changed; recovery remains pending.");
                 return;
             }
-
-            // A DETACHED marker is written only after the source backend restored and checksum-
-            // verified its native snapshot. Never restore that source snapshot on this backend.
-            completeRuntimeExit(playerId);
-            safeMessage(
-                    playerId,
-                    "Recovered an interrupted detached Staff Mode session without replacing your current inventory."
-            );
+            if (!recoveryGate.withAttempt(playerId, attempt,
+                    () -> closedToolCleanups.put(playerId, session.sessionId()))) {
+                return;
+            }
+            onEntity(playerId, player -> finishDetachedRetirement(playerId, player, attempt),
+                    () -> recoveryGate.retry(playerId, attempt), exception -> {
+                        recoveryGate.retry(playerId, attempt);
+                        plugin.getLogger().log(Level.SEVERE, "Detached Staff cleanup could not be scheduled", exception);
+                    });
         } catch (RuntimeException exception) {
-            recoveryGate.retry(playerId);
-            plugin.getLogger().log(
-                    Level.SEVERE,
-                    "Detached Staff Mode terminal recovery failed"
-                            + " staff=" + playerId
-                            + " session=" + session.sessionId()
-                            + " state=" + session.state()
-                            + " server=" + session.serverId(),
-                    exception
-            );
-            safeMessage(
-                    playerId,
-                    "Your detached Staff Mode session could not be recovered automatically; contact an administrator."
-            );
+            recoveryGate.retry(playerId, attempt);
+            plugin.getLogger().log(Level.SEVERE, "Detached Staff Mode terminal recovery failed", exception);
+            safeMessage(playerId, "Your detached Staff Mode session could not be recovered automatically.");
+        }
+    }
+
+    private void finishDetachedRetirement(UUID playerId, Player player, Object attempt) {
+        try {
+            boolean completed = recoveryGate.complete(playerId, attempt, () -> {
+                if (active.containsKey(playerId) || pendingLocalSessions.containsKey(playerId)) {
+                    return false;
+                }
+                removeStaffTools(player);
+                removeCompletedRuntimeState(playerId);
+                return true;
+            });
+            if (completed) {
+                notifyRuntimeExit(playerId);
+                safeMessage(playerId, "Staff Mode ended; your current backend inventory was preserved.");
+            } else {
+                recoveryGate.retry(playerId, attempt);
+            }
+        } catch (RuntimeException exception) {
+            recoveryGate.retry(playerId, attempt);
+            plugin.getLogger().log(Level.SEVERE, "Detached Staff cleanup failed", exception);
         }
     }
 
     private void resumeDetachedSession(
             UUID playerId,
+            StaffSessionSnapshot expectedDetached,
             StaffSessionStore loaded,
-            Player player
+            Player player,
+            Object attempt
     ) {
-        StaffRank rank = resolveDetachedRank(playerId, player);
+        StaffRank rank = PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
         if (rank == null) {
+            if (!submit(() -> retireRestoredDetachedSession(playerId, expectedDetached, loaded, attempt))) {
+                recoveryGate.retry(playerId, attempt);
+            }
             return;
         }
         StaffStateCodec.Captured captured = captureDetachedState(playerId, player);
@@ -728,17 +760,6 @@ public final class StaffModeManager implements Listener {
         if (!submit(() -> rebindDetachedSession(playerId, loaded, rank, captured))) {
             recoveryGate.retry(playerId);
         }
-    }
-
-    private StaffRank resolveDetachedRank(UUID playerId, Player player) {
-        StaffRank rank = PaperStaffRankResolver.resolve(player::hasPermission).orElse(null);
-        if (rank == null) {
-            recoveryGate.retry(playerId);
-            player.sendMessage(StaffMessageStyle.style(Component.text(
-                    "Your Staff Mode session is still active, but your staff rank is unavailable."
-            )));
-        }
-        return rank;
     }
 
     private StaffStateCodec.Captured captureDetachedState(UUID playerId, Player player) {
@@ -827,42 +848,45 @@ public final class StaffModeManager implements Listener {
         // A backend restart is not an intentional Staff Mode exit. Recover the backend-local
         // native state, detach the stale lease, then immediately capture this runtime's native
         // state and reapply the still-active network Staff Mode session.
-        onEntity(playerId, player -> {
+        Object attempt = recoveryGate.attempt(playerId);
+        onRecoveryEntity(playerId, attempt, player -> {
             try {
                 if (!restoreSavedState(player, session)) {
-                    recoveryGate.retry(playerId);
+                    recoveryGate.retry(playerId, attempt);
                     return;
                 }
                 String checksum = codec.verifiedRestorationChecksum(
                         player, session.serverId(), session.snapshot(), session.checksum());
                 if (!submit(() -> {
                     try {
-                        if (loaded.detach(
+                        java.util.Optional<StaffSessionSnapshot> detached = loaded.detach(
                                 playerId,
                                 session.sessionId(),
                                 session.revision(),
                                 session.serverId(),
                                 checksum,
                                 clock.instant()
-                        ).isEmpty()) {
-                            recoveryGate.retry(playerId);
+                        );
+                        if (detached.isEmpty()) {
+                            recoveryGate.retry(playerId, attempt);
                             scheduleRecoveryRetry(playerId);
                             return;
                         }
-                        onEntity(playerId, current -> resumeDetachedSession(playerId, loaded, current));
+                        onRecoveryEntity(playerId, attempt, current -> resumeDetachedSession(
+                                playerId, detached.orElseThrow(), loaded, current, attempt));
                     } catch (RuntimeException exception) {
-                        recoveryGate.retry(playerId);
+                        recoveryGate.retry(playerId, attempt);
                         plugin.getLogger().log(Level.SEVERE, "Staff Mode restart rebind failed", exception);
                         scheduleRecoveryRetry(playerId);
                     }
                 })) {
-                    recoveryGate.retry(playerId);
+                    recoveryGate.retry(playerId, attempt);
                 }
             } catch (RuntimeException exception) {
-                recoveryGate.retry(playerId);
+                recoveryGate.retry(playerId, attempt);
                 plugin.getLogger().log(Level.SEVERE, "Staff Mode restart restoration failed", exception);
             }
-        }, () -> recoveryGate.retry(playerId));
+        });
     }
 
     private void finishActiveRecovery(
@@ -1787,15 +1811,15 @@ public final class StaffModeManager implements Listener {
 
     private void restoreAndVerify(UUID playerId, StaffSessionSnapshot session,
                                   StaffSessionStore loaded, String reason) {
-        onEntity(playerId, player -> {
-            Object restorationAttempt = recoveryGate.ensureAttempt(playerId);
-            if (restorationAttempt == null) {
-                return;
-            }
+        Object restorationAttempt = recoveryGate.ensureAttempt(playerId);
+        if (restorationAttempt == null) {
+            return;
+        }
+        onRecoveryEntity(playerId, restorationAttempt, player -> {
             try {
                 ExitAuditContext exitAudit = captureExitAudit(playerId, player);
                 if (!restoreSavedState(player, session)) {
-                    recoveryGate.retry(playerId);
+                    recoveryGate.retry(playerId, restorationAttempt);
                     submit(() -> loaded.recoveryRequired(
                             session.sessionId(), "Original location could not be restored", clock.instant()
                     ));
@@ -1812,7 +1836,7 @@ public final class StaffModeManager implements Listener {
                     )));
                 }
             } catch (RuntimeException exception) {
-                recoveryGate.retry(playerId);
+                recoveryGate.retry(playerId, restorationAttempt);
                 submit(() -> loaded.recoveryRequired(
                         session.sessionId(), "Runtime restoration failure", clock.instant()
                 ));
@@ -2310,6 +2334,23 @@ public final class StaffModeManager implements Listener {
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.WARNING, "Staff-mode player notification failed", exception);
         }
+    }
+
+    private void onRecoveryEntity(UUID playerId, Object attempt, Consumer<Player> operation) {
+        onEntity(playerId, player -> {
+            if (!recoveryGate.owns(playerId, attempt)) {
+                return;
+            }
+            try {
+                operation.accept(player);
+            } catch (RuntimeException exception) {
+                recoveryGate.retry(playerId, attempt);
+                plugin.getLogger().log(Level.SEVERE, "Staff recovery entity operation failed", exception);
+            }
+        }, () -> recoveryGate.retry(playerId, attempt), exception -> {
+            recoveryGate.retry(playerId, attempt);
+            plugin.getLogger().log(Level.SEVERE, "Staff recovery entity operation could not be scheduled", exception);
+        });
     }
 
     private void onEntity(UUID playerId, Consumer<Player> operation) {

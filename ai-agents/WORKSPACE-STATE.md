@@ -1,5 +1,13 @@
 # Workspace state
 
+2026-10-25 UTC owner continuation: existing MARKET-02 / PR #647 now includes the
+Staff Mode retryable-hold/rankless-detached recovery repair in isolated
+`EnthusiaStaff-transition-20261025`, based on PR head `1d44dc533fda` plus current
+main `958e2ace`. REVIEW / ACTIONABLE_CONTINUATION; exact-head validation and source
+publication handoff remain. No live session, rank, deployment or restart action.
+See `reports/agent-handoffs/2026-10-20-market-orphan-staff-tools.md`.
+
+
 2026-10-05 owner extension: continue the same PR #322 with automatic fresh-entry vanish and player-name completion (IT-09..10). Current main `ba6dcabc9a731e7e3e21c8405778764abdc626f4` includes merged cross-server PR #321 and is normally incorporated as `ebff2f09`; previous assumptions that #321 is unmerged are historical. Preserve transfer/recovery visibility and existing exit policy. No new migration/provider API; validation remains pending for the new product head.
 
 Last updated: 2026-09-22

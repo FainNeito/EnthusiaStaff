@@ -38,6 +38,12 @@ final class StaffModeRecoveryGate {
         }
     }
 
+    boolean retryable(UUID playerId) {
+        synchronized (attemptLock) {
+            return transitions.contains(playerId) && retryable.contains(playerId);
+        }
+    }
+
     Object ensureAttempt(UUID playerId) {
         synchronized (attemptLock) {
             return transitions.contains(playerId) ? attempts.computeIfAbsent(playerId, ignored -> new Object()) : null;

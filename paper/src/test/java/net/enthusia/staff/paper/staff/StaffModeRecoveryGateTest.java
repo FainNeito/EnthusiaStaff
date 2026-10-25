@@ -18,6 +18,20 @@ class StaffModeRecoveryGateTest {
     private static final UUID PLAYER_ID = UUID.fromString("72000000-0000-0000-0000-000000000001");
 
     @Test
+    void retryableHoldIsDistinctFromAnOwnedInFlightAttempt() {
+        StaffModeRecoveryGate gate = new StaffModeRecoveryGate(ConcurrentHashMap.newKeySet());
+        Object first = gate.beginAttempt(PLAYER_ID);
+        assertFalse(gate.retryable(PLAYER_ID));
+        assertTrue(gate.retry(PLAYER_ID, first));
+        assertTrue(gate.retryable(PLAYER_ID));
+        Object retry = gate.beginAttempt(PLAYER_ID);
+        assertNotNull(retry);
+        assertFalse(gate.retryable(PLAYER_ID));
+        assertFalse(gate.retry(PLAYER_ID, first));
+        assertTrue(gate.owns(PLAYER_ID, retry));
+    }
+
+    @Test
     void unavailableStorageKeepsFenceAndAllowsOneLaterRetry() {
         Set<UUID> transitions = ConcurrentHashMap.newKeySet();
         StaffModeRecoveryGate gate = new StaffModeRecoveryGate(transitions);

@@ -28,6 +28,7 @@ import java.util.logging.Logger;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
 import net.enthusia.staff.domain.staff.StaffSessionState;
+import net.enthusia.staff.domain.staff.StaffSessionOwnership;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Material;
 import org.bukkit.Server;
@@ -46,6 +47,166 @@ class StaffOrphanToolRecoveryTest {
     private static final UUID PLAYER_ID = UUID.fromString("72000000-0000-0000-0000-000000000041");
     private static final Instant NOW = Instant.parse("2026-10-20T12:00:00Z");
     private static final NamespacedKey TOOL_KEY = new NamespacedKey("enthusiastaff", "staff_tool");
+
+    @Test
+    void ranklessDetachedSessionClosesWithoutReplayingSourceInventory() {
+        Fixture fixture = new Fixture();
+        fixture.durableSession = new StaffSessionSnapshot(UUID.randomUUID(), PLAYER_ID,
+                StaffSessionOwnership.DETACHED_SERVER_ID, StaffSessionState.ACTIVE,
+                false, 1, "a".repeat(64), new byte[]{9, 8, 7}, NOW, 4);
+        byte[] original = fixture.durableSession.snapshot();
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertFalse(fixture.workers.queued.isEmpty(), "rank loss must schedule safe detached retirement");
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+
+        assertTrue(fixture.closed);
+        assertFalse(fixture.manager.transitioning(PLAYER_ID));
+        assertSame(fixture.ordinaryItem, fixture.contents[1]);
+        assertArrayEquals(original, fixture.durableSession.snapshot());
+        assertEquals(1, fixture.exitNotifications);
+    }
+
+    @Test
+    void rejectedDetachedClosureKeepsInventoryAndAllowsAnotherRecovery() {
+        Fixture fixture = new Fixture();
+        fixture.closeAccepted = false;
+        fixture.durableSession = new StaffSessionSnapshot(UUID.randomUUID(), PLAYER_ID,
+                StaffSessionOwnership.DETACHED_SERVER_ID, StaffSessionState.ACTIVE,
+                false, 1, "a".repeat(64), new byte[]{9, 8, 7}, NOW, 4);
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertFalse(fixture.workers.queued.isEmpty(), "rank loss must schedule safe detached retirement");
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+
+        assertFalse(fixture.closed);
+        assertTrue(fixture.manager.transitioning(PLAYER_ID));
+        assertSame(fixture.tool, fixture.contents[0]);
+        assertSame(fixture.ordinaryItem, fixture.contents[1]);
+        fixture.closeAccepted = true;
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertTrue(fixture.closed);
+        assertFalse(fixture.manager.transitioning(PLAYER_ID));
+    }
+
+    @Test
+    void staleDetachedClosureCannotRetireAReplacedDurableLease() {
+        Fixture fixture = new Fixture();
+        StaffSessionSnapshot old = fixture.detachedSession();
+        fixture.durableSession = old;
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        fixture.durableSession = fixture.detachedSession();
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertFalse(fixture.closed);
+        assertTrue(fixture.manager.transitioning(PLAYER_ID));
+        assertSame(fixture.tool, fixture.contents[0]);
+    }
+
+    @Test
+    void staleDetachedEntityCallbackCannotCleanANewerLocalAttempt() throws Exception {
+        Fixture fixture = new Fixture();
+        fixture.durableSession = fixture.detachedSession();
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        fixture.workers.runNext();
+        StaffModeRecoveryGate gate = fixture.field("recoveryGate", StaffModeRecoveryGate.class);
+        gate.clear(PLAYER_ID);
+        Object replacement = gate.beginAttempt(PLAYER_ID);
+        fixture.runEntityTasks();
+        assertSame(fixture.tool, fixture.contents[0]);
+        assertTrue(gate.owns(PLAYER_ID, replacement));
+        assertEquals(0, fixture.exitNotifications);
+    }
+
+    @Test
+    void normalEntryRetriesAHeldRecoveryRatherThanStartingANewSnapshot() throws Exception {
+        Fixture fixture = new Fixture();
+        StaffModeRecoveryGate gate = fixture.field("recoveryGate", StaffModeRecoveryGate.class);
+        gate.retry(PLAYER_ID);
+        fixture.manager.enter(fixture.player, net.enthusia.staff.domain.auth.StaffRank.FOUNDER);
+        assertFalse(fixture.workers.queued.isEmpty());
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertFalse(fixture.manager.transitioning(PLAYER_ID));
+        assertSame(fixture.ordinaryItem, fixture.contents[1]);
+    }
+
+    @Test
+    void normalEntryDoesNotStealAnInFlightAttempt() throws Exception {
+        Fixture fixture = new Fixture();
+        StaffModeRecoveryGate gate = fixture.field("recoveryGate", StaffModeRecoveryGate.class);
+        Object running = gate.beginAttempt(PLAYER_ID);
+        fixture.manager.enter(fixture.player, net.enthusia.staff.domain.auth.StaffRank.FOUNDER);
+        assertTrue(fixture.workers.queued.isEmpty());
+        assertTrue(gate.owns(PLAYER_ID, running));
+        assertSame(fixture.ordinaryItem, fixture.contents[1]);
+    }
+
+    @Test
+    void normalExitRetriesAHeldRecoveryBeforeCheckingLocalActivation() throws Exception {
+        Fixture fixture = new Fixture();
+        StaffModeRecoveryGate gate = fixture.field("recoveryGate", StaffModeRecoveryGate.class);
+        gate.retry(PLAYER_ID);
+        fixture.manager.exit(fixture.player);
+        assertFalse(fixture.workers.queued.isEmpty());
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertFalse(fixture.manager.transitioning(PLAYER_ID));
+        assertSame(fixture.ordinaryItem, fixture.contents[1]);
+    }
+
+    @Test
+    void rejectedDetachedEntitySchedulingCanBeRetried() {
+        Fixture fixture = new Fixture();
+        fixture.durableSession = fixture.detachedSession();
+        fixture.rejectEntity = true;
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        fixture.rejectEntity = false;
+        fixture.manager.recover(PLAYER_ID, null);
+        assertFalse(fixture.workers.queued.isEmpty());
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertTrue(fixture.closed);
+        assertFalse(fixture.manager.transitioning(PLAYER_ID));
+    }
+
+    @Test
+    void detachedClosureCleanupRetriesWithoutReplayingTheClosedSession() {
+        Fixture fixture = new Fixture();
+        fixture.durableSession = fixture.detachedSession();
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        fixture.workers.runNext();
+        fixture.rejectEntity = true;
+        fixture.runEntityTasks();
+        assertTrue(fixture.closed);
+        assertTrue(fixture.manager.transitioning(PLAYER_ID));
+        assertSame(fixture.tool, fixture.contents[0]);
+        fixture.rejectEntity = false;
+        fixture.manager.recover(PLAYER_ID, null);
+        fixture.workers.runNext();
+        fixture.runEntityTasks();
+        assertFalse(fixture.manager.transitioning(PLAYER_ID));
+        assertSame(fixture.ordinaryItem, fixture.contents[1]);
+        assertEquals(1, fixture.exitNotifications);
+    }
 
     @Test
     void noDurableSessionRemovesOnlyTaggedToolsIncludingOffhandAndCursor() {
@@ -298,6 +459,8 @@ class StaffOrphanToolRecoveryTest {
         private boolean rejectEntity;
         private boolean throwEntity;
         private Object exitAttempt;
+        private StaffSessionSnapshot durableSession;
+        private int exitNotifications;
         private final StaffSessionStore store = proxy(StaffSessionStore.class, this::storeCall);
         private final PlayerInventory inventory = proxy(PlayerInventory.class, this::inventoryCall);
         private final EntityScheduler entity = proxy(EntityScheduler.class, (method, args) -> {
@@ -338,6 +501,7 @@ class StaffOrphanToolRecoveryTest {
                 () -> null, workers);
 
         private Fixture() {
+            manager.setExitListener(ignored -> exitNotifications++);
             contents[0] = tool;
             contents[1] = ordinaryItem;
             contents[39] = tool;
@@ -351,7 +515,12 @@ class StaffOrphanToolRecoveryTest {
                     if (failRead) {
                         throw new IllegalStateException("injected unavailable storage");
                     }
-                    yield Optional.empty();
+                    yield closed ? Optional.empty() : Optional.ofNullable(durableSession);
+                }
+                case "retireDetached" -> {
+                    assertFalse(entityOwned, "detached closure must stay on the persistence worker");
+                    closed = closeAccepted && durableSession == args[0];
+                    yield closed;
                 }
                 case "completeExit" -> {
                     assertFalse(entityOwned, "durable closure must stay on the persistence worker");
@@ -378,6 +547,7 @@ class StaffOrphanToolRecoveryTest {
         private Object playerCall(Method method, Object[] args) {
             return switch (method.getName()) {
                 case "getUniqueId" -> PLAYER_ID;
+                case "hasPermission" -> false;
                 case "getScheduler" -> entity;
                 case "getInventory" -> inventory;
                 case "getItemOnCursor" -> cursor;
@@ -410,6 +580,12 @@ class StaffOrphanToolRecoveryTest {
         private StaffSessionSnapshot session(UUID sessionId) {
             return new StaffSessionSnapshot(sessionId, PLAYER_ID, "TEST", StaffSessionState.EXITING,
                     false, 1, "a".repeat(64), new byte[]{1, 2, 3}, NOW, 1);
+        }
+
+        private StaffSessionSnapshot detachedSession() {
+            return new StaffSessionSnapshot(UUID.randomUUID(), PLAYER_ID,
+                    StaffSessionOwnership.DETACHED_SERVER_ID, StaffSessionState.ACTIVE,
+                    false, 1, "a".repeat(64), new byte[]{9, 8, 7}, NOW, 4);
         }
 
         @SuppressWarnings("unchecked")

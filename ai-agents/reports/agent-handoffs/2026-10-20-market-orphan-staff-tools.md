@@ -218,3 +218,74 @@ updated at `2026-10-20T17:11:50Z`; the successful status flag is not an executed
 review. No CodeRabbit review submission or inline review comment was present.
 No trigger comment was posted. Independent source review and hosted build/test
 checks remain separate evidence.
+
+
+## Owner continuation: transition recovery, 2026-10-25 UTC
+
+The owner assigned the diagnosed Staff Mode transition repair to the existing
+MARKET-02 / PR #647 lane. Work is isolated in `EnthusiaStaff-transition-20261025`
+on `package/market-02-transition-recovery`; the existing PR head `1d44dc533fda`
+and canonical main `958e2ace71358bf57e7f60e261eb3c7a1fe60870` were reconciled by
+a normal merge. No other checkout was reset. This source slice does not authorize
+live recovery, ranks, TEST/client use, deployment, restart, or product merge.
+
+### Requirements and proof
+
+- A rankless ACTIVE detached lease shall retire only after the store compares its
+  exact session, revision, detached ownership, state and checksum under the same
+  row lock used by entry/rebind. A detached marker represents the source backend's
+  completed restoration verification. Destination inventory shall never be
+  replaced with that source snapshot.
+- A rejected/stale/failed retirement shall preserve the snapshot and recovery
+  fence. Durable close, audit and outbox publication shall commit atomically.
+- A normal enter or exit request during a retryable hold shall invoke durable
+  recovery rather than fresh snapshot capture. A genuinely owned in-flight
+  attempt shall not be stolen. Recovery can resume ACTIVE intent; it is not an
+  unconditional forced-exit command.
+- Deferred or rejected entity work shall retain retryability, and stale callbacks
+  shall not clean inventory or clear a newer attempt. Cleanup after committed
+  detached closure shall retry using durable absence without replaying snapshots.
+- Durable vanish-clear recovery shall not apply an old selected gamemode while
+  Staff Mode owns an active session or transition. Existing manual mode, rank,
+  inventory, permission and vanish-preference semantics remain unchanged.
+
+Two manager regressions failed on the pre-fix behavior: rankless detached
+retirement was never scheduled. The initial fixture instead raised an empty-queue
+exception; that run is not counted as behavioral red proof. Corrected assertions
+produced 17 tests with two expected assertion failures. The first implementation
+passed the focused manager/gate/detached suites; later refinements add stale lease,
+stale callback, rejected scheduling, held-enter/exit and in-flight protection.
+These synthetic tests use no private snapshot or player identity. MariaDB tests
+cover exact close, stale revision and destination rebind; database execution and
+hosted results must be recorded separately from compilation and local units.
+
+### Engine and architecture
+
+`StaffSessionStore.retireDetached` is a default fail-closed capability for older
+adapters. JDBC implements it transactionally without a schema or migration change,
+retaining snapshot bytes and history; it does not enable auto-commit after an
+uncertain rollback. Paper schedules only player-owned cleanup after commit and
+notifies the existing exit listener afterward. Recovery callbacks carry opaque
+attempt identities. The existing orphan-tool repair and its regressions remain.
+
+Project-local EARS/state helpers and the conventional four SPEAR documents are
+absent; this requirement/task/evidence section is the bounded record. No tooling
+pass is invented. Source review, local unit/build checks, MariaDB execution,
+hosted exact-head gates, TEST activation and real client acceptance are distinct.
+Status remains REVIEW / ACTIONABLE_CONTINUATION until the exact-head gates and
+existing source-owner publication handoff are resolved. Raw runtime evidence stays
+private and is not committed or copied into the public PR.
+
+
+### Local validation checkpoint
+
+Final clean Java 25.0.3 `clean test check runtimeJars
+:integration-tests:compileTestJava -x :integration-tests:test` completed with
+2,678 reported tests, zero failures/errors and 16 explicitly skipped cases.
+The manager recovery suite has 24 passing cases and recovery gate has seven;
+none of those 31 focused cases skipped. All existing orphan-tool checks remain.
+Wiki validation passed for 41 pages; `git diff --check` passed. MariaDB tests
+compiled but did not execute locally: Docker is absent. Hosted database,
+exact-head static/review, TEST and client gates remain open. The local Paper and
+Velocity JARs are unmerged/local test artifacts, not approved deployment inputs.
+No private operational evidence was added to the public source tree.
