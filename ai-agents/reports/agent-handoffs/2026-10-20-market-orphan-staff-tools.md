@@ -273,7 +273,7 @@ absent; this requirement/task/evidence section is the bounded record. No tooling
 pass is invented. Source review, local unit/build checks, MariaDB execution,
 hosted exact-head gates, TEST activation and real client acceptance are distinct.
 Status remains REVIEW / ACTIONABLE_CONTINUATION until the exact-head gates and
-existing source-owner publication handoff are resolved. Raw runtime evidence stays
+hosted review and runtime acceptance gates are resolved. Raw runtime evidence stays
 private and is not committed or copied into the public PR.
 
 
@@ -289,3 +289,15 @@ compiled but did not execute locally: Docker is absent. Hosted database,
 exact-head static/review, TEST and client gates remain open. The local Paper and
 Velocity JARs are unmerged/local test artifacts, not approved deployment inputs.
 No private operational evidence was added to the public source tree.
+
+
+### Publication ownership handoff
+
+The owner explicitly confirmed this Staff chat taking over publication to existing
+PR #647 on 2026-10-25 UTC. Roundtable records the matching handoff under MARKET-02.
+No competing PR is created. Executable local validation belongs to `2f11622c`;
+this ownership/checkpoint amendment changes documentation only. Existing fork
+head `1d44dc533fda` and canonical base `958e2ace` were rechecked unchanged before
+publication. Hosted results must be attributed to the resulting exact PR head;
+old green checks do not certify this continuation. Merge, deployment and live
+recovery remain unauthorized.
