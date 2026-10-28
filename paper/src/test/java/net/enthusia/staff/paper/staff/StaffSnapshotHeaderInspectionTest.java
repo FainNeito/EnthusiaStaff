@@ -11,9 +11,9 @@ class StaffSnapshotHeaderInspectionTest {
     private final StaffStateCodec codec = new StaffStateCodec();
 
     @Test
-    void headerAndDigestCanBeCheckedWithoutItemDeserialization() throws Exception {
+    void boundedHeaderCanBeCheckedWithoutItemDeserialization() throws Exception {
         byte[] bytes = header(0x45535331, 1, "HUB");
-        assertEquals("HUB", codec.inspectedBackend(1, codec.checksum(bytes), bytes));
+        assertEquals("HUB", codec.inspectedBackend(1, bytes));
     }
 
     @Test
@@ -22,11 +22,11 @@ class StaffSnapshotHeaderInspectionTest {
                 header(0x45535331, 2, "TEST"), header(0x45535331, 1, "bad\nbackend"),
                 header(0x45535331, 1, "__network_detached__")}) {
             assertThrows(IllegalArgumentException.class,
-                    () -> codec.inspectedBackend(1, codec.checksum(bytes), bytes));
+                    () -> codec.inspectedBackend(1, bytes));
         }
         byte[] bytes = header(0x45535331, 1, "TEST");
-        assertThrows(IllegalArgumentException.class, () -> codec.inspectedBackend(2, codec.checksum(bytes), bytes));
-        assertThrows(IllegalArgumentException.class, () -> codec.inspectedBackend(1, "a".repeat(64), bytes));
+        assertThrows(IllegalArgumentException.class, () -> codec.inspectedBackend(2, bytes));
+        assertThrows(IllegalArgumentException.class, () -> codec.inspectedBackend(1, new byte[75]));
     }
 
     private static byte[] header(int magic, int version, String backend) throws Exception {

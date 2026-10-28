@@ -421,3 +421,16 @@ and exact-source labelled artifact pending. One real MariaDB inspection fixture
 checks detached lookup, unchanged session revision/bytes and missing-snapshot
 failure; it is compiled locally, with execution left to the existing hosted gate
 because local Docker remains unavailable. No live database was used as a stand-in.
+
+
+Privacy review refinement: the unpublished initial reader privately fetched a
+bounded full snapshot to hash. Final reader instead returns metadata plus at most
+74 header-prefix bytes; SHA2 is computed inside the read-only SQL query only for
+snapshots within the 8MiB limit. The diagnostic result has its own non-restorable
+metadata type; it is never passed to restoration. Constructor/schema/header and
+owner checks remain separate from full payload validation, explicitly not claimed.
+The real MariaDB fixture also changes only its disposable blob to prove digest
+mismatch rejection, then removes its disposable snapshot to prove LEFT JOIN does
+not convert missing evidence into absence. No live data was involved. The first
+full Java25 build passed before this privacy refinement; final checks must apply
+to the refined executable head. No earlier artifact is a delivery candidate.

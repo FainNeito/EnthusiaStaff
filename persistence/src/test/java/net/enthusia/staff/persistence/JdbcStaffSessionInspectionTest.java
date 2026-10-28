@@ -33,8 +33,10 @@ class JdbcStaffSessionInspectionTest {
         var result = new JdbcStaffSessionStore(fixture.source).inspect(STAFF).orElseThrow();
         assertEquals(STAFF, result.staffId());
         assertEquals("__network_detached__", result.serverId());
-        assertArrayEquals(new byte[]{1, 2, 3}, result.snapshot());
+        assertArrayEquals(new byte[]{1, 2, 3}, result.header());
         assertTrue(fixture.sql.contains("LEFT JOIN"));
+        assertTrue(fixture.sql.contains("SHA2(p.snapshot_blob, 256)"));
+        assertFalse(fixture.sql.contains("THEN p.snapshot_blob"), "full payload must never be returned");
         assertTrue(fixture.sql.contains("LIMIT 2"));
         assertFalse(fixture.sql.contains("FOR UPDATE"));
         assertEquals(STAFF, UuidBytes.fromBytes((byte[]) fixture.parameters.get(2)));
@@ -66,9 +68,9 @@ class JdbcStaffSessionInspectionTest {
     }
 
     @Test
-    void changedBytesFailChecksumValidation() {
+    void databaseComputedDigestMismatchFailsClosed() {
         Fixture fixture = new Fixture();
-        fixture.rows.getFirst().put("snapshot_blob", new byte[]{3, 2, 1});
+        fixture.rows.getFirst().put("computed_checksum", "a".repeat(64));
         assertFailure(fixture, Reason.CHECKSUM_MISMATCH);
     }
 
@@ -76,7 +78,7 @@ class JdbcStaffSessionInspectionTest {
     void oversizedOrMissingBlobFailsClosed() {
         Fixture fixture = new Fixture();
         fixture.rows.getFirst().put("snapshot_length", Integer.MAX_VALUE);
-        fixture.rows.getFirst().put("snapshot_blob", null);
+        fixture.rows.getFirst().put("snapshot_header", null);
         assertFailure(fixture, Reason.INVALID_SNAPSHOT_LENGTH);
     }
 
@@ -153,7 +155,8 @@ class JdbcStaffSessionInspectionTest {
             row.put("server_id", "__network_detached__"); row.put("state", "ACTIVE");
             row.put("vanish_active", false); row.put("schema_version", 1);
             row.put("revision", 4L); row.put("snapshot_length", 3L);
-            row.put("checksum", DIGEST); row.put("snapshot_blob", new byte[]{1, 2, 3});
+            row.put("checksum", DIGEST); row.put("computed_checksum", DIGEST);
+            row.put("snapshot_header", new byte[]{1, 2, 3});
             row.put("started_at", Timestamp.from(Instant.parse("2026-10-28T00:00:00Z")));
             rows.add(row);
         }

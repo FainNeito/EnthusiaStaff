@@ -138,7 +138,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
     }
 
     @Override
-    public Optional<StaffSessionSnapshot> inspect(UUID staffId) {
+    public Optional<net.enthusia.staff.domain.staff.StaffSessionInspection> inspect(UUID staffId) {
         return JdbcStaffSessionInspection.inspect(dataSource, staffId);
     }
 
@@ -597,7 +597,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         }
     }
 
-    static StaffSessionSnapshot read(ResultSet result) throws SQLException {
+    private static StaffSessionSnapshot read(ResultSet result) throws SQLException {
         return new StaffSessionSnapshot(
                 UuidBytes.fromBytes(result.getBytes("session_id")),
                 UuidBytes.fromBytes(result.getBytes("staff_id")),

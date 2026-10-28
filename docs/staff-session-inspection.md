@@ -14,11 +14,12 @@ snapshot, contacts a new external database client, or changes connection/TLS
 configuration. It does not attest the existing pool's negotiated transport.
 
 The lookup includes detached ownership and uses a left join so a missing snapshot
-cannot look like no session. Snapshot transfer is capped at 8 MiB. More than one
+cannot look like no session. Only a bounded 74-byte header prefix is transferred. Full-snapshot SHA-256 is
+computed inside the database only when the saved length is at most 8 MiB. More than one
 non-closed row, missing snapshot, unsupported or malformed metadata, invalid size,
 checksum mismatch, invalid snapshot header, or inconsistent real owner/header
-backend fails closed. The saved bytes are used privately for SHA-256 and header
-validation, never printed or applied. Item payloads are not deserialized.
+backend fails closed. The saved snapshot is not returned by the SELECT; only its digest and bounded
+header are used for validation, never printed or applied. Item payloads are not deserialized.
 
 ## Reading the response
 

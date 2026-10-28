@@ -183,13 +183,12 @@ public final class StaffStateCodec {
         }
     }
 
-    /** Integrity/header inspection only; never deserializes items or applies a player snapshot. */
-    public String inspectedBackend(int schema, String expectedChecksum, byte[] snapshot) {
-        validateSnapshotSize(snapshot);
-        if (schema != SCHEMA_VERSION || !checksum(snapshot).equals(expectedChecksum)) {
-            throw new IllegalArgumentException("snapshot integrity or schema mismatch");
+    /** Header inspection only; the read-only store separately verifies the full database digest. */
+    public String inspectedBackend(int schema, byte[] header) {
+        if (schema != SCHEMA_VERSION || header == null || header.length == 0 || header.length > 74) {
+            throw new IllegalArgumentException("snapshot header or schema mismatch");
         }
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(snapshot))) {
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(header))) {
             validateHeader(input);
             String backend = input.readUTF();
             if (!backend.matches("[A-Za-z0-9_-]{1,64}")

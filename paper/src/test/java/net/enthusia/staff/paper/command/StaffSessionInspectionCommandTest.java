@@ -18,7 +18,7 @@ import java.util.UUID;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
 import net.enthusia.staff.domain.staff.StaffSessionInspectionException;
 import net.enthusia.staff.domain.staff.StaffSessionInspectionException.Reason;
-import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
+import net.enthusia.staff.domain.staff.StaffSessionInspection;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 import net.enthusia.staff.paper.staff.StaffStateCodec;
 import net.kyori.adventure.text.Component;
@@ -115,15 +115,15 @@ class StaffSessionInspectionCommandTest {
         assertTrue(fixture.output.stream().allMatch(line -> line.contains("UNAVAILABLE")));
     }
 
-    private static StaffSessionSnapshot snapshot(String owner, String source) throws Exception {
+    private static StaffSessionInspection snapshot(String owner, String source) throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
             out.writeInt(0x45535331); out.writeInt(1); out.writeUTF(source);
             out.writeUTF("SECRET_ITEM_PAYLOAD");
         }
         byte[] payload = bytes.toByteArray();
-        return new StaffSessionSnapshot(UUID.randomUUID(), TARGET, owner, StaffSessionState.ACTIVE,
-                false, 1, new StaffStateCodec().checksum(payload), payload, Instant.EPOCH, 3);
+        return new StaffSessionInspection(UUID.randomUUID(), TARGET, owner, StaffSessionState.ACTIVE,
+                3, Instant.EPOCH, 1, payload.length, new StaffStateCodec().checksum(payload), payload);
     }
 
     private static final class Fixture {
@@ -131,7 +131,7 @@ class StaffSessionInspectionCommandTest {
         final ArrayDeque<Runnable> replies = new ArrayDeque<>();
         final List<String> output = new ArrayList<>();
         final ConsoleCommandSender console = sender(ConsoleCommandSender.class, output);
-        StaffSessionSnapshot snapshot;
+        StaffSessionInspection snapshot;
         RuntimeException failure;
         int reads;
         final StaffSessionStore store = (StaffSessionStore) Proxy.newProxyInstance(

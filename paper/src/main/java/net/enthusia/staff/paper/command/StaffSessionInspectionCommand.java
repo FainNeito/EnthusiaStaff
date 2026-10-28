@@ -11,7 +11,7 @@ import net.enthusia.staff.domain.ports.StaffSessionStore;
 import net.enthusia.staff.domain.staff.StaffSessionInspectionException;
 import net.enthusia.staff.domain.staff.StaffSessionInspectionException.Reason;
 import net.enthusia.staff.domain.staff.StaffSessionOwnership;
-import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
+import net.enthusia.staff.domain.staff.StaffSessionInspection;
 import net.enthusia.staff.domain.staff.StaffSessionState;
 import net.enthusia.staff.paper.staff.StaffStateCodec;
 import net.kyori.adventure.text.Component;
@@ -100,7 +100,7 @@ public final class StaffSessionInspectionCommand implements CommandExecutor {
         replies.accept(() -> sender.sendMessage(Component.text(output)));
     }
 
-    private String verified(StaffSessionSnapshot snapshot, UUID target) {
+    private String verified(StaffSessionInspection snapshot, UUID target) {
         String owner = snapshot.serverId();
         if (!target.equals(snapshot.staffId()) || snapshot.state() == StaffSessionState.CLOSED
                 || !owner.matches("[A-Za-z0-9_-]{1,64}")) {
@@ -108,7 +108,7 @@ public final class StaffSessionInspectionCommand implements CommandExecutor {
         }
         String source;
         try {
-            source = codec.inspectedBackend(snapshot.schemaVersion(), snapshot.checksum(), snapshot.snapshot());
+            source = codec.inspectedBackend(snapshot.schemaVersion(), snapshot.header());
         } catch (IllegalArgumentException exception) {
             throw new StaffSessionInspectionException(Reason.INVALID_METADATA);
         }
@@ -119,7 +119,7 @@ public final class StaffSessionInspectionCommand implements CommandExecutor {
                 + " snapshot_backend=" + source + " state=" + snapshot.state().name()
                 + " revision=" + snapshot.revision() + " session_started_at=" + snapshot.startedAt()
                 + " schema=" + snapshot.schemaVersion()
-                + " snapshot_bytes=" + snapshot.snapshot().length + " checksum=" + snapshot.checksum()
+                + " snapshot_bytes=" + snapshot.snapshotBytes() + " checksum=" + snapshot.checksum()
                 + ASSURANCE;
     }
 }
