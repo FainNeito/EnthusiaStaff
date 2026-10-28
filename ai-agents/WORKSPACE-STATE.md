@@ -1,3 +1,11 @@
+2026-10-28 UTC SD-01..05: same MARKET-02 / PR647 now adds an offline,
+console-only read-only session inspector in isolated current-base
+EnthusiaStaff-session-diagnostic-20261028. Existing join/retirement fixes retained.
+Source/build scope Roundtable1837 with explicit compute ACK1835. No TEST/client,
+live DB, deployment/restart or production use. Query/header/console tests and
+review/artifact evidence tracked in existing market-orphan handoff and
+`docs/staff-session-inspection.md`; exact-head hosted checks pending.
+
 2026-10-28 UTC: same MARKET-02 / PR #647 continuation repairs the rankless
 destination join hint bypass. Main 9efaa056 normally incorporated into preserved
 a380 recovery work. SJ-01 and event-path red/green evidence are in the existing

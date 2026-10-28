@@ -370,3 +370,54 @@ This follow-up changes tracking files only; hosted results remain pending for
 the published exact PR head, with no inference from the earlier a380 checks.
 Manual review found no new API, persistence, permission or migration change;
 no independent human review or real client recovery acceptance is claimed.
+
+
+### Read-only offline session evidence (2026-10-28 UTC)
+
+Owner-directed same-lane continuation, requirements SD-01..05. Isolated worktree
+EnthusiaStaff-session-diagnostic-20261028 starts at current main9efaa056 then
+fast-forwards the existing PR647 head9a09. No existing worktree is overwritten.
+
+SD-01: a hard console-only diagnostic accepts exactly one canonical UUID,
+requires no player connection, and performs no recovery, session, snapshot,
+player, rank, inventory, file, configuration or authority mutation.
+SD-02: a fixed bounded read-only consistent JDBC query uses that UUID, LEFT JOINs
+the snapshot and checks at most two non-closed rows. Missing snapshot, duplicate
+session, invalid length/metadata or mismatched digest fail closed. No history or
+other-player query, arbitrary SQL, explicit row lock or credential readback.
+SD-03: only safe metadata is returned: source/runtime/session identity, state,
+revision, schema, checksum/length, verified header backend and observation time.
+No snapshot bytes/items, database endpoint/credentials or provider errors.
+Header plus digest integrity is not full payload/player restoration validation
+or recovery authorization; pending proxy handoff ownership is not inspected.
+SD-04: use the existing bounded worker pool and reply scheduler; reject overload,
+keep one inspection running, query timeout, sanitize metadata and fail closed on
+missing providers. Reuse the owned application's pool without changing TLS or
+introducing an external database connection or promising its negotiated TLS.
+SD-05: preserve existing source fixes/options/APIs with a default unsupported
+port method. Build an exact-source explicitly UNMERGED-TEST local artifact for
+review; no deployment, shared TEST/client/DB invocation or production action.
+
+Prove/engine/refine pending: synthetic JDBC, console/header tests and isolated
+MariaDB fixture when its gate is available; current unavailable local Docker gate
+is not retried. Existing EARS/state helpers remain absent; this requirement/task/
+evidence record is the bounded SPEAR record. Local source/build ownership is
+Roundtable1837, with current compute owner's explicit nonoverlap acknowledgment1835.
+
+
+Diagnostic proof checkpoint: seven synthetic JDBC feature-contract tests failed
+against the default unsupported inspection scaffold, then passed with the fixed
+bounded reader. This is new-feature contract red evidence, not a fabricated
+historical bug reproduction. Seventeen focused JDBC/header/console cases now
+pass, including query failure rollback, missing/ambiguous/mismatched rows,
+invalid header/backend/digest, hard console gating, canonical UUID checks,
+overload and worker rejection. Broader Paper suite initially correctly rejected
+the new root command in its exact surface contract; explicitly added only the
+new hard-console command to the reviewed surface and no-outer-permission set,
+following the existing console-only staffapi pattern. Existing permissions and
+allowlist equality checks remain. Paper/persistence suites and integration-test
+compilation passed before the last manifest-only refinement; full final checks
+and exact-source labelled artifact pending. One real MariaDB inspection fixture
+checks detached lookup, unchanged session revision/bytes and missing-snapshot
+failure; it is compiled locally, with execution left to the existing hosted gate
+because local Docker remains unavailable. No live database was used as a stand-in.

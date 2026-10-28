@@ -138,6 +138,11 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
     }
 
     @Override
+    public Optional<StaffSessionSnapshot> inspect(UUID staffId) {
+        return JdbcStaffSessionInspection.inspect(dataSource, staffId);
+    }
+
+    @Override
     public Optional<StaffSessionSnapshot> detach(
             UUID staffId,
             UUID expectedSessionId,
@@ -592,7 +597,7 @@ public final class JdbcStaffSessionStore implements StaffSessionStore {
         }
     }
 
-    private static StaffSessionSnapshot read(ResultSet result) throws SQLException {
+    static StaffSessionSnapshot read(ResultSet result) throws SQLException {
         return new StaffSessionSnapshot(
                 UuidBytes.fromBytes(result.getBytes("session_id")),
                 UuidBytes.fromBytes(result.getBytes("staff_id")),

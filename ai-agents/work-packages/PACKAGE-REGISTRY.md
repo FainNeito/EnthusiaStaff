@@ -256,3 +256,9 @@ handoff hint must still run fenced durable recovery (SJ-01). Same PR #647 and
 existing handoff; main 9efaa056 incorporated normally. Event-path regression
 confirmed; final exact-head checks/review/publication pending. No new package,
 shared TEST/client use or live recovery authorization is implied.
+
+
+2026-10-28 SD-01..05 owner continuation in same MARKET-02 / PR647 adds private
+console-only read-only offline session inspection. Existing fixes retained;
+local/source review and exact-head hosted/artifact gates recorded in existing
+handoff. REVIEW / ACTIONABLE_CONTINUATION; no new package or live authority.
