@@ -249,3 +249,10 @@ another registry package or alter historical package states. Status is REVIEW /
 ACTIONABLE_CONTINUATION; local units/build passed with disclosed skips, MariaDB
 execution and exact-head hosted/runtime acceptance remain open. See the existing
 `reports/agent-handoffs/2026-10-20-market-orphan-staff-tools.md` handoff.
+
+
+2026-10-28 MARKET-02 continuation: rankless destination join with a consumed
+handoff hint must still run fenced durable recovery (SJ-01). Same PR #647 and
+existing handoff; main 9efaa056 incorporated normally. Event-path regression
+confirmed; final exact-head checks/review/publication pending. No new package,
+shared TEST/client use or live recovery authorization is implied.

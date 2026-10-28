@@ -1,3 +1,10 @@
+2026-10-28 UTC: same MARKET-02 / PR #647 continuation repairs the rankless
+destination join hint bypass. Main 9efaa056 normally incorporated into preserved
+a380 recovery work. SJ-01 and event-path red/green evidence are in the existing
+market-orphan handoff. REVIEW / ACTIONABLE_CONTINUATION: exact-head validation,
+review and publication pending; live durable-state evidence/recovery remains
+separate. No TEST/client/deployment/production action in this source slice.
+
 # Workspace state
 
 2026-10-25 UTC owner continuation: existing MARKET-02 / PR #647 now includes the

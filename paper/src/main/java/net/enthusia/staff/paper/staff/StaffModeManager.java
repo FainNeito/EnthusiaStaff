@@ -501,10 +501,10 @@ public final class StaffModeManager implements Listener {
                 player.sendMessage(StaffMessageStyle.style(Component.text(
                         "Staff Mode could not resume because your explicit staff rank is unavailable."
                 )));
-                return;
             }
             // PREPARE is only a fast-path hint. The source detach may still be committing,
             // so use durable recovery/rebind instead of a one-shot new Staff entry.
+            // Rank loss still needs durable recovery to retire an eligible detached lease.
             recover(playerId, rank);
             return;
         }

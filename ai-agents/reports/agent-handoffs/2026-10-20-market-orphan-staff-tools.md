@@ -324,3 +324,34 @@ The refined executable/test tree passed another clean local Java 25 run of
 again with zero failures/errors and 16 disclosed skips; all 31 focused recovery
 cases passed. Wiki/diff validation passed. Database execution remains a hosted
 gate, not a local pass. No additional live permissions or operations were used.
+
+
+### Rankless destination join continuation (2026-10-28 UTC)
+
+Owner-directed continuation of the same MARKET-02 / PR #647 lane, not a new
+package. Starting product head a38002e95791, canonical main
+9efaa05699f78f1f1133d13117fd033fef99cb39 incorporated by normal merge without
+conflicts; prior name/vanish and durable retirement repairs are retained.
+
+Requirement SJ-01: consuming a destination handoff hint must not bypass durable
+recovery when the destination has no explicit staff rank. The hint is advisory,
+not a grant of Staff authority. Eligible detached ACTIVE, EXITING and
+RECOVERY_REQUIRED leases must use existing fenced retirement and preserve saved
+snapshot bytes and ordinary destination inventory. ENTERING remains held, storage
+unavailability stays retryable, and rejected/stale closure must not remove tools.
+No new SQL, migration, permission, platform API or companion integration is added.
+
+Proof: five executable event-path regressions failed on the pre-fix merged tree
+at the expected missing-work/hold assertions. Earlier test-scaffold compile
+failures are not behavioral red evidence. Removing the rank-null early return
+lets the existing recover(playerId, rank) call handle the durable state; existing
+handoff abandonment and rank-unavailable message remain. The first focused
+recovery/gate/policy/join-ordering run passed; final full checks are pending on
+the frozen source head. An additional rejected-retirement event-path case checks
+inventory/snapshot preservation. No EARS/state helper is available; this is the
+small requirement/task/evidence record rather than a claimed tooling pass.
+
+Task: exact-head local/hosted validation and source review, then publish the
+same PR. TEST/client recovery remains separate, with exact durable-state evidence
+still required under SHARED-02. No live recovery command, inventory/rank mutation,
+TEST use, deployment/restart, merge-to-main or production action in this slice.
