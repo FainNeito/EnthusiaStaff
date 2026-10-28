@@ -22,6 +22,8 @@ import javax.sql.DataSource;
 import net.enthusia.staff.domain.staff.StaffSessionInspectionException;
 import net.enthusia.staff.domain.staff.StaffSessionInspectionException.Reason;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class JdbcStaffSessionInspectionTest {
     private static final UUID STAFF = UUID.fromString("73000000-0000-0000-0000-000000000021");
@@ -101,6 +103,14 @@ class JdbcStaffSessionInspectionTest {
         assertTrue(fixture.rolledBack);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"server_id", "state", "started_at"})
+    void missingRequiredMetadataFailsClosedWithoutCatchingNullPointer(String field) {
+        Fixture fixture = new Fixture();
+        fixture.rows.getFirst().put(field, null);
+        assertFailure(fixture, Reason.INVALID_METADATA);
+    }
+
     private static void assertFailure(Fixture fixture, Reason reason) {
         var failure = assertThrows(StaffSessionInspectionException.class,
                 () -> new JdbcStaffSessionStore(fixture.source).inspect(STAFF));
@@ -164,7 +174,7 @@ class JdbcStaffSessionInspectionTest {
 
     @SuppressWarnings("unchecked")
     private static <T> T stub(Class<T> type, ThrowingCall call) {
-        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type},
+        return (T) Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class<?>[]{type},
                 (proxy, method, args) -> call.invoke(method.getName(), args));
     }
 

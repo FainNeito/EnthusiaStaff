@@ -83,6 +83,7 @@ final class JdbcStaffSessionInspection {
             throw new StaffSessionInspectionException(Reason.INVALID_METADATA);
         }
         validateBytes(row);
+        validateRequiredMetadata(row);
         try {
             StaffSessionInspection snapshot = new StaffSessionInspection(
                     UuidBytes.fromBytes(row.getBytes("session_id")),
@@ -95,7 +96,14 @@ final class JdbcStaffSessionInspection {
                 throw new StaffSessionInspectionException(Reason.INVALID_METADATA);
             }
             return snapshot;
-        } catch (IllegalArgumentException | NullPointerException exception) {
+        } catch (IllegalArgumentException exception) {
+            throw new StaffSessionInspectionException(Reason.INVALID_METADATA);
+        }
+    }
+
+    private static void validateRequiredMetadata(ResultSet row) throws SQLException {
+        if (row.getString("server_id") == null || row.getString("state") == null
+                || row.getTimestamp("started_at") == null) {
             throw new StaffSessionInspectionException(Reason.INVALID_METADATA);
         }
     }

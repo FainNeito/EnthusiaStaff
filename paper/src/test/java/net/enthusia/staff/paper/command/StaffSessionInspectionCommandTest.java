@@ -28,13 +28,14 @@ import org.bukkit.command.ConsoleCommandSender;
 import org.junit.jupiter.api.Test;
 
 class StaffSessionInspectionCommandTest {
+    private static final String INSPECT = "inspect";
     private static final UUID TARGET = UUID.fromString("74000000-0000-0000-0000-000000000031");
 
     @Test
     void consoleCanInspectOfflineExactUuidWithoutPlayerOrRecoveryDependency() throws Exception {
         Fixture fixture = new Fixture();
         fixture.snapshot = snapshot("__network_detached__", "HUB");
-        fixture.invoke("inspect", TARGET.toString());
+        fixture.invoke(INSPECT, TARGET.toString());
         assertEquals(0, fixture.reads, "database must not run on command thread");
         fixture.work.removeFirst().run();
         assertTrue(fixture.output.isEmpty(), "reply must use the reply scheduler");
@@ -52,7 +53,7 @@ class StaffSessionInspectionCommandTest {
     void playersCannotInspectEvenWithPermission() {
         Fixture fixture = new Fixture();
         CommandSender playerLike = sender(CommandSender.class, fixture.output);
-        fixture.command.onCommand(playerLike, null, "staffsession", new String[]{"inspect", TARGET.toString()});
+        fixture.command.onCommand(playerLike, null, "staffsession", new String[]{INSPECT, TARGET.toString()});
         assertTrue(fixture.work.isEmpty());
         assertEquals(0, fixture.reads);
     }
@@ -61,7 +62,7 @@ class StaffSessionInspectionCommandTest {
     void invalidOrAbbreviatedUuidNeverQueries() {
         Fixture fixture = new Fixture();
         for (String target : List.of("PlayerName", "1-1-1-1-1", TARGET + " extra")) {
-            fixture.invoke("inspect", target);
+            fixture.invoke(INSPECT, target);
         }
         fixture.invoke("recover", TARGET.toString());
         assertTrue(fixture.work.isEmpty());
@@ -71,24 +72,24 @@ class StaffSessionInspectionCommandTest {
     void overloadIsRejectedAndProviderFailureLeaksNoDetails() {
         Fixture fixture = new Fixture();
         fixture.failure = new IllegalStateException("jdbc://private-host password=secret");
-        fixture.invoke("inspect", TARGET.toString());
-        fixture.invoke("inspect", TARGET.toString());
+        fixture.invoke(INSPECT, TARGET.toString());
+        fixture.invoke(INSPECT, TARGET.toString());
         assertEquals(1, fixture.work.size());
         assertTrue(fixture.output.getFirst().contains("BUSY"));
         fixture.finish();
         assertTrue(fixture.output.getLast().contains("UNAVAILABLE"));
         assertFalse(fixture.output.toString().contains("password"));
-        fixture.invoke("inspect", TARGET.toString());
+        fixture.invoke(INSPECT, TARGET.toString());
         assertEquals(1, fixture.work.size(), "failure must release the inspection fence");
     }
 
     @Test
     void absenceAndInvalidEvidenceRemainDistinct() {
         Fixture fixture = new Fixture();
-        fixture.invoke("inspect", TARGET.toString()); fixture.finish();
+        fixture.invoke(INSPECT, TARGET.toString()); fixture.finish();
         assertTrue(fixture.output.getLast().contains("NO_ACTIVE_SESSION"));
         fixture.failure = new StaffSessionInspectionException(Reason.MISSING_SNAPSHOT);
-        fixture.invoke("inspect", TARGET.toString()); fixture.finish();
+        fixture.invoke(INSPECT, TARGET.toString()); fixture.finish();
         assertTrue(fixture.output.getLast().contains("status=INVALID reason=MISSING_SNAPSHOT"));
     }
 
@@ -96,7 +97,7 @@ class StaffSessionInspectionCommandTest {
     void mismatchedOwnerHeaderIsNotReportedVerified() throws Exception {
         Fixture fixture = new Fixture();
         fixture.snapshot = snapshot("TEST", "HUB");
-        fixture.invoke("inspect", TARGET.toString()); fixture.finish();
+        fixture.invoke(INSPECT, TARGET.toString()); fixture.finish();
         assertTrue(fixture.output.getLast().contains("status=INVALID"));
         assertFalse(fixture.output.getLast().contains("METADATA_VERIFIED"));
     }
@@ -107,8 +108,9 @@ class StaffSessionInspectionCommandTest {
         StaffSessionInspectionCommand rejected = new StaffSessionInspectionCommand(() -> fixture.store,
                 task -> { throw new java.util.concurrent.RejectedExecutionException("bounded queue full"); },
                 Runnable::run, Clock.systemUTC(), "TEST");
+        String[] arguments = {INSPECT, TARGET.toString()};
         for (int invocation = 0; invocation < 2; invocation++) {
-            rejected.onCommand(fixture.console, null, "staffsession", new String[]{"inspect", TARGET.toString()});
+            rejected.onCommand(fixture.console, null, "staffsession", arguments);
         }
         assertEquals(0, fixture.reads);
         assertEquals(2, fixture.output.size());
@@ -135,9 +137,9 @@ class StaffSessionInspectionCommandTest {
         RuntimeException failure;
         int reads;
         final StaffSessionStore store = (StaffSessionStore) Proxy.newProxyInstance(
-                StaffSessionStore.class.getClassLoader(), new Class<?>[]{StaffSessionStore.class},
+                Thread.currentThread().getContextClassLoader(), new Class<?>[]{StaffSessionStore.class},
                 (proxy, method, args) -> {
-                    assertEquals("inspect", method.getName(), "no mutation or ordinary lookup allowed");
+                    assertEquals(INSPECT, method.getName(), "no mutation or ordinary lookup allowed");
                     assertEquals(TARGET, args[0]); reads++;
                     if (failure != null) throw failure;
                     return Optional.ofNullable(snapshot);
@@ -151,7 +153,7 @@ class StaffSessionInspectionCommandTest {
 
     @SuppressWarnings("unchecked")
     private static <T> T sender(Class<T> type, List<String> output) {
-        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, (proxy, method, args) -> {
+        return (T) Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class<?>[]{type}, (proxy, method, args) -> {
             if (method.getName().equals("sendMessage") && args[0] instanceof Component component) {
                 output.add(PlainTextComponentSerializer.plainText().serialize(component)); return null;
             }

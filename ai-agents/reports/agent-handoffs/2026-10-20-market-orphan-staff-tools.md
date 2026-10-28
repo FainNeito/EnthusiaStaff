@@ -434,3 +434,12 @@ mismatch rejection, then removes its disposable snapshot to prove LEFT JOIN does
 not convert missing evidence into absence. No live data was involved. The first
 full Java25 build passed before this privacy refinement; final checks must apply
 to the refined executable head. No earlier artifact is a delivery candidate.
+
+
+Exact520 Codacy found six valid quality issues: repeated test literal, a test array
+created inside a loop, three test proxy class-loader sites, and catching NPE in
+the reader. Refinement uses a constant, reuses the test arguments, uses the test
+thread context loader and validates required metadata explicitly before conversion.
+Three missing-field regressions preserve fail-closed behavior without catching
+NPE. No analysis rule is suppressed or weakened. Earlier520 artifact remains a
+non-ready intermediate candidate; new executable head requires validation/build.
