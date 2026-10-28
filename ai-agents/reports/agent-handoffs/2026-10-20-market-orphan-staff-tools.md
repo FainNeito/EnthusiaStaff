@@ -355,3 +355,18 @@ Task: exact-head local/hosted validation and source review, then publish the
 same PR. TEST/client recovery remains separate, with exact durable-state evidence
 still required under SHARED-02. No live recovery command, inventory/rank mutation,
 TEST use, deployment/restart, merge-to-main or production action in this slice.
+
+
+SJ-01 local validation at executable head
+4c80022121b7f34c32399b7e0887953ed0aef389 passed Java25 clean test/check,
+runtimeJars and integration-test compilation, with local database execution
+explicitly excluded because its unchanged Docker prerequisite is unavailable.
+Reports contain 2,688 tests, zero failures/errors and 16 disclosed skips;
+41 focused recovery/policy/join-ordering cases passed without skips, including
+all six new join-event cases. Wiki41 pages and diff checks passed. Build reused
+29 valid cached tasks; 35 tasks executed. The synthetic post-fsync exception is
+the intentional existing crash/reopen durability probe, whose recovery passed.
+This follow-up changes tracking files only; hosted results remain pending for
+the published exact PR head, with no inference from the earlier a380 checks.
+Manual review found no new API, persistence, permission or migration change;
+no independent human review or real client recovery acceptance is claimed.

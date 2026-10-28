@@ -2,7 +2,8 @@
 destination join hint bypass. Main 9efaa056 normally incorporated into preserved
 a380 recovery work. SJ-01 and event-path red/green evidence are in the existing
 market-orphan handoff. REVIEW / ACTIONABLE_CONTINUATION: exact-head validation,
-review and publication pending; live durable-state evidence/recovery remains
+review and publication pending; local executable head4c800221 passed2688 reported
+tests/16skips and41 focused cases/0skips. Live durable-state evidence/recovery remains
 separate. No TEST/client/deployment/production action in this source slice.
 
 # Workspace state
