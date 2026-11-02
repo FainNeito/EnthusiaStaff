@@ -58,31 +58,8 @@ final class WebsiteAccountReaderTest {
     }
 
     static WebsiteAccountReader reader(List<Map<String, Object>> rows, List<Object> bindings) {
-        int[] position = {-1};
-        ResultSet result = proxy(ResultSet.class, (object, method, args) -> switch (method.getName()) {
-            case "next" -> ++position[0] < rows.size();
-            case "getString", "getBytes", "getTimestamp" -> rows.get(position[0]).get(args[0]);
-            case "close" -> null;
-            default -> throw new UnsupportedOperationException(method.getName());
-        });
-        PreparedStatement statement = proxy(PreparedStatement.class, (object, method, args) -> switch (method.getName()) {
-            case "setString" -> { bindings.add(args[1]); yield null; }
-            case "executeQuery" -> result;
-            case "close" -> null;
-            default -> throw new UnsupportedOperationException(method.getName());
-        });
-        Connection connection = proxy(Connection.class, (object, method, args) -> switch (method.getName()) {
-            case "prepareStatement" -> {
-                String sql = args[0].toString();
-                assertTrue(sql.contains("unlinked_at IS NULL"));
-                if (sql.contains("discord_link_codes")) assertTrue(sql.contains("DISCORD_TO_MINECRAFT"));
-                yield statement;
-            }
-            case "close" -> null;
-            default -> throw new UnsupportedOperationException(method.getName());
-        });
         DataSource source = proxy(DataSource.class, (object, method, args) -> {
-            if (method.getName().equals("getConnection")) return connection;
+            if (method.getName().equals("getConnection")) return connection(rows, bindings);
             throw new UnsupportedOperationException(method.getName());
         });
         return new WebsiteAccountReader(source, CLOCK, id -> {
@@ -91,7 +68,39 @@ final class WebsiteAccountReaderTest {
         });
     }
 
+    private static ResultSet resultSet(List<Map<String, Object>> rows) {
+        int[] position = {-1};
+        return proxy(ResultSet.class, (object, method, args) -> switch (method.getName()) {
+            case "next" -> ++position[0] < rows.size();
+            case "getString", "getBytes", "getTimestamp" -> rows.get(position[0]).get(args[0]);
+            case "close" -> null;
+            default -> throw new UnsupportedOperationException(method.getName());
+        });
+    }
+
+    private static PreparedStatement statement(List<Map<String, Object>> rows, List<Object> bindings) {
+        return proxy(PreparedStatement.class, (object, method, args) -> switch (method.getName()) {
+            case "setString" -> { bindings.add(args[1]); yield null; }
+            case "executeQuery" -> resultSet(rows);
+            case "close" -> null;
+            default -> throw new UnsupportedOperationException(method.getName());
+        });
+    }
+
+    private static Connection connection(List<Map<String, Object>> rows, List<Object> bindings) {
+        return proxy(Connection.class, (object, method, args) -> switch (method.getName()) {
+            case "prepareStatement" -> {
+                String sql = args[0].toString();
+                assertTrue(sql.contains("unlinked_at IS NULL"));
+                if (sql.contains("discord_link_codes")) assertTrue(sql.contains("DISCORD_TO_MINECRAFT"));
+                yield statement(rows, bindings);
+            }
+            case "close" -> null;
+            default -> throw new UnsupportedOperationException(method.getName());
+        });
+    }
+
     private static <T> T proxy(Class<T> type, InvocationHandler handler) {
-        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, handler));
+        return type.cast(Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class<?>[]{type}, handler));
     }
 }

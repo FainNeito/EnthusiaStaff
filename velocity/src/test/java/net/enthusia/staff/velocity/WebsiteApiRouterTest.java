@@ -34,6 +34,7 @@ final class WebsiteApiRouterTest {
     private static final String POST = "POST";
     private static final String PLAYER_NAME = "ExamplePlayer";
     private static final String ACCOUNT_ID_JSON_PREFIX = "{\"accountId\":\"";
+    private static final String DISCORD_ID_JSON_PREFIX = "{\"discordUserId\":\"";
     private static final CaseId CASE_ID = new CaseId("0123456789ABCDEF");
     private static final UUID PUNISHMENT_ID =
             UUID.fromString("65c17015-160d-4e15-a589-495898782ba2");
@@ -46,19 +47,19 @@ final class WebsiteApiRouterTest {
                 WebsiteAccountReaderTest.reader(List.of(), new java.util.ArrayList<>()));
         String id = "111111111111111111";
         Map<?, ?> lookup = assertInstanceOf(Map.class, router.route(POST,
-                URI.create("/v1/website/accounts"), jsonHeaders(), bytes("{\"discordUserId\":\"" + id + "\"}")));
+                URI.create("/v1/website/accounts"), jsonHeaders(), bytes(DISCORD_ID_JSON_PREFIX + id + "\"}")));
         assertEquals(List.of(), lookup.get("accounts"));
         Map<?, ?> start = assertInstanceOf(Map.class, router.route(POST,
                 URI.create("/v1/website/accounts/link"), jsonHeaders(),
-                bytes("{\"discordUserId\":\"" + id + "\",\"action\":\"START\"}")));
+                bytes(DISCORD_ID_JSON_PREFIX + id + "\",\"action\":\"START\"}")));
         assertEquals("WAITING_FOR_MINECRAFT", start.get("status"));
         assertApiError("INVALID_DISCORD_ID", () -> router.route(POST,
                 URI.create("/v1/website/accounts"), jsonHeaders(), bytes("{\"discordUserId\":\"bad\"}")));
         assertApiError("UNKNOWN_QUERY_PARAMETER", () -> router.route(POST,
-                URI.create("/v1/website/accounts?other=1"), jsonHeaders(), bytes("{\"discordUserId\":\"" + id + "\"}")));
+                URI.create("/v1/website/accounts?other=1"), jsonHeaders(), bytes(DISCORD_ID_JSON_PREFIX + id + "\"}")));
         assertApiError("UNKNOWN_FIELD", () -> router.route(POST,
                 URI.create("/v1/website/accounts"), jsonHeaders(),
-                bytes("{\"discordUserId\":\"" + id + "\",\"other\":1}")));
+                bytes(DISCORD_ID_JSON_PREFIX + id + "\",\"other\":1}")));
     }
 
     @Test

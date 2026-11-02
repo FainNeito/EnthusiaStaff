@@ -1,6 +1,7 @@
 package net.enthusia.staff.velocity;
 
 import java.sql.SQLException;
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,11 @@ import net.enthusia.staff.persistence.UuidBytes;
 /** Current account ownership only, behind the website API's signed service boundary. */
 final class WebsiteAccountReader {
     private static final int MAX_ACCOUNTS = 100;
+    private static final String STATUS = "status";
+    private static final String EXPIRED = "EXPIRED_OR_USED";
+    private static final String WAITING = "WAITING_FOR_MINECRAFT";
+    private static final String CONSUMED = "CONSUMED";
+    private static final String ACTIVE = "ACTIVE";
     private final DataSource dataSource;
     private final Clock clock;
     private final Function<DiscordUserId, IssuedCode> issuer;
@@ -26,7 +32,7 @@ final class WebsiteAccountReader {
 
     Map<String, Object> start(String rawDiscordId) {
         IssuedCode issued = issuer.apply(new DiscordUserId(rawDiscordId));
-        return Map.of("status", "WAITING_FOR_MINECRAFT", "code", issued.code(),
+        return Map.of(STATUS, WAITING, "code", issued.code(),
                 "requestId", issued.requestId(), "expiresAt", issued.expiresAt().toString(),
                 "command", "/link " + issued.code());
     }
@@ -50,21 +56,26 @@ final class WebsiteAccountReader {
             statement.setString(1, requestId);
             statement.setString(2, discordId);
             try (var rows = statement.executeQuery()) {
-                if (!rows.next()) return Map.of("status", "EXPIRED_OR_USED");
-                if ("CONSUMED".equals(rows.getString("state")) && rows.getBytes("minecraft_player_id") != null) {
-                    return Map.of("status", "LINKED", "minecraft", Map.of(
-                            "uuid", UuidBytes.fromBytes(rows.getBytes("minecraft_player_id")).toString(),
-                            "name", rows.getString("current_username")));
-                }
-                if (!"ACTIVE".equals(rows.getString("state"))
-                        || !rows.getTimestamp("expires_at").toInstant().isAfter(clock.instant())) {
-                    return Map.of("status", "EXPIRED_OR_USED");
-                }
-                return Map.of("status", "WAITING_FOR_MINECRAFT", "expiresAt", rows.getTimestamp("expires_at").toInstant().toString());
+                return statusRow(rows);
             }
         } catch (SQLException exception) {
             throw new IllegalStateException("Authoritative link status is unavailable", exception);
         }
+    }
+
+    private Map<String, Object> statusRow(ResultSet rows) throws SQLException {
+        if (!rows.next()) return Map.of(STATUS, EXPIRED);
+        String state = rows.getString("state");
+        if (java.util.Objects.equals(state, CONSUMED) && rows.getBytes("minecraft_player_id") != null) {
+            return Map.of(STATUS, "LINKED", "minecraft", Map.of(
+                    "uuid", UuidBytes.fromBytes(rows.getBytes("minecraft_player_id")).toString(),
+                    "name", rows.getString("current_username")));
+        }
+        if (!java.util.Objects.equals(state, ACTIVE)
+                || !rows.getTimestamp("expires_at").toInstant().isAfter(clock.instant())) {
+            return Map.of(STATUS, EXPIRED);
+        }
+        return Map.of(STATUS, WAITING, "expiresAt", rows.getTimestamp("expires_at").toInstant().toString());
     }
 
     Map<String, Object> read(String rawDiscordId) {
