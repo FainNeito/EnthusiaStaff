@@ -41,6 +41,27 @@ final class WebsiteApiRouterTest {
             UUID.fromString("d1791091-1832-4f69-bc14-25ef525f268d");
 
     @Test
+    void routesWebsiteAccountLookupAndLinkChallengesWithStrictInput() {
+        WebsiteApiRouter router = router(new RecordingStore()).withAccounts(
+                WebsiteAccountReaderTest.reader(List.of(), new java.util.ArrayList<>()));
+        String id = "111111111111111111";
+        Map<?, ?> lookup = assertInstanceOf(Map.class, router.route(POST,
+                URI.create("/v1/website/accounts"), jsonHeaders(), bytes("{\"discordUserId\":\"" + id + "\"}")));
+        assertEquals(List.of(), lookup.get("accounts"));
+        Map<?, ?> start = assertInstanceOf(Map.class, router.route(POST,
+                URI.create("/v1/website/accounts/link"), jsonHeaders(),
+                bytes("{\"discordUserId\":\"" + id + "\",\"action\":\"START\"}")));
+        assertEquals("WAITING_FOR_MINECRAFT", start.get("status"));
+        assertApiError("INVALID_DISCORD_ID", () -> router.route(POST,
+                URI.create("/v1/website/accounts"), jsonHeaders(), bytes("{\"discordUserId\":\"bad\"}")));
+        assertApiError("UNKNOWN_QUERY_PARAMETER", () -> router.route(POST,
+                URI.create("/v1/website/accounts?other=1"), jsonHeaders(), bytes("{\"discordUserId\":\"" + id + "\"}")));
+        assertApiError("UNKNOWN_FIELD", () -> router.route(POST,
+                URI.create("/v1/website/accounts"), jsonHeaders(),
+                bytes("{\"discordUserId\":\"" + id + "\",\"other\":1}")));
+    }
+
+    @Test
     void routesPublicListWithBoundedFilterCursorAndLimit() {
         RecordingStore store = new RecordingStore();
         WebsiteApiRouter router = router(store);
