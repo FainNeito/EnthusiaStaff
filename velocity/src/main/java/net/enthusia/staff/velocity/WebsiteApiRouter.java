@@ -25,6 +25,9 @@ import net.enthusia.staff.domain.website.PunishmentCodeBinding;
 
 final class WebsiteApiRouter {
     private static final String ACCOUNT_ID = "accountId";
+    private static final String DISCORD_USER_ID = "discordUserId";
+    private static final String WEBSITE_ACCOUNTS = "/v1/website/accounts";
+    private static final String WEBSITE_ACCOUNTS_LINK = "/v1/website/accounts/link";
     private static final String ACTOR_ACCOUNT_ID = "actorAccountId";
     private static final String ACTOR_RANK = "actorRank";
     private static final String CASE_ID = "caseId";
@@ -86,6 +89,12 @@ final class WebsiteApiRouter {
     private final WebsiteAppealEndpoint appeals;
     private final WebsiteAppealWorkflowEndpoint appealWorkflow;
     private final PolicyV2PublicWebsiteView policyV2Public;
+    private WebsiteAccountReader accounts;
+
+    WebsiteApiRouter withAccounts(WebsiteAccountReader reader) {
+        this.accounts = java.util.Objects.requireNonNull(reader);
+        return this;
+    }
 
     WebsiteApiRouter(
             WebsiteModerationStore store,
@@ -154,6 +163,25 @@ final class WebsiteApiRouter {
             Headers headers,
             byte[] body
     ) {
+        if (java.util.Objects.equals(path, WEBSITE_ACCOUNTS) && accounts != null) {
+            requireNoQuery(query);
+            ObjectNode input = decoder.jsonBody(headers, body, Set.of(DISCORD_USER_ID));
+            String discordId = decoder.text(input, DISCORD_USER_ID, 20);
+            if (!discordId.matches("[1-9][0-9]{15,19}")) {
+                throw badRequest("INVALID_DISCORD_ID", "Discord identity is invalid");
+            }
+            return accounts.read(discordId);
+        }
+        if (java.util.Objects.equals(path, WEBSITE_ACCOUNTS_LINK) && accounts != null) {
+            requireNoQuery(query);
+            ObjectNode input = decoder.jsonBody(headers, body, Set.of(DISCORD_USER_ID, "action", "requestId"));
+            String discordId = decoder.text(input, DISCORD_USER_ID, 20);
+            if (!discordId.matches("[1-9][0-9]{15,19}")) throw badRequest("INVALID_DISCORD_ID", "Discord identity is invalid");
+            String action = decoder.text(input, "action", 10);
+            if ("START".equals(action)) return accounts.start(discordId);
+            if ("POLL".equals(action)) return accounts.status(discordId, decoder.text(input, "requestId", 64));
+            throw badRequest("INVALID_LINK_ACTION", "Link action is invalid");
+        }
         if (CLAIM_PATH.equals(path)) {
             requireNoQuery(query);
             return claim(headers, body);
