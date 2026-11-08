@@ -50,6 +50,17 @@ class StaffSessionInspectionCommandTest {
     }
 
     @Test
+    void customBackendLabelDoesNotPreventRegistrationOrLeakToConsole() {
+        Fixture fixture = new Fixture();
+        StaffSessionInspectionCommand command = new StaffSessionInspectionCommand(
+                () -> fixture.store, Runnable::run, Runnable::run, Clock.systemUTC(), "custom.backend");
+        command.onCommand(fixture.console, null, "staffsession", new String[]{INSPECT, TARGET.toString()});
+        assertEquals(1, fixture.reads);
+        assertTrue(fixture.output.getFirst().contains("runtime_backend=UNKNOWN"));
+        assertFalse(fixture.output.getFirst().contains("custom.backend"));
+    }
+
+    @Test
     void playersCannotInspectEvenWithPermission() {
         Fixture fixture = new Fixture();
         CommandSender playerLike = sender(CommandSender.class, fixture.output);

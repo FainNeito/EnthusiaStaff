@@ -39,10 +39,7 @@ public final class StaffSessionInspectionCommand implements CommandExecutor {
         this.workers = Objects.requireNonNull(workers, "workers");
         this.replies = Objects.requireNonNull(replies, "replies");
         this.clock = Objects.requireNonNull(clock, "clock");
-        if (backend == null || !backend.matches("[A-Za-z0-9_-]{1,64}")) {
-            throw new IllegalArgumentException("runtime backend must be a safe identifier");
-        }
-        this.backend = backend;
+        this.backend = backend != null && backend.matches("[A-Za-z0-9_-]{1,64}") ? backend : "UNKNOWN";
     }
 
     @Override
