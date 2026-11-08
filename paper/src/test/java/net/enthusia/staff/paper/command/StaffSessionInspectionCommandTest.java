@@ -28,6 +28,7 @@ import org.bukkit.command.ConsoleCommandSender;
 import org.junit.jupiter.api.Test;
 
 class StaffSessionInspectionCommandTest {
+    private static final String COMMAND = "staffsession";
     private static final String INSPECT = "inspect";
     private static final UUID TARGET = UUID.fromString("74000000-0000-0000-0000-000000000031");
 
@@ -54,7 +55,7 @@ class StaffSessionInspectionCommandTest {
         Fixture fixture = new Fixture();
         StaffSessionInspectionCommand command = new StaffSessionInspectionCommand(
                 () -> fixture.store, Runnable::run, Runnable::run, Clock.systemUTC(), "custom.backend");
-        command.onCommand(fixture.console, null, "staffsession", new String[]{INSPECT, TARGET.toString()});
+        command.onCommand(fixture.console, null, COMMAND, new String[]{INSPECT, TARGET.toString()});
         assertEquals(1, fixture.reads);
         assertTrue(fixture.output.getFirst().contains("runtime_backend=UNKNOWN"));
         assertFalse(fixture.output.getFirst().contains("custom.backend"));
@@ -64,7 +65,7 @@ class StaffSessionInspectionCommandTest {
     void playersCannotInspectEvenWithPermission() {
         Fixture fixture = new Fixture();
         CommandSender playerLike = sender(CommandSender.class, fixture.output);
-        fixture.command.onCommand(playerLike, null, "staffsession", new String[]{INSPECT, TARGET.toString()});
+        fixture.command.onCommand(playerLike, null, COMMAND, new String[]{INSPECT, TARGET.toString()});
         assertTrue(fixture.work.isEmpty());
         assertEquals(0, fixture.reads);
     }
@@ -121,7 +122,7 @@ class StaffSessionInspectionCommandTest {
                 Runnable::run, Clock.systemUTC(), "TEST");
         String[] arguments = {INSPECT, TARGET.toString()};
         for (int invocation = 0; invocation < 2; invocation++) {
-            rejected.onCommand(fixture.console, null, "staffsession", arguments);
+            rejected.onCommand(fixture.console, null, COMMAND, arguments);
         }
         assertEquals(0, fixture.reads);
         assertEquals(2, fixture.output.size());
@@ -158,7 +159,7 @@ class StaffSessionInspectionCommandTest {
         final StaffSessionInspectionCommand command = new StaffSessionInspectionCommand(() -> store,
                 work::addLast, replies::addLast, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), "TEST");
 
-        void invoke(String... args) { command.onCommand(console, null, "staffsession", args); }
+        void invoke(String... args) { command.onCommand(console, null, COMMAND, args); }
         void finish() { work.removeFirst().run(); replies.removeFirst().run(); }
     }
 
