@@ -875,3 +875,9 @@ bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f.
 Next action: non-production hotbar, spectator wall movement, F3 shortcut, permission
 revocation, restart, and names acceptance plus available integration/hosted gates before
 merge. Preserve draft PR #1 and implementation branch; exact frozen heads are on the PR.
+
+## Owner-directed MARKET-02 continuation — 2026-11-10
+
+The synced fork `main` did not contain the rankless destination-handoff recovery fix. The source remains on fork branch `agent/market-orphan-staff-tools-20261020` / upstream PR #647 at `383859b5740f25113b7b6b8455256717ebe3635a`. A new isolated branch merges that source with current fork `main` `fe015d97c84119a71ae19c4b51f15fed43004d54`, preserving the fork's existing features. Local validation and exact-head hosted checks remain pending. The join-path defect does not prove a cause for the previously observed pre-backend proxy timeouts. No BUILD/TEST deployment or recovery action is included.
+
+Local validation update, 2026-11-10, integrated source commit `9f23d516fe3110ca8de19abaab5aefb0fe2b53e2`: root `check -x :integration-tests:test --no-configuration-cache` passed; Paper shadow JAR and integration-test compilation passed. Local/unmerged Paper JAR SHA-256 `e8a2880bc26ff4d30b642d381e9434e2f07f288d1726b22fcbd3b246ef2bec22` (11,527,846 bytes). Testcontainers execution was excluded locally; its compile passed. Exact-head hosted Coverage, Staff state reset runtime proof (including the protocol state matrix), and Sentinel Restart Artifact succeeded (runs 42954746362, 42954746318, and 42954746284). No shared BUILD/TEST use or production action.

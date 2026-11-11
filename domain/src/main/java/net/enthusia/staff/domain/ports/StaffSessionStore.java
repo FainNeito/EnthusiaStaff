@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import net.enthusia.staff.domain.staff.StaffSessionSnapshot;
+import net.enthusia.staff.domain.staff.StaffSessionInspection;
 
 public interface StaffSessionStore {
     StaffSessionSnapshot begin(
@@ -16,6 +17,11 @@ public interface StaffSessionStore {
     );
 
     Optional<StaffSessionSnapshot> active(UUID staffId);
+
+    /** Read-only diagnostic lookup; rejects missing, ambiguous or corrupt snapshot evidence. */
+    default Optional<StaffSessionInspection> inspect(UUID staffId) {
+        throw new UnsupportedOperationException("staff session inspection is not supported");
+    }
 
     /**
      * Releases the backend-local saved-state lease after that exact state has been restored,
@@ -37,6 +43,14 @@ public interface StaffSessionStore {
     /** Begins terminal recovery only for the exact already-restored detached lease. */
     default Optional<StaffSessionSnapshot> beginDetachedExit(StaffSessionSnapshot expected, Instant now) {
         throw new UnsupportedOperationException("fenced detached Staff Mode exit is not supported");
+    }
+
+    /**
+     * Closes only the exact detached lease whose source backend already verified restoration.
+     * No destination player snapshot is applied. Older adapters fail closed.
+     */
+    default boolean retireDetached(StaffSessionSnapshot expected, Instant now) {
+        return false;
     }
 
     boolean completeExit(UUID sessionId, String restoredChecksum, Instant now);
