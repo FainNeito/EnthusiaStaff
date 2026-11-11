@@ -3,6 +3,8 @@ package net.enthusia.staff.discordbot;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Collectors;
+import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
@@ -31,7 +33,7 @@ final class ModerationDiscordMessageMapper {
     private ModerationReadApiModel.MessageDto message(ModerationReadContext context, Message message) {
         TextChannel channel = (TextChannel) message.getChannel();
         Category category = channel.getParentCategory();
-        String display = message.getContentDisplay();
+        String display = visibleText(message.getContentDisplay(), message.getContentRaw(), message.getEmbeds());
         return new ModerationReadApiModel.MessageDto(
                 message.getId(), context.guild().getId(), channel.getId(), channel.getName(),
                 category == null ? Optional.empty() : Optional.of(category.getName()),
@@ -43,6 +45,7 @@ final class ModerationDiscordMessageMapper {
                 message.getAttachments().stream().map(attachment -> new ModerationReadApiModel.AttachmentDto(
                         attachment.getId(), attachment.getFileName(), Optional.ofNullable(attachment.getContentType()),
                         attachment.getSize(), attachment.getUrl())).toList(),
+                embedMedia(message.getEmbeds()),
                 isTargetAuthor(context, message), false);
     }
 
@@ -51,10 +54,98 @@ final class ModerationDiscordMessageMapper {
         if (referenced == null) {
             return Optional.empty();
         }
-        String display = referenced.getContentDisplay();
+        String display = visibleText(
+                referenced.getContentDisplay(), referenced.getContentRaw(), referenced.getEmbeds());
         return Optional.of(new ModerationReadApiModel.ReplyPreviewDto(
                 referenced.getId(), author(guild, referenced.getAuthor()),
                 display.isEmpty() ? Optional.empty() : Optional.of(display)));
+    }
+
+
+    static List<ModerationReadApiModel.MediaDto> embedMedia(List<MessageEmbed> embeds) {
+        if (embeds == null || embeds.isEmpty()) {
+            return List.of();
+        }
+        java.util.LinkedHashMap<String, ModerationReadApiModel.MediaDto> media = new java.util.LinkedHashMap<>();
+        for (MessageEmbed embed : embeds) {
+            if (embed == null) {
+                continue;
+            }
+            MessageEmbed.ImageInfo image = embed.getImage();
+            if (image != null) {
+                addMedia(media, new ModerationReadApiModel.MediaDto(
+                        "image",
+                        firstNonBlank(image.getProxyUrl(), image.getUrl()),
+                        Optional.ofNullable(image.getContentType()),
+                        image.getWidth(),
+                        image.getHeight()));
+            }
+            MessageEmbed.VideoInfo video = embed.getVideoInfo();
+            if (video != null) {
+                addMedia(media, new ModerationReadApiModel.MediaDto(
+                        "video",
+                        firstNonBlank(video.getProxyUrl(), video.getUrl()),
+                        Optional.empty(),
+                        video.getWidth(),
+                        video.getHeight()));
+            }
+        }
+        return List.copyOf(media.values());
+    }
+
+    private static void addMedia(
+            java.util.LinkedHashMap<String, ModerationReadApiModel.MediaDto> media,
+            ModerationReadApiModel.MediaDto candidate
+    ) {
+        if (candidate.url() != null && !candidate.url().isBlank()) {
+            media.putIfAbsent(candidate.url(), candidate);
+        }
+    }
+
+    static String visibleText(String display, String raw, List<MessageEmbed> embeds) {
+        String textual = firstNonBlank(display, raw);
+        if (!textual.isBlank()) {
+            return textual;
+        }
+        if (embeds == null || embeds.isEmpty()) {
+            return "";
+        }
+        return embeds.stream()
+                .map(ModerationDiscordMessageMapper::embedText)
+                .filter(value -> !value.isBlank())
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    private static String embedText(MessageEmbed embed) {
+        if (embed == null) {
+            return "";
+        }
+        List<String> parts = new java.util.ArrayList<>();
+        addNonBlank(parts, embed.getTitle());
+        addNonBlank(parts, embed.getDescription());
+        for (MessageEmbed.Field field : embed.getFields()) {
+            String name = field.getName();
+            String value = field.getValue();
+            if (name != null && !name.isBlank() && value != null && !value.isBlank()) {
+                parts.add(name.trim() + ": " + value.trim());
+            } else {
+                addNonBlank(parts, value);
+            }
+        }
+        return String.join("\n", parts);
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second == null ? "" : second;
+    }
+
+    private static void addNonBlank(List<String> target, String value) {
+        if (value != null && !value.isBlank()) {
+            target.add(value.trim());
+        }
     }
 
     private static boolean isTargetAuthor(ModerationReadContext context, Message message) {

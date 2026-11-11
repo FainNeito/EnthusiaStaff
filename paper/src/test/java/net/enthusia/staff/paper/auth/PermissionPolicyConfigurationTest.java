@@ -65,7 +65,6 @@ final class PermissionPolicyConfigurationTest {
                 "enthusiastaff.reports.manage",
                 "enthusiastaff.freeze",
                 "enthusiastaff.staffmode",
-                "enthusiastaff.vanish",
                 "enthusiastaff.staffchat",
                 "enthusiastaff.inventory.view",
                 "enthusiastaff.inspect"
@@ -74,6 +73,7 @@ final class PermissionPolicyConfigurationTest {
                 effective.contains(permission),
                 permission
         ));
+        assertFalse(effective.contains("enthusiastaff.vanish"));
         assertFalse(effective.contains("enthusiastaff.reload"));
         assertFalse(effective.contains("enthusiastaff.diagnostics"));
         assertFalse(effective.contains("enthusiastaff.client"));
@@ -118,6 +118,7 @@ final class PermissionPolicyConfigurationTest {
         Set<String> founder = effectiveChildren(permissions, "enthusiastaff.rank.founder", new HashSet<>());
 
         assertTrue(mod.contains("enthusiastaff.rank.helper"));
+        assertTrue(mod.contains("enthusiastaff.vanish"));
         assertTrue(mod.containsAll(Set.of(
                 "enthusiastaff.punish.configured",
                 REQUEST_REVIEW,

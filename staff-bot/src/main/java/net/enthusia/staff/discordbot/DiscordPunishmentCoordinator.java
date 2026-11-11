@@ -26,6 +26,10 @@ final class DiscordPunishmentCoordinator implements AutoCloseable {
         this(worker == null ? null : worker::runCycle, interval, newExecutor());
     }
 
+    DiscordPunishmentCoordinator(Runnable cycle, Duration interval) {
+        this(cycle, interval, newExecutor());
+    }
+
     DiscordPunishmentCoordinator(
             Runnable cycle,
             Duration interval,

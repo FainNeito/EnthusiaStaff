@@ -29,16 +29,23 @@ final class VanishRankReconciliationPolicy {
             StaffRank liveRank,
             StaffModeState staffModeState
     ) {
-        if (staffModeState == StaffModeState.EXITED) {
-            return vanished || durableRank != null ? VanishAction.DISABLE : VanishAction.NONE;
-        }
+        return vanishAction(vanished, durableRank, liveRank, staffModeState, false);
+    }
+
+    static VanishAction vanishAction(
+            boolean vanished,
+            StaffRank durableRank,
+            StaffRank liveRank,
+            StaffModeState staffModeState,
+            boolean unrestricted
+    ) {
         if (!vanished) {
             return durableRank == null ? VanishAction.NONE : VanishAction.DISABLE;
         }
-        if (!isPlayerRank(liveRank)) {
+        if (!mayVanish(liveRank)) {
             return VanishAction.DISABLE;
         }
-        VanishAction sessionAction = requiresStaffMode(liveRank)
+        VanishAction sessionAction = requiresStaffMode(liveRank) && !unrestricted
                 ? staffModeAction(staffModeState)
                 : null;
         return sessionAction != null
@@ -54,8 +61,12 @@ final class VanishRankReconciliationPolicy {
         };
     }
 
+    static boolean mayVanish(StaffRank rank) {
+        return isPlayerRank(rank) && rank != StaffRank.HELPER;
+    }
+
     static boolean requiresStaffMode(StaffRank rank) {
-        return rank == StaffRank.HELPER || rank == StaffRank.MOD || rank == StaffRank.DEVELOPER;
+        return isPlayerRank(rank);
     }
 
     static boolean isPlayerRank(StaffRank rank) {

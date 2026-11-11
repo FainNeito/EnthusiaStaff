@@ -2,6 +2,7 @@ package net.enthusia.staff.paper.punishment;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.EnumSet;
@@ -92,6 +93,7 @@ public final class PunishmentGuiController implements Listener {
     private final Set<UUID> suppressedClosures = ConcurrentHashMap.newKeySet();
     private final Set<UUID> confirmations = ConcurrentHashMap.newKeySet();
     private final Map<UUID, NoteCapture> noteCaptures = new ConcurrentHashMap<>();
+    private final Map<UUID, SearchCapture> searchCaptures = new ConcurrentHashMap<>();
 
     public PunishmentGuiController(Dependencies dependencies) {
         this(
@@ -187,6 +189,17 @@ public final class PunishmentGuiController implements Listener {
         });
     }
 
+    public void showPreparedDraft(
+            Player viewer,
+            PlayerIdentity target,
+            String commandName,
+            Actor actor,
+            PunishmentDraftEvaluation.Prepared prepared
+    ) {
+        PunishmentGuiOverview overview = loadOverview(target.playerId());
+        showPrepared(viewer, target, commandName, actor, overview, prepared);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player viewer)) {
@@ -244,6 +257,10 @@ public final class PunishmentGuiController implements Listener {
             reasonClick(viewer, actor, reasons, slot);
             return;
         }
+        if (state instanceof PunishmentGuiState.Search search) {
+            searchClick(viewer, actor, search, slot);
+            return;
+        }
         if (state instanceof PunishmentGuiState.Review review) {
             reviewClick(viewer, actor, review, slot);
             return;
@@ -286,6 +303,12 @@ public final class PunishmentGuiController implements Listener {
         Player viewer = event.getPlayer();
         NoteCapture capture = noteCaptures.remove(viewer.getUniqueId());
         if (capture == null) {
+            SearchCapture search = searchCaptures.remove(viewer.getUniqueId());
+            if (search != null) {
+                event.setCancelled(true);
+                String query = PlainTextComponentSerializer.plainText().serialize(event.message());
+                onEntity(viewer, () -> finishSearch(viewer, search, query));
+            }
             return;
         }
         event.setCancelled(true);
@@ -313,6 +336,7 @@ public final class PunishmentGuiController implements Listener {
     public void onQuit(PlayerQuitEvent event) {
         UUID viewerId = event.getPlayer().getUniqueId();
         noteCaptures.remove(viewerId);
+        searchCaptures.remove(viewerId);
         suppressedClosures.remove(viewerId);
         confirmations.remove(viewerId);
     }
@@ -380,50 +404,33 @@ public final class PunishmentGuiController implements Listener {
             PunishmentGuiState.Categories state,
             int slot
     ) {
-        List<String> categories = catalog.categories(actor, state.commandName());
+        List<PunishmentGuiCategory> categories = catalog.categories(actor, state.commandName());
         if (openHistoryFromControl(viewer, state, slot)) {
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.page() > 0) {
-            openState(viewer, new PunishmentGuiState.Categories(
-                    state.viewerId(),
-                    state.target(),
-                    state.commandName(),
-                    state.overview(),
-                    state.page() - 1
-            ));
-            return;
-        }
-        if (slot == PunishmentGuiRenderer.NEXT_SLOT
-                && (state.page() + 1) * PunishmentGuiRenderer.CONTENT_SIZE < categories.size()) {
-            openState(viewer, new PunishmentGuiState.Categories(
-                    state.viewerId(),
-                    state.target(),
-                    state.commandName(),
-                    state.overview(),
-                    state.page() + 1
-            ));
             return;
         }
         if (slot == PunishmentGuiRenderer.CLOSE_SLOT) {
             viewer.closeInventory();
             return;
         }
-        int index = contentIndex(state.page(), slot);
+        if (slot == PunishmentGuiRenderer.SEARCH_SLOT) {
+            startSearch(viewer, state);
+            return;
+        }
+        int index = PunishmentGuiRenderer.categoryIndex(slot, categories.size());
         if (index >= 0 && index < categories.size()) {
             openState(viewer, new PunishmentGuiState.Reasons(
                     state.viewerId(),
                     state.target(),
                     state.commandName(),
                     state.overview(),
-                    categories.get(index),
+                    categories.get(index).id(),
                     0
             ));
         }
     }
 
     private void reasonClick(Player viewer, Actor actor, PunishmentGuiState.Reasons state, int slot) {
-        List<ReasonPolicy> reasons = catalog.reasons(actor, state.commandName(), state.family());
+        List<ReasonPolicy> reasons = catalog.reasons(actor, state.commandName(), state.categoryId());
         if (handleReasonNavigation(viewer, state, reasons.size(), slot)) {
             return;
         }
@@ -440,6 +447,10 @@ public final class PunishmentGuiController implements Listener {
             int slot
     ) {
         if (openHistoryFromControl(viewer, state, slot)) {
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.SEARCH_SLOT) {
+            startSearch(viewer, state);
             return true;
         }
         if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT && state.page() > 0) {
@@ -468,9 +479,112 @@ public final class PunishmentGuiController implements Listener {
                 state.target(),
                 state.commandName(),
                 state.overview(),
-                state.family(),
+                state.categoryId(),
                 page
         ));
+    }
+
+    private void searchClick(Player viewer, Actor actor, PunishmentGuiState.Search state, int slot) {
+        List<ReasonPolicy> results = catalog.search(actor, state.commandName(), state.query());
+        if (openHistoryFromControl(viewer, state, slot)
+                || handleSearchNavigation(viewer, state, slot, results.size())) {
+            return;
+        }
+        int index = contentIndex(state.page(), slot);
+        if (index >= 0 && index < results.size()) {
+            prepare(viewer, actor, state, results.get(index));
+        }
+    }
+
+    private boolean handleSearchNavigation(Player viewer, PunishmentGuiState.Search state,
+                                           int slot, int resultCount) {
+        if (slot == PunishmentGuiRenderer.SEARCH_SLOT) {
+            startSearch(viewer, state);
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.CLOSE_SLOT) {
+            viewer.closeInventory();
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.BACK_SLOT) {
+            openState(viewer, categoriesState(state));
+            return true;
+        }
+        return navigateSearchPages(viewer, state, slot, resultCount);
+    }
+
+    private boolean navigateSearchPages(Player viewer, PunishmentGuiState.Search state,
+                                        int slot, int resultCount) {
+        if (slot == PunishmentGuiRenderer.PREVIOUS_SLOT) {
+            if (state.page() > 0) {
+                openSearchPage(viewer, state, state.page() - 1);
+            }
+            return true;
+        }
+        if (slot == PunishmentGuiRenderer.NEXT_SLOT) {
+            if ((state.page() + 1) * PunishmentGuiRenderer.CONTENT_SIZE < resultCount) {
+                openSearchPage(viewer, state, state.page() + 1);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private void openSearchPage(Player viewer, PunishmentGuiState.Search state, int page) {
+        openState(viewer, new PunishmentGuiState.Search(state.viewerId(), state.target(),
+                state.commandName(), state.overview(), state.query(), page));
+    }
+
+    private void startSearch(Player viewer, PunishmentGuiState state) {
+        SearchCapture capture = new SearchCapture(state, clock.instant());
+        noteCaptures.remove(viewer.getUniqueId());
+        searchCaptures.put(viewer.getUniqueId(), capture);
+        viewer.getScheduler().runDelayed(plugin, task -> {
+            if (searchCaptures.remove(viewer.getUniqueId(), capture)) {
+                viewer.sendMessage(StaffMessageStyle.style(Component.text(
+                        "Punishment search timed out. Open the GUI and click Search to try again."
+                )));
+            }
+        }, null, 20L * 60L);
+        suppressedClosures.add(viewer.getUniqueId());
+        viewer.closeInventory();
+        viewer.sendMessage(StaffMessageStyle.style(Component.text(
+                "Search punishment reasons: type 2–64 characters, or cancel. Your message will not be broadcast."
+        )));
+    }
+
+    private void finishSearch(Player viewer, SearchCapture capture, String text) {
+        if (!capture.origin().viewerId().equals(viewer.getUniqueId())) {
+            return;
+        }
+        PunishmentGuiState origin = capture.origin();
+        if (clock.instant().isAfter(capture.startedAt().plus(Duration.ofSeconds(60)))) {
+            message(viewer, "Reason search expired; please try again.");
+            openState(viewer, origin);
+            return;
+        }
+        String normalized = text.strip().replaceAll("\\s+", " ");
+        if (normalized.equalsIgnoreCase("cancel")) {
+            openState(viewer, origin);
+            return;
+        }
+        if (!validSearchText(normalized)) {
+            message(viewer, "Enter 2–64 search characters, or click Search to try again.");
+            openState(viewer, origin);
+            return;
+        }
+        Actor actor = authorizedActor(viewer);
+        if (actor == null || !targetAllowed(viewer, actor, origin.target().playerId())) {
+            return;
+        }
+        openState(viewer, new PunishmentGuiState.Search(origin.viewerId(),
+                origin.target(), origin.commandName(), origin.overview(), normalized, 0));
+    }
+
+    private static boolean validSearchText(String normalized) {
+        int length = normalized.codePointCount(0, normalized.length());
+        return length >= 2 && length <= 64
+                && normalized.codePoints().noneMatch(Character::isISOControl);
     }
 
     private void reviewClick(Player viewer, Actor actor, PunishmentGuiState.Review state, int slot) {
@@ -478,15 +592,20 @@ public final class PunishmentGuiController implements Listener {
             return;
         }
         if (slot == PunishmentGuiRenderer.BACK_SLOT) {
-            String family = policies.find(state.draft().reasonId())
+            String categoryId = policies.find(state.draft().reasonId())
                     .map(ReasonPolicy::family)
-                    .orElse(state.draft().reasonId());
+                    .map(catalog::categoryId)
+                    .orElse(PunishmentGuiCategory.OTHER.id());
+            if (catalog.reasons(actor, state.commandName(), categoryId).isEmpty()) {
+                openState(viewer, categoriesState(state));
+                return;
+            }
             openState(viewer, new PunishmentGuiState.Reasons(
                     state.viewerId(),
                     state.target(),
                     state.commandName(),
                     state.overview(),
-                    family,
+                    categoryId,
                     0
             ));
             return;
@@ -512,6 +631,10 @@ public final class PunishmentGuiController implements Listener {
             return;
         }
         if (slot == PunishmentGuiRenderer.CONFIRM_SLOT) {
+            if (catalog.find(state.draft().reasonId()).isEmpty()) {
+                message(viewer, "That saved reason is no longer available. Go back and choose another reason.");
+                return;
+            }
             confirm(viewer, actor, state);
         }
     }
@@ -608,7 +731,7 @@ public final class PunishmentGuiController implements Listener {
     private void prepare(
             Player viewer,
             Actor actor,
-            PunishmentGuiState.Reasons state,
+            PunishmentGuiState state,
             ReasonPolicy policy
     ) {
         submit(viewer, () -> {
@@ -788,14 +911,20 @@ public final class PunishmentGuiController implements Listener {
             PunishmentDraftConfirmation result
     ) {
         if (result instanceof PunishmentDraftConfirmation.Applied applied) {
-            finish(viewer, "Punishment committed as case " + applied.accepted().caseId()
-                    + (applied.accepted().replayed() ? " (idempotent replay)" : "") + '.');
+            finish(viewer, "Punishment saved | Case " + applied.accepted().caseId()
+                    + (applied.accepted().replayed() ? " (already processed)" : "") + '.');
+            if (!applied.accepted().replayed() && state.assessment().isPresent()) {
+                PunishmentAssessment assessment = state.assessment().orElseThrow();
+                PunishmentPublicAnnouncement.publish(plugin, state.draft().visibility(), false,
+                        state.target().currentUsername().orElse(state.target().playerId().toString()),
+                        assessment.sanctions(), assessment.policy().publicReason());
+            }
             return;
         }
         if (result instanceof PunishmentDraftConfirmation.Requested requested) {
-            finish(viewer, "Punishment request "
-                    + (requested.submitted().replayed() ? "replayed" : "submitted")
-                    + "; expires " + requested.submitted().request().expiresAt() + '.');
+            finish(viewer, "Approval request "
+                    + (requested.submitted().replayed() ? "already exists" : "submitted")
+                    + ". No punishment has been applied yet.");
             return;
         }
         handleRejected(viewer, actor, state, (PunishmentDraftConfirmation.Rejected) result);
@@ -996,6 +1125,7 @@ public final class PunishmentGuiController implements Listener {
 
     private void openState(Player viewer, PunishmentGuiState state) {
         onEntity(viewer, () -> {
+            searchCaptures.remove(viewer.getUniqueId());
             Actor actor = authorizedActor(viewer);
             if (actor == null) {
                 return;
@@ -1018,8 +1148,7 @@ public final class PunishmentGuiController implements Listener {
         Actor actor = PaperActorResolver.resolve(viewer).orElse(null);
         if (actor == null || !actor.id().equals(viewer.getUniqueId())
                 || (!authorization.permits(actor, ModerationAction.ISSUE_POLICY_SANCTION)
-                && !authorization.permits(actor, ModerationAction.REQUEST_POLICY_SANCTION))
-                || !viewer.hasPermission("enthusiastaff.punish.configured")) {
+                && !authorization.permits(actor, ModerationAction.REQUEST_POLICY_SANCTION))) {
             viewer.sendMessage(StaffMessageStyle.style(Component.text("You do not have punishment authority.")));
             return null;
         }
@@ -1140,6 +1269,14 @@ public final class PunishmentGuiController implements Listener {
             reports = java.util.Objects.requireNonNull(reports, "reports");
             settings = java.util.Objects.requireNonNull(settings, "settings");
             workers = java.util.Objects.requireNonNull(workers, "workers");
+        }
+    }
+
+    private record SearchCapture(PunishmentGuiState origin, Instant startedAt) {
+        private SearchCapture {
+            if (origin == null || startedAt == null) {
+                throw new IllegalArgumentException("Search origin and time must be provided");
+            }
         }
     }
 

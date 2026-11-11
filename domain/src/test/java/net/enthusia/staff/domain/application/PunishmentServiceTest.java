@@ -2,6 +2,8 @@ package net.enthusia.staff.domain.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -167,9 +169,15 @@ class PunishmentServiceTest {
                 new SanctionSpec(SanctionType.NETWORK_BAN, SanctionLength.temporary(Duration.ofDays(3)))
         );
 
+        CreatePunishmentRequest adminCustom = request(StaffRank.ADMIN, customDuration);
+        PunishmentEvaluation.Rejected direct = assertInstanceOf(
+                PunishmentEvaluation.Rejected.class,
+                service.evaluate(adminCustom, OperationalMode.ACTIVE)
+        );
+        assertEquals("APPROVAL_REQUIRED", direct.code());
         assertInstanceOf(
                 PunishmentEvaluation.Allowed.class,
-                service.evaluate(request(StaffRank.ADMIN, customDuration), OperationalMode.ACTIVE)
+                service.evaluateRequestProposal(adminCustom, OperationalMode.ACTIVE)
         );
         assertInstanceOf(
                 PunishmentEvaluation.Rejected.class,
@@ -179,6 +187,34 @@ class PunishmentServiceTest {
                 PunishmentEvaluation.Allowed.class,
                 service.evaluate(request(StaffRank.FOUNDER, arbitrary), OperationalMode.ACTIVE)
         );
+    }
+
+    @Test
+    void adminCustomDurationRequiresFounderApprovalWhileFounderAppliesDirectly() {
+        List<PunishmentStep> steps = List.of(new PunishmentStep(0, "One day mute", List.of(
+                new SanctionSpec(SanctionType.MUTE, SanctionLength.temporary(Duration.ofDays(1)))
+        )));
+        PunishmentService service = service(
+                new AtomicReasonPolicyRepository("v1", List.of(policy(StaffRank.MOD, steps))),
+                new CapturingStore(List.of())
+        );
+        List<SanctionSpec> custom = List.of(
+                new SanctionSpec(SanctionType.MUTE, SanctionLength.temporary(Duration.ofDays(3)))
+        );
+
+        CreatePunishmentRequest adminRequest = request(StaffRank.ADMIN, custom);
+        PunishmentAssessment adminAssessment = assertInstanceOf(
+                PunishmentEvaluation.Allowed.class,
+                service.evaluateRequestProposal(adminRequest, OperationalMode.ACTIVE)
+        ).assessment();
+        assertTrue(service.requiresApproval(adminRequest.actor(), adminAssessment));
+
+        CreatePunishmentRequest founderRequest = request(StaffRank.FOUNDER, custom);
+        PunishmentAssessment founderAssessment = assertInstanceOf(
+                PunishmentEvaluation.Allowed.class,
+                service.evaluate(founderRequest, OperationalMode.ACTIVE)
+        ).assessment();
+        assertFalse(service.requiresApproval(founderRequest.actor(), founderAssessment));
     }
 
     @Test

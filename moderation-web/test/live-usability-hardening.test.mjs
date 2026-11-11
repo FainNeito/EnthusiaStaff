@@ -7,7 +7,10 @@ const MESSAGE = new URL('../../staff-bot/src/main/resources/moderation-preview/l
 const RECORD = new URL('../../staff-bot/src/main/resources/moderation-preview/live-record-usability.js', import.meta.url);
 const REVIEW = new URL('../../staff-bot/src/main/resources/moderation-preview/live-review-hardening.js', import.meta.url);
 const POLICY = new URL('../../staff-bot/src/main/resources/moderation-preview/real-policy.js', import.meta.url);
+const CATALOG = new URL('../../staff-bot/src/main/resources/moderation-preview/live-policy-catalog.js', import.meta.url);
+const MINECRAFT = new URL('../../staff-bot/src/main/resources/moderation-preview/live-minecraft-actions.js', import.meta.url);
 const CSS = new URL('../../staff-bot/src/main/resources/moderation-preview/live.css', import.meta.url);
+const BROWSE = new URL('../../staff-bot/src/main/resources/moderation-preview/live-browse-workspace.js', import.meta.url);
 
 test('product chrome removes staging diagnostics while final review keeps one truthful test boundary', async () => {
   const [shell, review] = await Promise.all([readFile(SHELL, 'utf8'), readFile(REVIEW, 'utf8')]);
@@ -22,18 +25,38 @@ test('product chrome removes staging diagnostics while final review keeps one tr
   assert.doesNotMatch(review, /Confirm preview/);
 });
 
-test('message investigation explains partial coverage and supports paging, ranges, clearing, and Discord links', async () => {
+test('message investigation uses explicit server-side history search without rerendering on each typed character', async () => {
   const [shell, message] = await Promise.all([readFile(SHELL, 'utf8'), readFile(MESSAGE, 'utf8')]);
 
-  assert.match(shell, /Filters search', 'Loaded messages only/);
+  assert.match(shell, /Search Discord history/);
+  assert.match(shell, /const mode = state\.contextId \? 'Context loaded' : remote \? 'History search' : 'Recent messages'/);
+  assert.match(shell, /runDiscordHistorySearch/);
+  assert.match(shell, /search\?\.addEventListener\('input'.*state\.search = event\.target\.value/);
+  assert.doesNotMatch(shell, /messageSearch'\)\?\.addEventListener\('input'.*renderWorkspace/);
   assert.match(shell, /up to 50 target messages from at most 8 readable channels/);
-  assert.match(shell, /up to 25 Discord messages at a time/);
   assert.match(shell, /four-page cap per direction/);
   assert.match(shell, /dateFromFilter/);
   assert.match(shell, /dateToFilter/);
   assert.match(shell, /Clear filters/);
   assert.match(shell, /Load older from Discord/);
   assert.match(message, /https:\/\/discord\.com\/channels\//);
+});
+
+test('message workspace renders Discord image and GIF media without noisy paging copy', async () => {
+  const [shell, message, browse, css] = await Promise.all([
+    readFile(SHELL, 'utf8'), readFile(MESSAGE, 'utf8'), readFile(BROWSE, 'utf8'), readFile(CSS, 'utf8')
+  ]);
+
+  assert.match(message, /richAttachmentNode/);
+  assert.match(message, /contentType\.startsWith\('image\/'\)/);
+  assert.match(message, /discordMediaNode/);
+  assert.match(message, /video\.autoplay = true/);
+  assert.match(message, /video\.loop = true/);
+  assert.match(message, /cdn\.discordapp\.com/);
+  assert.match(message, /media\.discordapp\.net/);
+  assert.match(css, /\.message-media-preview/);
+  assert.doesNotMatch(browse, /Partial until Discord history is fully paged/);
+  assert.doesNotMatch(shell, /A normal channel page retrieves recent Discord messages/);
 });
 
 test('message menus are exclusive, dismiss outside, support keyboard use, and copy message IDs', async () => {
@@ -84,28 +107,83 @@ test('safe Discord renderer handles headings, inline code, and custom emoji with
   assert.doesNotMatch(source, /\.innerHTML|DOMParser|insertAdjacentHTML|createContextualFragment/);
 });
 
-test('final review requires explanation and appropriate evidence while allowing outside-Discord evidence', async () => {
-  const [review, policy] = await Promise.all([readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8')]);
+test('final review keeps explanation optional while still requiring evidence where policy needs it', async () => {
+  const [review, policy, record] = await Promise.all([
+    readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8'), readFile(RECORD, 'utf8')
+  ]);
 
   assert.match(review, /Outside-Discord evidence reference/);
   assert.match(review, /Staff explanation/);
   assert.match(review, /Notification message/);
+  assert.match(review, /Punishment Alert/);
+  assert.match(review, /Discord timestamp and live countdown generated from the confirmed action time/);
+  assert.match(review, /Enthusia\.info\/appeal/);
+  assert.doesNotMatch(review, /Enthusia moderation:/);
   assert.doesNotMatch(review, /text:'DM preview'/);
-  assert.match(review, /Case readiness/);
-  assert.match(policy, /length >= 10/);
+  assert.doesNotMatch(record, /Case readiness/);
+  assert.doesNotMatch(record, /Review every item before confirming the action/);
+  assert.doesNotMatch(record, /testEnvironmentBoundary\(\)/);
+  assert.match(record, /className:'review-details'/);
+  assert.match(policy, /function workflowReasonReady\(\) \{\s*return true;/);
+  assert.doesNotMatch(review, /at least 10 characters/);
+  assert.match(review, /No additional staff explanation was provided\./);
+  assert.match(review, /Enter a clear explanation of why this punishment is being issued/);
+  assert.doesNotMatch(review, /Optional\. If left blank/);
+  assert.match(review, /Add a ticket, recording, screenshot, game log, or other evidence reference/);
+  assert.doesNotMatch(review, /Use this when the incident evidence is not a Discord message/);
   assert.match(policy, /state\.evidence\.size > 0 \|\| workflowExternalEvidenceReady/);
   assert.match(policy, /Verify the required Admin\+ approval/);
 });
 
-test('offense choices and recommendations link to public Enthusia rules', async () => {
-  const [review, policy] = await Promise.all([readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8')]);
+test('workspace keeps player context compact and hides empty status cards behind progressive disclosure', async () => {
+  const [shell, browse, css] = await Promise.all([
+    readFile(SHELL, 'utf8'), readFile(BROWSE, 'utf8'), readFile(CSS, 'utf8')
+  ]);
+
+  assert.match(browse, /#targetHeader \.target-identity/);
+  assert.doesNotMatch(shell, /No active sanctions were returned/);
+  assert.doesNotMatch(shell, /No case record was returned/);
+  assert.doesNotMatch(shell, /No private staff note was returned/);
+  assert.doesNotMatch(shell, /Accounts includes the Discord identity/);
+  assert.match(shell, /coverage-summary/);
+  assert.match(shell, /Recent messages/);
+  assert.match(css, /\.browse-pickers\{display:grid/);
+  assert.match(css, /\.target-header\{padding:14px 16px/);
+  assert.match(css, /\.coverage-summary summary/);
+});
+
+test('punishment catalog uses one server-rules entry point and exposes categories, exact reasons, and ladders', async () => {
+  const [review, policy, catalog, record, minecraft] = await Promise.all([
+    readFile(REVIEW, 'utf8'), readFile(POLICY, 'utf8'), readFile(CATALOG, 'utf8'),
+    readFile(RECORD, 'utf8'), readFile(MINECRAFT, 'utf8')
+  ]);
 
   assert.match(policy, /https:\/\/enthusia\.info\/rules/);
-  assert.match(policy, /#conduct/);
-  assert.match(policy, /#mods-clients/);
-  assert.match(policy, /#enforcement/);
-  assert.match(review, /View applicable rule/);
-  assert.match(review, /Open rule/);
+  assert.match(catalog, /Open Enthusia server rules/);
+  assert.match(catalog, /Choose punishment category/);
+  assert.match(catalog, /Choose the exact reason/);
+  assert.match(catalog, /Configured punishment ladder/);
+  assert.match(catalog, /reason\.ladder/);
+  assert.match(catalog, /Punishment catalog unavailable/);
+  assert.match(catalog, /No fallback punishment list is shown/);
+  assert.doesNotMatch(review, /View applicable rule|Open applicable rule/);
+  assert.doesNotMatch(record, /View rule|Open applicable rule/);
+  assert.match(minecraft, /renderMinecraftReasonFamilies/);
+  assert.match(minecraft, /renderMinecraftReasonChoices/);
+  assert.match(minecraft, /liveActionCapabilities\?\.configuredReasons/);
+  assert.match(minecraft, /selected\?\.minecraftSupported === false/);
+  assert.match(minecraft, /In-game workflow required/);
+  assert.doesNotMatch(minecraft, /id:'minecraftReason'.*element\('select'/s);
+});
+
+test('custom punishment duration uses number and unit dropdowns including months and permanent', async () => {
+  const source = await readFile(RECORD, 'utf8');
+
+  assert.match(source, /customDurationAmount/);
+  assert.match(source, /customDurationUnit/);
+  assert.match(source, /minutes','hours','days','months','permanent/);
+  assert.match(source, /unit === 'permanent'/);
+  assert.doesNotMatch(source, /type:'text'.*customDuration/);
 });
 
 test('record views distinguish empty and unavailable states and clarify identity counts', async () => {

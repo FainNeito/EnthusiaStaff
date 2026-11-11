@@ -27,13 +27,19 @@ test('channel browse asset is loaded last and included in Cloudflare packaging',
   assert.match(worker,/\/assets\/live-browse-workspace\.js/);
 });
 
-test('channel browse UI exposes channel and player selectors plus message-author selection', async () => {
+test('channel browse UI exposes a searchable player picker and supports switching targets', async () => {
   const source = await readFile(BROWSE,'utf8');
 
   assert.match(source,/workspaceChannelPicker/);
-  assert.match(source,/workspacePlayerPicker/);
-  assert.match(source,/No player selected/);
+  assert.match(source,/Select player/);
+  assert.match(source,/Change player/);
+  assert.match(source,/playerPickerDialog/);
+  assert.match(source,/playerPickerSearch/);
+  assert.match(source,/Search history/);
+  assert.match(source,/searchBrowsePlayers/);
+  assert.match(source,/Discord user ID/);
   assert.match(source,/View player/);
   assert.match(source,/selectBrowsePlayer/);
   assert.match(source,/clearBrowsePlayer/);
+  assert.match(source,/setTimeout\(openPlayerPicker,0\)/);
 });

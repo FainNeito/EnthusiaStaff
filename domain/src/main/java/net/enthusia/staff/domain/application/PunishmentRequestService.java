@@ -200,6 +200,11 @@ public final class PunishmentRequestService {
                 ));
     }
 
+    public boolean abandon(PunishmentApprovalLease lease) {
+        Objects.requireNonNull(lease, "lease");
+        return requests.abandon(lease);
+    }
+
     public PunishmentRequestResult approve(PunishmentApprovalLease lease, Actor approver) {
         Objects.requireNonNull(lease);
         Objects.requireNonNull(approver);
@@ -236,10 +241,19 @@ public final class PunishmentRequestService {
             PunishmentAssessment assessment
     ) {
         Instant now = clock.instant();
+        boolean customDuration = PunishmentApprovalRules.isCustomDuration(
+                assessment.policy(),
+                assessment.sanctions()
+        );
+        StaffRank requiredApprovalRank = PunishmentApprovalRules.requiredApprovalRank(
+                request.actor().rank(),
+                assessment.policy().requiredRank(),
+                customDuration
+        );
         PunishmentApprovalRequest pending = PunishmentApprovalRequest.pending(
                 Objects.requireNonNull(requestIds.get(), "generated punishment request identifier"),
                 request.idempotencyKey(),
-                PunishmentProposal.from(request, assessment),
+                PunishmentProposal.from(request, assessment, requiredApprovalRank),
                 now,
                 now.plus(requestLifetime)
         );

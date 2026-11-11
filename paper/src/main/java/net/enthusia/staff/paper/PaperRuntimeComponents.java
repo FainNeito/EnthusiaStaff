@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import javax.sql.DataSource;
@@ -14,12 +15,14 @@ import net.enthusia.staff.domain.ports.FreezeStore;
 import net.enthusia.staff.domain.ports.InventoryJournalStore;
 import net.enthusia.staff.domain.ports.PlayerDirectory;
 import net.enthusia.staff.domain.ports.ReportStore;
+import net.enthusia.staff.domain.ports.StaffPreferenceStore;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
 import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.domain.report.ReportPolicy;
 import net.enthusia.staff.domain.report.ReportPolicyRuntime;
 import net.enthusia.staff.paper.api.InventoryLockService;
 import net.enthusia.staff.paper.api.StaffModeQueryService;
+import net.enthusia.staff.paper.api.StaffAuthorityService;
 import net.enthusia.staff.paper.api.StaffSessionService;
 import net.enthusia.staff.paper.api.StaffVisibilityService;
 import net.enthusia.staff.paper.audit.StaffActionAuditListener;
@@ -30,9 +33,12 @@ import net.enthusia.staff.paper.freeze.FreezeNoticeService;
 import net.enthusia.staff.paper.inventory.InventoryCoordinator;
 import net.enthusia.staff.paper.inventory.InventoryOperationContext;
 import net.enthusia.staff.paper.inventory.InventoryRecoveryGuard;
+import net.enthusia.staff.paper.integration.PolarSpectatorPhaseCompatibility;
 import net.enthusia.staff.paper.report.ReportEvidenceMaintenance;
 import net.enthusia.staff.paper.staff.HelperObserverProtectionListener;
 import net.enthusia.staff.paper.staff.StaffModeDeathListener;
+import net.enthusia.staff.paper.staff.StaffCombatProtectionListener;
+import net.enthusia.staff.paper.staff.StaffDoubleCrouchListener;
 import net.enthusia.staff.paper.staff.StaffModeManager;
 import net.enthusia.staff.paper.staff.StaffModeWorldInteractionListener;
 import net.enthusia.staff.paper.staff.StaffStatePresentation;
@@ -89,8 +95,26 @@ record PaperRuntimeComponents(
         );
         StaffModeManager staffMode = createStaffModeManager(dependencies);
         registerStaffDutyContext(dependencies, staffMode);
+        PolarSpectatorPhaseCompatibility.installEligibilityTracking(
+                dependencies.environment().plugin()
+        );
         DefaultStaffVisibilityService visibility = createVisibilityService(dependencies);
         VanishManager vanish = createVanishManager(dependencies, staffMode, visibility);
+        registerListener(
+                dependencies.environment().plugin(),
+                new StaffDoubleCrouchListener(dependencies.environment().plugin(), staffMode, vanish)
+        );
+        StaffCombatProtectionListener combatProtection = new StaffCombatProtectionListener(
+                dependencies.environment().plugin(),
+                staffMode,
+                vanish,
+                staffMode.combat()
+        );
+        combatProtection.start();
+        staffMode.setEntryListener(player -> {
+            vanish.staffModeEntered(player);
+            combatProtection.protect(player);
+        });
         StaffActionLogger staffActionLogger = createStaffActionLogger(dependencies, staffMode, vanish);
         StaffTransferSnapshotCoordinator transferSnapshots = new StaffTransferSnapshotCoordinator(
                 dependencies.environment().plugin(),
@@ -172,6 +196,12 @@ record PaperRuntimeComponents(
                 ServicePriority.Normal
         );
         plugin.getServer().getServicesManager().register(
+                StaffAuthorityService.class,
+                staffMode::authorityActiveOrUnrestricted,
+                plugin,
+                ServicePriority.Normal
+        );
+        plugin.getServer().getServicesManager().register(
                 FreezeNetworkReconciler.class,
                 freezeNetworkReconciler,
                 plugin,
@@ -209,6 +239,7 @@ record PaperRuntimeComponents(
                 dependencies.environment().clock(),
                 dependencies.environment().serverId(),
                 dependencies.stores().staffSessionStore(),
+                dependencies.stores().staffPreferenceStore(),
                 dependencies.environment().workers()
         );
         registerListener(plugin, new StaffToolTransferListener(plugin, staffMode));
@@ -280,13 +311,14 @@ record PaperRuntimeComponents(
                 vanish::endPluginGameModeApplication
         );
         registerListener(plugin, vanish);
+        registerListener(plugin, vanish.silentContainerTracker());
         return vanish;
     }
 
     /**
      * Builds and wires the staff-action audit pipeline (overnight permission model):
-     * per-server JSON-lines file log, Discord-bot outbox file, best-effort {@code discord_outbox}
-     * insert, plus the vanished/on-duty command+teleport+gamemode audit listener.
+     * per-server JSON-lines audit/journal files and an asynchronously reconciled
+     * {@code discord_outbox}, plus vanished/on-duty command, teleport and gamemode logging.
      */
     private static StaffActionLogger createStaffActionLogger(
             Dependencies dependencies,
@@ -305,6 +337,15 @@ record PaperRuntimeComponents(
         staffMode.setActionLogger(logger);
         staffMode.setVanishedLookup(vanish::isVanished);
         registerListener(plugin, new StaffActionAuditListener(logger, staffMode, vanish));
+        // Recovery is bounded and runs off-thread. Paper cancels plugin-owned
+        // scheduler tasks on disable; the replay database key is stable across restarts.
+        try {
+            plugin.getServer().getAsyncScheduler().runAtFixedRate(
+                    plugin, ignored -> logger.recoverOutboxOnce(), 15L, 15L, TimeUnit.SECONDS);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Staff-action Discord recovery scheduling failed; local journal retained", exception);
+        }
         return logger;
     }
 
@@ -498,6 +539,7 @@ record PaperRuntimeComponents(
             Supplier<ReportStore> reportStore,
             Supplier<FreezeStore> freezeStore,
             Supplier<StaffSessionStore> staffSessionStore,
+            Supplier<StaffPreferenceStore> staffPreferenceStore,
             Supplier<VanishStore> vanishStore,
             Supplier<InventoryJournalStore> inventoryJournalStore,
             Supplier<PlayerDirectory> playerDirectory,

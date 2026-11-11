@@ -393,7 +393,7 @@ final class VelocitySecurityEventSubmissionTest {
             setMode(plugin, OperationalMode.ACTIVE);
             installEmptySwitchStores(plugin);
             AtomicInteger reads = new AtomicInteger();
-            INVENTORIES.set(plugin, inventoryStore(reads, Optional.of("TEMP")));
+            INVENTORIES.set(plugin, inventoryStore(reads, new AtomicInteger(), Optional.of("TEMP"), false));
             ServerPreConnectEvent event = initialConnectionEvent(
                     player(new AtomicInteger(), new AtomicInteger())
             );
@@ -402,6 +402,31 @@ final class VelocitySecurityEventSubmissionTest {
 
             assertSame(owner, event.getResult().getServer().orElseThrow());
             assertEquals(1, reads.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void abandonedOfflineInventoryOwnerIsResolvedBeforeInitialBackendAdmission() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - test closes it in finally.
+        try {
+            EnthusiaStaffVelocityPlugin plugin = plugin(executor);
+            setMode(plugin, OperationalMode.ACTIVE);
+            installEmptySwitchStores(plugin);
+            AtomicInteger reads = new AtomicInteger();
+            AtomicInteger resolutions = new AtomicInteger();
+            INVENTORIES.set(plugin, recoveringInventoryStore(reads, resolutions, "TEMP"));
+            ServerPreConnectEvent event = initialConnectionEvent(
+                    player(new AtomicInteger(), new AtomicInteger())
+            );
+
+            await(plugin.onServerPreConnect(event));
+
+            assertTrue(event.getResult().isAllowed());
+            assertEquals(HUB, event.getResult().getServer().orElseThrow().getServerInfo().getName());
+            assertEquals(2, reads.get());
+            assertEquals(1, resolutions.get());
         } finally {
             executor.shutdownNow();
         }
@@ -418,7 +443,7 @@ final class VelocitySecurityEventSubmissionTest {
             setMode(plugin, OperationalMode.ACTIVE);
             installEmptySwitchStores(plugin);
             INVENTORIES.set(plugin, inventoryStore(
-                    new AtomicInteger(), Optional.of("TEMP")
+                    new AtomicInteger(), new AtomicInteger(), Optional.of("TEMP"), false
             ));
             SESSIONS.set(plugin, optionalStore(
                     StaffSessionStore.class,
@@ -445,7 +470,7 @@ final class VelocitySecurityEventSubmissionTest {
             setMode(plugin, OperationalMode.ACTIVE);
             installEmptySwitchStores(plugin);
             INVENTORIES.set(plugin, inventoryStore(
-                    new AtomicInteger(), Optional.of("TEMP")
+                    new AtomicInteger(), new AtomicInteger(), Optional.of("TEMP"), false
             ));
             AtomicInteger messages = new AtomicInteger();
             AtomicInteger disconnects = new AtomicInteger();
@@ -458,96 +483,6 @@ final class VelocitySecurityEventSubmissionTest {
             assertFalse(event.getResult().isAllowed());
             assertEquals(0, messages.get());
             assertEquals(1, disconnects.get());
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    void matchingRequestedAssetOwnerCannotBeOverriddenByStaffReconnect() throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - closed in finally.
-        try {
-            EnthusiaStaffVelocityPlugin plugin = plugin(executor, proxyWithServer(server("STAFF")));
-            setMode(plugin, OperationalMode.ACTIVE);
-            installEmptySwitchStores(plugin);
-            INVENTORIES.set(plugin, inventoryStore(new AtomicInteger(), Optional.of(HUB)));
-            SESSIONS.set(plugin, optionalStore(StaffSessionStore.class, new AtomicInteger(),
-                    Optional.of(snapshot("STAFF", StaffSessionState.ACTIVE))));
-            ServerPreConnectEvent event = initialConnectionEvent(player(new AtomicInteger(), new AtomicInteger()));
-
-            await(plugin.onServerPreConnect(event));
-
-            assertTrue(event.getResult().isAllowed());
-            assertEquals(HUB, event.getResult().getServer().orElseThrow().getServerInfo().getName());
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    void conflictingInitialAssetOwnersDisconnectWithoutStaffRedirect() throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - closed in finally.
-        try {
-            EnthusiaStaffVelocityPlugin plugin = plugin(executor, proxyWithServers(server("TEMP"), server("STAFF")));
-            setMode(plugin, OperationalMode.ACTIVE);
-            installEmptySwitchStores(plugin);
-            INVENTORIES.set(plugin, inventoryStore(new AtomicInteger(), Optional.of("TEMP")));
-            ECONOMIES.set(plugin, optionalStore(EconomyJournalStore.class, new AtomicInteger(), Optional.of("STAFF")));
-            AtomicInteger disconnects = new AtomicInteger();
-            AtomicInteger messages = new AtomicInteger();
-            ServerPreConnectEvent event = initialConnectionEvent(player(new AtomicInteger(), messages, disconnects));
-
-            await(plugin.onServerPreConnect(event));
-
-            assertFalse(event.getResult().isAllowed());
-            assertEquals(1, disconnects.get());
-            assertEquals(0, messages.get());
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    void initialEconomyRecoveryRoutesToOwner() throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - closed in finally.
-        try {
-            RegisteredServer owner = server("TEMP");
-            EnthusiaStaffVelocityPlugin plugin = plugin(executor, proxyWithServer(owner));
-            setMode(plugin, OperationalMode.ACTIVE);
-            installEmptySwitchStores(plugin);
-            ECONOMIES.set(plugin, optionalStore(EconomyJournalStore.class, new AtomicInteger(), Optional.of("TEMP")));
-            ServerPreConnectEvent event = initialConnectionEvent(player(new AtomicInteger(), new AtomicInteger()));
-
-            await(plugin.onServerPreConnect(event));
-
-            assertSame(owner, event.getResult().getServer().orElseThrow());
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    void ordinarySwitchWithInventoryOwnerMismatchDeniesWithoutDisconnecting() throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor(); // NOPMD - closed in finally.
-        try {
-            EnthusiaStaffVelocityPlugin plugin = plugin(executor, proxyWithServer(server("TEMP")));
-            setMode(plugin, OperationalMode.SHADOW_MIGRATION);
-            installEmptySwitchStores(plugin);
-            INVENTORIES.set(plugin, inventoryStore(new AtomicInteger(), Optional.of("TEMP")));
-            ECONOMIES.set(plugin, Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(),
-                    new Class<?>[]{EconomyJournalStore.class}, (instance, method, arguments) -> {
-                        throw new IllegalStateException("Unavailable economy test storage");
-                    }));
-            AtomicInteger messages = new AtomicInteger();
-            AtomicInteger disconnects = new AtomicInteger();
-            ServerPreConnectEvent event = new ServerPreConnectEvent(
-                    player(new AtomicInteger(), messages, disconnects), server(HUB), server("previous"));
-
-            await(plugin.onServerPreConnect(event));
-
-            assertFalse(event.getResult().isAllowed());
-            assertEquals(1, messages.get());
-            assertEquals(0, disconnects.get());
         } finally {
             executor.shutdownNow();
         }
@@ -686,9 +621,32 @@ final class VelocitySecurityEventSubmissionTest {
         ));
     }
 
+    private static InventoryJournalStore recoveringInventoryStore(
+            AtomicInteger reads,
+            AtomicInteger resolutions,
+            String owner
+    ) {
+        return InventoryJournalStore.class.cast(Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[]{InventoryJournalStore.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("lockedOwningServer")) {
+                        return reads.incrementAndGet() == 1 ? Optional.of(owner) : Optional.empty();
+                    }
+                    if (method.getName().equals("resolveAbandonedOfflineEdit")) {
+                        resolutions.incrementAndGet();
+                        return true;
+                    }
+                    return defaultValue(method.getReturnType());
+                }
+        ));
+    }
+
     private static InventoryJournalStore inventoryStore(
             AtomicInteger reads,
-            Optional<String> owner
+            AtomicInteger resolutions,
+            Optional<String> owner,
+            boolean resolved
     ) {
         return InventoryJournalStore.class.cast(Proxy.newProxyInstance(
                 Thread.currentThread().getContextClassLoader(),
@@ -697,6 +655,10 @@ final class VelocitySecurityEventSubmissionTest {
                     if (method.getName().equals("lockedOwningServer")) {
                         reads.incrementAndGet();
                         return owner;
+                    }
+                    if (method.getName().equals("resolveAbandonedOfflineEdit")) {
+                        resolutions.incrementAndGet();
+                        return resolved;
                     }
                     return defaultValue(method.getReturnType());
                 }

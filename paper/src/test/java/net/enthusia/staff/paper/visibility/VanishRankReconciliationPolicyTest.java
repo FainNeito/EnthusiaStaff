@@ -9,17 +9,6 @@ import org.junit.jupiter.api.Test;
 
 class VanishRankReconciliationPolicyTest {
     @Test
-    void explicitStaffExitClearsEvenAdminAndFounderVanishInsteadOfReapplyingCreative() {
-        for (StaffRank rank : playerRanks()) {
-            assertEquals(VanishRankReconciliationPolicy.VanishAction.DISABLE,
-                    VanishRankReconciliationPolicy.vanishAction(true, rank, rank,
-                            VanishRankReconciliationPolicy.StaffModeState.EXITED));
-        }
-        assertEquals(VanishRankReconciliationPolicy.VanishAction.NONE,
-                VanishRankReconciliationPolicy.vanishAction(false, null, StaffRank.FOUNDER,
-                        VanishRankReconciliationPolicy.StaffModeState.EXITED));
-    }
-    @Test
     void trackedPlayersAreCheckedBetweenFullDiscoveryPasses() {
         assertTrue(VanishRankReconciliationPolicy.shouldCheckRank(false, true, false, false, false));
         assertTrue(VanishRankReconciliationPolicy.shouldCheckRank(false, false, true, false, false));
@@ -78,8 +67,8 @@ class VanishRankReconciliationPolicyTest {
 
     @Test
     void vanishedRankChangesRequireDurableReplacementWhenAuthorized() {
-        for (StaffRank durableRank : playerRanks()) {
-            for (StaffRank liveRank : playerRanks()) {
+        for (StaffRank durableRank : vanishRanks()) {
+            for (StaffRank liveRank : vanishRanks()) {
                 VanishRankReconciliationPolicy.VanishAction expected = durableRank == liveRank
                         ? VanishRankReconciliationPolicy.VanishAction.NONE
                         : VanishRankReconciliationPolicy.VanishAction.UPDATE_RANK;
@@ -97,8 +86,8 @@ class VanishRankReconciliationPolicyTest {
     }
 
     @Test
-    void lowerRankWithUnknownSessionDefersToDurableVerification() {
-        for (StaffRank rank : staffModeRanks()) {
+    void everyVanishCapableRankWithUnknownSessionDefersToDurableVerification() {
+        for (StaffRank rank : vanishRanks()) {
             assertEquals(
                     VanishRankReconciliationPolicy.VanishAction.VERIFY_SESSION,
                     VanishRankReconciliationPolicy.vanishAction(
@@ -112,8 +101,8 @@ class VanishRankReconciliationPolicyTest {
     }
 
     @Test
-    void confirmedInactiveOrCompletedExitDisablesLowerRankVanish() {
-        for (StaffRank rank : staffModeRanks()) {
+    void confirmedInactiveOrCompletedExitDisablesEveryPlayerRankVanish() {
+        for (StaffRank rank : playerRanks()) {
             assertEquals(
                     VanishRankReconciliationPolicy.VanishAction.DISABLE,
                     VanishRankReconciliationPolicy.vanishAction(
@@ -136,18 +125,65 @@ class VanishRankReconciliationPolicyTest {
     }
 
     @Test
-    void independentRanksIgnoreOrdinarySessionStateButHonorExplicitExit() {
-        for (StaffRank rank : new StaffRank[]{StaffRank.ADMIN, StaffRank.FOUNDER}) {
-            for (VanishRankReconciliationPolicy.StaffModeState state
-                    : VanishRankReconciliationPolicy.StaffModeState.values()) {
-                assertEquals(
-                        state == VanishRankReconciliationPolicy.StaffModeState.EXITED
-                                ? VanishRankReconciliationPolicy.VanishAction.DISABLE
-                                : VanishRankReconciliationPolicy.VanishAction.NONE,
-                        VanishRankReconciliationPolicy.vanishAction(true, rank, rank, state)
-                );
-            }
+    void unrestrictedIdentityKeepsVanishWithoutActiveStaffSessionForVanishCapableRanks() {
+        for (StaffRank rank : vanishRanks()) {
+            assertEquals(
+                    VanishRankReconciliationPolicy.VanishAction.NONE,
+                    VanishRankReconciliationPolicy.vanishAction(
+                            true,
+                            rank,
+                            rank,
+                            VanishRankReconciliationPolicy.StaffModeState.INACTIVE,
+                            true
+                    )
+            );
+            assertEquals(
+                    VanishRankReconciliationPolicy.VanishAction.NONE,
+                    VanishRankReconciliationPolicy.vanishAction(
+                            true,
+                            rank,
+                            rank,
+                            VanishRankReconciliationPolicy.StaffModeState.EXITED,
+                            true
+                    )
+            );
         }
+    }
+
+    @Test
+    void helperCanNeverRemainVanishedEvenWhenUnrestricted() {
+        assertFalse(VanishRankReconciliationPolicy.mayVanish(StaffRank.HELPER));
+        assertEquals(
+                VanishRankReconciliationPolicy.VanishAction.DISABLE,
+                VanishRankReconciliationPolicy.vanishAction(
+                        true,
+                        StaffRank.HELPER,
+                        StaffRank.HELPER,
+                        VanishRankReconciliationPolicy.StaffModeState.ACTIVE
+                )
+        );
+        assertEquals(
+                VanishRankReconciliationPolicy.VanishAction.DISABLE,
+                VanishRankReconciliationPolicy.vanishAction(
+                        true,
+                        StaffRank.HELPER,
+                        StaffRank.HELPER,
+                        VanishRankReconciliationPolicy.StaffModeState.ACTIVE,
+                        true
+                )
+        );
+        for (StaffRank rank : vanishRanks()) {
+            assertTrue(VanishRankReconciliationPolicy.mayVanish(rank));
+        }
+    }
+
+    @Test
+    void everyPlayerRankRequiresStaffMode() {
+        for (StaffRank rank : playerRanks()) {
+            assertTrue(VanishRankReconciliationPolicy.requiresStaffMode(rank));
+        }
+        assertFalse(VanishRankReconciliationPolicy.requiresStaffMode(null));
+        assertFalse(VanishRankReconciliationPolicy.requiresStaffMode(StaffRank.SYSTEM));
     }
 
     @Test
@@ -190,6 +226,15 @@ class VanishRankReconciliationPolicyTest {
         );
     }
 
+    private static StaffRank[] vanishRanks() {
+        return new StaffRank[]{
+                StaffRank.MOD,
+                StaffRank.DEVELOPER,
+                StaffRank.ADMIN,
+                StaffRank.FOUNDER
+        };
+    }
+
     private static StaffRank[] playerRanks() {
         return new StaffRank[]{
                 StaffRank.HELPER,
@@ -200,7 +245,4 @@ class VanishRankReconciliationPolicyTest {
         };
     }
 
-    private static StaffRank[] staffModeRanks() {
-        return new StaffRank[]{StaffRank.HELPER, StaffRank.MOD, StaffRank.DEVELOPER};
-    }
 }

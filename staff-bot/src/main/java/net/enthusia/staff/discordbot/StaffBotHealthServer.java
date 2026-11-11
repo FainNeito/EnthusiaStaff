@@ -64,12 +64,14 @@ final class StaffBotHealthServer implements HealthEndpoint {
             StaffBotHealth.Snapshot snapshot = health.snapshot();
             boolean acceptable = readiness ? snapshot.ready() : snapshot.live();
             int status = acceptable ? 200 : 503;
+            String mirrorStats = readiness ? health.stagingMirrorMetrics()
+                    .map(stats -> ",\"mirrorRecovery\":" + stats.json()).orElse("") : "";
             String body = "{\"environment\":\"" + json(health.environment().label())
                     + "\",\"status\":\"" + snapshot.phase().name()
                     + "\",\"ready\":" + snapshot.ready()
                     + ",\"reason\":\"" + json(snapshot.reason())
                     + "\",\"rejectedWork\":" + snapshot.rejectedWork()
-                    + "}\n";
+                    + mirrorStats + "}\n";
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.getResponseHeaders().set("Cache-Control", "no-store");

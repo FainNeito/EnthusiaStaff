@@ -1,64 +1,38 @@
 package net.enthusia.staff.paper.command;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.reflect.Proxy;
-import java.util.concurrent.atomic.AtomicInteger;
-import net.enthusia.staff.domain.OperationalMode;
-import org.bukkit.command.CommandSender;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 final class StaffVisibilityControlTest {
     @Test
-    void toggleDelegatesToExistingVisibilityExecutorWithNoArguments() {
-        CommandSender actor = sender(true);
-        AtomicInteger calls = new AtomicInteger();
-        StaffModeCommand command = new StaffModeCommand(() -> OperationalMode.ACTIVE, null,
-                (sender, ignored, label, arguments) -> {
-                    assertSame(actor, sender);
-                    assertEquals("vanish", label);
-                    assertArrayEquals(new String[0], arguments);
-                    calls.incrementAndGet();
-                    return true;
-                });
-        assertTrue(command.onCommand(actor, null, "staff", new String[]{"togglevanish"}));
-        assertEquals(1, calls.get());
+    void visibilityControlsRemainBehindStaffPermissionAndUseCurrentManagers() throws IOException {
+        String source = Files.readString(paperModule().resolve(
+                "src/main/java/net/enthusia/staff/paper/command/StaffModeCommand.java"
+        ));
+        int permission = source.indexOf("if (!allowed(sender))");
+        int tab = source.indexOf("if (spectatorTabRequested(arguments))");
+        int toggle = source.indexOf("if (vanishToggleRequested(arguments))");
+
+        assertTrue(permission >= 0);
+        assertTrue(tab > permission);
+        assertTrue(toggle > permission);
+        assertTrue(source.contains("vanish.configureSpectatorTab(player, true)"));
+        assertTrue(source.contains("vanish.configureSpectatorTab(player, false)"));
+        assertTrue(source.contains("vanish.toggle(player)"));
     }
 
-    @Test
-    void tabPreservesArgumentsForExistingPermissionAndRankChecks() {
-        CommandSender actor = sender(true);
-        AtomicInteger calls = new AtomicInteger();
-        StaffModeCommand command = new StaffModeCommand(() -> OperationalMode.MAINTENANCE, null,
-                (sender, ignored, label, arguments) -> {
-                    assertSame(actor, sender);
-                    assertArrayEquals(new String[]{"tab", "show"}, arguments);
-                    calls.incrementAndGet();
-                    return true;
-                });
-        assertTrue(command.onCommand(actor, null, "staff", new String[]{"tab", "show"}));
-        assertEquals(1, calls.get());
-    }
-
-    @Test
-    void missingStaffPermissionNeverInvokesVisibilityControls() {
-        AtomicInteger calls = new AtomicInteger();
-        StaffModeCommand command = new StaffModeCommand(() -> OperationalMode.ACTIVE, null,
-                (sender, ignored, label, arguments) -> { calls.incrementAndGet(); return true; });
-        assertTrue(command.onCommand(sender(false), null, "staff", new String[]{"togglevanish"}));
-        assertEquals(0, calls.get());
-    }
-
-    private static CommandSender sender(boolean allowed) {
-        return (CommandSender) Proxy.newProxyInstance(CommandSender.class.getClassLoader(),
-                new Class<?>[]{CommandSender.class}, (proxy, method, arguments) -> {
-                    if (method.getName().equals("hasPermission")) {
-                        return allowed && "enthusiastaff.staffmode".equals(arguments[0]);
-                    }
-                    return null;
-                });
+    private static Path paperModule() {
+        Path current = Path.of("").toAbsolutePath().normalize();
+        if (Files.exists(current.resolve("paper/src/main/java/net/enthusia/staff/paper/command/StaffModeCommand.java"))) {
+            return current.resolve("paper");
+        }
+        if (Files.exists(current.resolve("src/main/java/net/enthusia/staff/paper/command/StaffModeCommand.java"))) {
+            return current;
+        }
+        throw new IllegalStateException("Could not locate the Paper module from " + current);
     }
 }

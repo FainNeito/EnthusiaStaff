@@ -21,8 +21,8 @@ final class PunishmentReasonPresentation {
             Optional<ReasonPolicyRepository.ReasonDescriptor> descriptor
     ) {
         List<Component> lore = new ArrayList<>();
-        lore.add(Component.text(reasonId, NamedTextColor.DARK_GRAY));
         if (descriptor.isEmpty()) {
+            lore.add(Component.text("Reason ID: " + reasonId, NamedTextColor.DARK_GRAY));
             addUnknown(lore);
         } else {
             addKnown(lore, descriptor.orElseThrow());
@@ -31,8 +31,8 @@ final class PunishmentReasonPresentation {
     }
 
     private static void addUnknown(List<Component> lore) {
-        lore.add(Component.text("No current policy metadata exists for this ID", NamedTextColor.RED));
-        lore.add(Component.text("Confirmation will fail safely", NamedTextColor.YELLOW));
+        lore.add(Component.text("This reason is no longer configured.", NamedTextColor.RED));
+        lore.add(Component.text("Go back and choose a current reason.", NamedTextColor.YELLOW));
     }
 
     private static void addKnown(
@@ -40,8 +40,8 @@ final class PunishmentReasonPresentation {
             ReasonPolicyRepository.ReasonDescriptor descriptor
     ) {
         switch (descriptor.availability()) {
-            case ACTIVE -> addActive(lore);
-            case ALIAS -> addAlias(lore, descriptor.canonicalId());
+            case ACTIVE -> { }
+            case ALIAS -> addAlias(lore);
             case REMOVED -> addRemoved(lore);
             default -> throw new IllegalStateException(
                     "Unsupported reason availability: " + descriptor.availability()
@@ -49,17 +49,13 @@ final class PunishmentReasonPresentation {
         }
     }
 
-    private static void addActive(List<Component> lore) {
-        lore.add(Component.text("This exact reason ID will be audited", NamedTextColor.GRAY));
-    }
-
-    private static void addAlias(List<Component> lore, String canonicalId) {
-        lore.add(Component.text("Renamed to " + canonicalId, NamedTextColor.AQUA));
-        lore.add(Component.text("Confirmation uses the current canonical policy", NamedTextColor.GRAY));
+    private static void addAlias(List<Component> lore) {
+        lore.add(Component.text("This saved reason was renamed.", NamedTextColor.AQUA));
+        lore.add(Component.text("The current reason will be used.", NamedTextColor.GRAY));
     }
 
     private static void addRemoved(List<Component> lore) {
-        lore.add(Component.text("Removed from the active policy catalog", NamedTextColor.RED));
-        lore.add(Component.text("Readable for history; cannot be selected or confirmed", NamedTextColor.YELLOW));
+        lore.add(Component.text("This reason is no longer available.", NamedTextColor.RED));
+        lore.add(Component.text("It remains visible in past cases.", NamedTextColor.GRAY));
     }
 }

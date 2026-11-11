@@ -20,6 +20,7 @@ import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.escalation.EscalationEngine;
 import net.enthusia.staff.domain.ports.AtomicReasonPolicyRepository;
 import net.enthusia.staff.domain.ports.CaseLookup;
+import net.enthusia.staff.domain.ports.AltMuteEvasionAlertStore;
 import net.enthusia.staff.domain.ports.CaseReviewStore;
 import net.enthusia.staff.domain.ports.ClientEvidenceStore;
 import net.enthusia.staff.domain.ports.EconomyJournalStore;
@@ -34,6 +35,7 @@ import net.enthusia.staff.domain.ports.PunishmentRequestAlertStore;
 import net.enthusia.staff.domain.ports.PunishmentRequestStore;
 import net.enthusia.staff.domain.ports.ReportStore;
 import net.enthusia.staff.domain.ports.SanctionLookup;
+import net.enthusia.staff.domain.ports.StaffPreferenceStore;
 import net.enthusia.staff.domain.ports.StaffSessionStore;
 import net.enthusia.staff.domain.ports.VanishStore;
 import net.enthusia.staff.paper.account.PaperAccountLinkRuntime;
@@ -68,6 +70,7 @@ record PaperStorageBindings(
         AssetStores assets = new AssetStores(
                 runtime.freezeStore(),
                 runtime.staffSessionStore(),
+                runtime.staffPreferenceStore(),
                 runtime.vanishStore(),
                 runtime.inventoryJournalStore(),
                 runtime.inventoryRecoveryStore(),
@@ -159,6 +162,7 @@ record PaperStorageBindings(
     ModerationStore moderationStore() { return moderation.moderationStore(); }
     PlayerDirectory playerDirectory() { return moderation.playerDirectory(); }
     SanctionLookup sanctionLookup() { return moderation.sanctionLookup(); }
+    AltMuteEvasionAlertStore altMuteEvasionAlertStore() { return runtime.altMuteEvasionAlertStore(); }
     CaseLookup caseLookup() { return moderation.caseLookup(); }
     CaseReviewStore caseReviewStore() { return moderation.caseReviewStore(); }
     ModerationHistoryStore moderationHistoryStore() { return moderation.moderationHistoryStore(); }
@@ -168,6 +172,7 @@ record PaperStorageBindings(
     PunishmentRequestStore punishmentRequestStore() { return moderation.punishmentRequestStore(); }
     FreezeStore freezeStore() { return assets.freezeStore(); }
     StaffSessionStore staffSessionStore() { return assets.staffSessionStore(); }
+    StaffPreferenceStore staffPreferenceStore() { return assets.staffPreferenceStore(); }
     VanishStore vanishStore() { return assets.vanishStore(); }
     InventoryJournalStore inventoryJournalStore() { return assets.inventoryJournalStore(); }
     InventoryRecoveryStore inventoryRecoveryStore() { return assets.inventoryRecoveryStore(); }
@@ -194,6 +199,7 @@ record PaperStorageBindings(
     record AssetStores(
             FreezeStore freezeStore,
             StaffSessionStore staffSessionStore,
+            StaffPreferenceStore staffPreferenceStore,
             VanishStore vanishStore,
             InventoryJournalStore inventoryJournalStore,
             InventoryRecoveryStore inventoryRecoveryStore,

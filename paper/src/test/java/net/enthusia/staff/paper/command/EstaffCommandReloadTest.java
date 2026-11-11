@@ -2,16 +2,21 @@ package net.enthusia.staff.paper.command;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.paper.RuntimeHealth;
+import net.enthusia.staff.paper.config.ConfigurationValidationReport;
+import net.enthusia.staff.paper.config.MessageCatalog;
+import net.enthusia.staff.paper.config.MessageKey;
 import net.enthusia.staff.paper.config.reload.ConfigurationReloadResult;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
@@ -21,6 +26,10 @@ import org.bukkit.command.ConsoleCommandSender;
 import org.junit.jupiter.api.Test;
 
 class EstaffCommandReloadTest {
+    private static final String POLICY_V2_OPERATION = "policyv2";
+    private static final String CONFIG_OPERATION = "config";
+    private static final String CONFIG_VALIDATE_ARGUMENT = "validate";
+    private static final String TARGET_QUERY = "Target";
     private static final Command COMMAND = new Command("estaff") {
         @Override
         public boolean execute(CommandSender sender, String commandLabel, String[] args) {
@@ -166,7 +175,7 @@ class EstaffCommandReloadTest {
                 "enthusiastaff.reload", true
         ), new ArrayList<>());
 
-        assertEquals(List.of("status", "reload"), command.onTabComplete(
+        assertEquals(List.of("status", "reload", CONFIG_OPERATION), command.onTabComplete(
                 player,
                 COMMAND,
                 "estaff",
@@ -266,7 +275,7 @@ class EstaffCommandReloadTest {
         );
 
         assertFalse(reloaded.get());
-        assertEquals(List.of("Usage: /estaff <status|verify [full]|reload|sanction>"), reloadMessages);
+        assertEquals(List.of("Usage: /estaff <status|verify [full]|reload|config <validate|reload>|sanction>"), reloadMessages);
 
         List<String> statusMessages = new ArrayList<>();
         command.onCommand(
@@ -276,7 +285,7 @@ class EstaffCommandReloadTest {
                 new String[]{"status", "typo"}
         );
 
-        assertEquals(List.of("Usage: /estaff <status|verify [full]|reload|sanction>"), statusMessages);
+        assertEquals(List.of("Usage: /estaff <status|verify [full]|reload|config <validate|reload>|sanction>"), statusMessages);
 
         List<String> verifyMessages = new ArrayList<>();
         command.onCommand(
@@ -286,7 +295,87 @@ class EstaffCommandReloadTest {
                 new String[]{"verify", "typo"}
         );
 
-        assertEquals(List.of("Usage: /estaff <status|verify [full]|reload|sanction>"), verifyMessages);
+        assertEquals(List.of("Usage: /estaff <status|verify [full]|reload|config <validate|reload>|sanction>"), verifyMessages);
+    }
+
+    @Test
+    void policyV2WorkflowIsHiddenWhileDisabledAndExposedOnlyInShadowMode() {
+        List<String> messages = new ArrayList<>();
+        AtomicReference<String> openedTarget = new AtomicReference<>();
+        EstaffCommand command = new EstaffCommand(health());
+        CommandSender staff = sender(Map.of(
+                "enthusiastaff.status", true,
+                "enthusiastaff.punish", true
+        ), messages);
+
+        assertFalse(command.onTabComplete(
+                staff,
+                COMMAND,
+                "estaff",
+                new String[]{""}
+        ).contains(POLICY_V2_OPERATION));
+        command.onCommand(staff, COMMAND, "estaff", new String[]{POLICY_V2_OPERATION, TARGET_QUERY});
+        assertNull(openedTarget.get());
+
+        command.configurePolicyV2Shadow(new PolicyV2ShadowAccess() {
+            @Override
+            public boolean enabled() {
+                return true;
+            }
+
+            @Override
+            public void open(CommandSender sender, String targetQuery) {
+                openedTarget.set(targetQuery);
+            }
+
+            @Override
+            public void reload() {
+            }
+        });
+
+        assertTrue(command.onTabComplete(
+                staff,
+                COMMAND,
+                "estaff",
+                new String[]{""}
+        ).contains(POLICY_V2_OPERATION));
+        command.onCommand(staff, COMMAND, "estaff", new String[]{POLICY_V2_OPERATION, TARGET_QUERY});
+        assertEquals(TARGET_QUERY, openedTarget.get());
+    }
+
+    @Test
+    void policyV2ShadowCommandRechecksPunishmentPermissionBeforeOpening() {
+        AtomicBoolean opened = new AtomicBoolean();
+        List<String> messages = new ArrayList<>();
+        EstaffCommand command = new EstaffCommand(health());
+        command.configurePolicyV2Shadow(new PolicyV2ShadowAccess() {
+            @Override
+            public boolean enabled() {
+                return true;
+            }
+
+            @Override
+            public void open(CommandSender sender, String targetQuery) {
+                opened.set(true);
+            }
+
+            @Override
+            public void reload() {
+            }
+        });
+
+        command.onCommand(
+                sender(Map.of(), messages),
+                COMMAND,
+                "estaff",
+                new String[]{POLICY_V2_OPERATION, TARGET_QUERY}
+        );
+
+        assertFalse(opened.get());
+        assertEquals(
+                List.of("You do not have permission to use Policy v2 shadow review."),
+                messages
+        );
     }
 
     @Test
@@ -316,6 +405,158 @@ class EstaffCommandReloadTest {
                 "estaff",
                 new String[]{}
         ));
+    }
+
+    @Test
+    void configValidateReportsVersionedFilesWithoutReloading() {
+        AtomicBoolean reloaded = new AtomicBoolean();
+        List<String> messages = new ArrayList<>();
+        EstaffCommand command = new EstaffCommand(health(), () -> {
+            reloaded.set(true);
+            return result(ConfigurationReloadResult.Outcome.APPLIED, "unexpected", List.of(), false);
+        });
+        command.configureConfigurationValidation(() -> new ConfigurationValidationReport(
+                List.of(
+                        new ConfigurationValidationReport.Entry("config.yml", "schema 1"),
+                        new ConfigurationValidationReport.Entry("policy-v2.yml", "schema 1, active v2")
+                ),
+                List.of()
+        ));
+
+        command.onCommand(
+                sender(Map.of("enthusiastaff.reload", true), messages),
+                COMMAND,
+                "estaff",
+                new String[]{CONFIG_OPERATION, CONFIG_VALIDATE_ARGUMENT}
+        );
+
+        assertFalse(reloaded.get());
+        assertEquals(List.of(
+                "Configuration validation passed; no runtime state was changed.",
+                "config.yml • schema 1",
+                "policy-v2.yml • schema 1, active v2"
+        ), messages);
+    }
+
+    @Test
+    void configValidateReportsErrorsWithoutApplyingAnything() {
+        AtomicBoolean reloaded = new AtomicBoolean();
+        List<String> messages = new ArrayList<>();
+        EstaffCommand command = new EstaffCommand(health(), () -> {
+            reloaded.set(true);
+            return result(ConfigurationReloadResult.Outcome.APPLIED, "unexpected", List.of(), false);
+        });
+        command.configureConfigurationValidation(() -> new ConfigurationValidationReport(
+                List.of(new ConfigurationValidationReport.Entry("config.yml", "schema 1")),
+                List.of("policy-v2.yml: root.schema-version must be 1")
+        ));
+
+        command.onCommand(
+                sender(Map.of("enthusiastaff.reload", true), messages),
+                COMMAND,
+                "estaff",
+                new String[]{CONFIG_OPERATION, CONFIG_VALIDATE_ARGUMENT}
+        );
+
+        assertFalse(reloaded.get());
+        assertEquals(List.of(
+                "Configuration validation failed; no runtime state was changed.",
+                "  • policy-v2.yml: root.schema-version must be 1"
+        ), messages);
+    }
+
+    @Test
+    void configReloadUsesTheExistingReloadAction() {
+        AtomicBoolean reloaded = new AtomicBoolean();
+        List<String> messages = new ArrayList<>();
+        EstaffCommand command = new EstaffCommand(health(), () -> {
+            reloaded.set(true);
+            return result(ConfigurationReloadResult.Outcome.APPLIED, "Applied existing reload path", List.of(), false);
+        });
+
+        command.onCommand(
+                sender(Map.of("enthusiastaff.reload", true), messages),
+                COMMAND,
+                "estaff",
+                new String[]{CONFIG_OPERATION, "reload"}
+        );
+
+        assertTrue(reloaded.get());
+        assertEquals(List.of("Applied existing reload path"), messages);
+    }
+
+    @Test
+    void configCommandsRequireReloadPermissionAndCompleteTheirActions() {
+        List<String> deniedMessages = new ArrayList<>();
+        EstaffCommand command = new EstaffCommand(health());
+
+        command.onCommand(
+                sender(Map.of(), deniedMessages),
+                COMMAND,
+                "estaff",
+                new String[]{CONFIG_OPERATION, CONFIG_VALIDATE_ARGUMENT}
+        );
+
+        assertEquals(
+                List.of("You do not have permission to validate or reload EnthusiaStaff configuration."),
+                deniedMessages
+        );
+
+        CommandSender authorized = sender(
+                Map.of("enthusiastaff.reload", true),
+                new ArrayList<>()
+        );
+        assertEquals(List.of(CONFIG_VALIDATE_ARGUMENT, "reload"), command.onTabComplete(
+                authorized,
+                COMMAND,
+                "estaff",
+                new String[]{CONFIG_OPERATION, ""}
+        ));
+        assertEquals(List.of(CONFIG_VALIDATE_ARGUMENT), command.onTabComplete(
+                authorized,
+                COMMAND,
+                "estaff",
+                new String[]{CONFIG_OPERATION, "v"}
+        ));
+        assertEquals(List.of(), command.onTabComplete(
+                sender(Map.of(), new ArrayList<>()),
+                COMMAND,
+                "estaff",
+                new String[]{CONFIG_OPERATION, ""}
+        ));
+    }
+
+    @Test
+    void configuredMessagesOverrideEstaffPermissionAndUsageText() {
+        EnumMap<MessageKey, String> templates = new EnumMap<>(MessageKey.class);
+        templates.putAll(MessageCatalog.builtIn().templates());
+        templates.put(MessageKey.ESTAFF_STATUS_PERMISSION_DENIED, "Custom status denial.");
+        templates.put(MessageKey.ESTAFF_USAGE, "Try /{label} with {operations}");
+        MessageCatalog catalog = new MessageCatalog(templates);
+
+        EstaffCommand command = new EstaffCommand(health());
+        command.configureMessages(() -> catalog);
+
+        List<String> denied = new ArrayList<>();
+        command.onCommand(
+                sender(Map.of(), denied),
+                COMMAND,
+                "estaff",
+                new String[]{"status"}
+        );
+        assertEquals(List.of("Custom status denial."), denied);
+
+        List<String> usage = new ArrayList<>();
+        command.onCommand(
+                sender(Map.of("enthusiastaff.status", true), usage),
+                COMMAND,
+                "staffadmin",
+                new String[]{"unknown"}
+        );
+        assertEquals(
+                List.of("Try /staffadmin with <status|verify [full]|reload|config <validate|reload>|sanction>"),
+                usage
+        );
     }
 
     private static RuntimeHealth health() {

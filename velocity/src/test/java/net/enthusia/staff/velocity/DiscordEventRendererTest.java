@@ -11,36 +11,77 @@ import org.junit.jupiter.api.Test;
 
 final class DiscordEventRendererTest {
     private static final String REPORTS = "reports";
+    private static final String PUNISHMENTS = "punishments";
+    private static final String ALERTS = "alerts";
+    private static final String STAFF_LOGS = "logs-staffmode";
     private static final String REPORT_CREATED = "REPORT_CREATED";
 
     private final DiscordEventRenderer renderer = new DiscordEventRenderer();
 
     @Test
-    void reportRenderingOmitsReporterAndNestedEvidence() {
-        String rendered = renderer.render(message(
-                REPORTS,
-                REPORT_CREATED,
+    void reportRenderingUsesReadableNamesWithoutLeakingInternalIdsOrEvidence() {
+        String rendered = renderer.render(message(REPORTS, REPORT_CREATED,
                 "{\"reportId\":\"r-1\",\"reporterId\":\"private-reporter\","
-                        + "\"targetId\":\"target-1\",\"reasonId\":\"spam\",\"serverId\":\"SMP\","
-                        + "\"targetClientEvidence\":{\"client\":\"sensitive\"},"
-                        + "\"description\":\"private body\"}"
-        ));
-
+                        + "\"targetId\":\"target-1\",\"targetName\":\"Steve\","
+                        + "\"reporterName\":\"Alex\",\"reasonId\":\"combat.cheating\","
+                        + "\"serverId\":\"SMP\",\"description\":\"secret evidence\","
+                        + "\"targetClientEvidence\":{\"client\":\"sensitive\"}}"));
         assertTrue(rendered.contains(REPORT_CREATED));
         assertTrue(rendered.contains("reportId=r-1"));
-        assertTrue(rendered.contains("targetId=target-1"));
-        assertTrue(rendered.contains("reasonId=spam"));
+        assertTrue(rendered.contains("targetName=Steve"));
+        assertTrue(rendered.contains("reporterName=Alex"));
+        assertTrue(rendered.contains("reason=Combat Cheating"));
         assertTrue(rendered.contains("serverId=SMP"));
+        assertFalse(rendered.contains("targetId="));
+        assertFalse(rendered.contains("reporterId="));
         assertFalse(rendered.contains("private-reporter"));
-        assertFalse(rendered.contains("targetClientEvidence"));
+        assertFalse(rendered.contains("secret evidence"));
         assertFalse(rendered.contains("sensitive"));
-        assertFalse(rendered.contains("private body"));
+    }
+
+    @Test
+    void staffActionEventsExposeStableCorrelationIdOnlyToPrivateStaffLogs() {
+        String eventId = "41dfab4a-31a0-442b-8ae9-483140b1a960";
+        String payload = "{\"eventId\":\"" + eventId + "\",\"action\":\"staff-mode-exited\","
+                + "\"detail\":\"session=test-session path=local-session reason=manual\","
+                + "\"token\":\"never-render-this\",\"reasonId\":\"safe-reason\"}";
+        String privateLog = renderer.render(message(STAFF_LOGS, "STAFF_ACTION", payload));
+        assertTrue(privateLog.contains("eventId=" + eventId));
+        assertTrue(privateLog.contains("action=staff-mode-exited"));
+        assertFalse(privateLog.contains("never-render-this"));
+        assertFalse(privateLog.contains("token="));
+        assertFalse(renderer.render(message(REPORTS, REPORT_CREATED, payload)).contains(eventId));
+        assertFalse(renderer.render(message(ALERTS, "ALERT_CREATED", payload)).contains(eventId));
+        assertFalse(renderer.render(message(PUNISHMENTS, "PUNISHMENT_CREATED", payload)).contains(eventId));
+    }
+
+    @Test
+    void punishmentWebhookWithholdsPrivateExplanationWithoutHidingPublicAuditFields() {
+        String rendered = renderer.render(message(
+                PUNISHMENTS,
+                "PUNISHMENT_CREATED",
+                "{\"caseId\":\"case-privacy\",\"targetId\":\"target-1\","
+                        + "\"reasonId\":\"griefing\",\"publicReason\":\"Damaging builds\","
+                        + "\"sanctionDetails\":[\"BAN (7 days)\"],"
+                        + "\"internalExplanation\":\"Private investigation notes: home IP and evidence\","
+                        + "\"investigationNotes\":\"should-never-render\"}"
+        ));
+
+        assertTrue(rendered.contains("caseId=case-privacy"));
+        assertTrue(rendered.contains("targetId=target-1"));
+        assertTrue(rendered.contains("reasonId=griefing"));
+        assertTrue(rendered.contains("publicReason=Damaging builds"));
+        assertTrue(rendered.contains("sanctionDetails=BAN (7 days)"));
+        assertFalse(rendered.contains("Private investigation notes"));
+        assertFalse(rendered.contains("home IP"));
+        assertFalse(rendered.contains("internalExplanation"));
+        assertFalse(rendered.contains("should-never-render"));
     }
 
     @Test
     void punishmentArraysAreBoundedAndNestedValuesAreWithheld() {
         String rendered = renderer.render(message(
-                "punishments",
+                PUNISHMENTS,
                 "PUNISHMENT_CREATED",
                 "{\"caseId\":\"case-1\",\"sanctionIds\":[\"1\",\"2\",\"3\",\"4\",\"5\","
                         + "\"6\",\"7\",\"8\",\"9\"],\"reasonId\":{\"raw\":\"secret\"}}"
@@ -53,9 +94,24 @@ final class DiscordEventRendererTest {
     }
 
     @Test
+    void punishmentChannelNeverRevealsPrivateAltRelationshipMetadata() {
+        String payload = "{\"caseId\":\"case-1\",\"targetId\":\"target\","
+                + "\"sourcePlayerId\":\"private-source\",\"sourceSanctionId\":\"private-sanction\","
+                + "\"relationshipState\":\"CONFIRMED_ALT\"}";
+        String punishment = renderer.render(message(PUNISHMENTS, "SANCTION_INHERITED", payload));
+        assertTrue(punishment.contains("caseId=case-1"));
+        assertFalse(punishment.contains("private-source"));
+        assertFalse(punishment.contains("private-sanction"));
+        assertFalse(punishment.contains("relationshipState"));
+        String alert = renderer.render(message(ALERTS, "ALT_EVASION_REVIEW", payload));
+        assertTrue(alert.contains("sourcePlayerId=private-source"));
+        assertTrue(alert.contains("relationshipState=CONFIRMED_ALT"));
+    }
+
+    @Test
     void freezeEventsRenderUnderPunishmentsWithReason() {
         String rendered = renderer.render(message(
-                "punishments",
+                PUNISHMENTS,
                 "PLAYER_FROZEN",
                 "{\"targetId\":\"target\",\"reason\":\"line1\\nline2 `code`\"}"
         ));
@@ -65,10 +121,42 @@ final class DiscordEventRendererTest {
     }
 
     @Test
+    void altReviewAlertShowsEvidenceCategoryWithoutRawNetworkAddress() {
+        String rendered = renderer.render(message(
+                ALERTS, "ALT_EVASION_REVIEW",
+                "{\"targetId\":\"joining\",\"relatedPlayerId\":\"sanctioned\","
+                        + "\"sanctionType\":\"BAN\",\"relationshipState\":\"SAME_NETWORK\","
+                        + "\"confidencePolicyGrade\":0.25,\"trigger\":\"JOIN\","
+                        + "\"rawIp\":\"private-address\",\"caseId\":\"case-7\"}"
+        ));
+        assertTrue(rendered.contains("relatedPlayerId=sanctioned"));
+        assertTrue(rendered.contains("trigger=JOIN"));
+        assertTrue(rendered.contains("confidencePolicyGrade=0.25"));
+        assertFalse(rendered.contains("private-address"));
+        assertFalse(rendered.contains("rawIp"));
+    }
+
+    @Test
+    void approvalRequiredAlertExposesOnlySafeReviewMetadata() {
+        String rendered = renderer.render(message(
+                ALERTS, "PUNISHMENT_APPROVAL_REQUIRED",
+                "{\"requestId\":\"request-1\",\"targetId\":\"target-1\","
+                        + "\"requesterId\":\"staff-1\",\"reasonId\":\"cheating\","
+                        + "\"requiredRank\":\"MOD\",\"visibility\":\"PRIVATE\","
+                        + "\"internalExplanation\":\"Sensitive evidence: do not post\"}"
+        ));
+        assertTrue(rendered.contains("PUNISHMENT_APPROVAL_REQUIRED"));
+        assertTrue(rendered.contains("requestId=request-1"));
+        assertTrue(rendered.contains("requiredRank=MOD"));
+        assertFalse(rendered.contains("Sensitive evidence"));
+        assertFalse(rendered.contains("internalExplanation"));
+    }
+
+    @Test
     void fieldTruncationDoesNotSplitSurrogatePair() {
         String reason = "a".repeat(178) + "😀" + "z";
         String rendered = renderer.render(message(
-                "punishments",
+                PUNISHMENTS,
                 "PLAYER_FROZEN",
                 "{\"reason\":\"" + reason + "\"}"
         ));
@@ -82,7 +170,7 @@ final class DiscordEventRendererTest {
         String normalizedTail = "a".repeat(79) + "😀z";
         String reason = " ".repeat(100) + normalizedTail;
         String rendered = renderer.render(message(
-                "logs-staffmode",
+                STAFF_LOGS,
                 "PLAYER_FROZEN",
                 "{\"reason\":\"" + reason + "\"}"
         ));
@@ -94,7 +182,7 @@ final class DiscordEventRendererTest {
     void unmatchedPayloadSurrogateIsReplacedBeforeDelivery() {
         String escapedHighSurrogate = "\\u" + "D83D";
         String rendered = renderer.render(message(
-                "logs-staffmode",
+                STAFF_LOGS,
                 "PLAYER_FROZEN",
                 "{\"reason\":\"before" + escapedHighSurrogate + "after\"}"
         ));

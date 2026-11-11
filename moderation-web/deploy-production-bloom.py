@@ -9,8 +9,11 @@ import ssl
 import importlib
 import io
 import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,21 +25,39 @@ paramiko: Any = importlib.import_module("paramiko")
 
 TUNNEL_NAME = "enthusia-moderation-read-production"
 REMOTE_NAME = "prod-tunnel"
+REMOTE_BOT_TOKEN_FILE = "tp"
 REMOTE_JAR = "EnthusiaStaff-StaffBot.jar"
 PREVIOUS_JAR_SHA256 = "9a12cefd06b5158829ec8df4c4ed28c2d07bb119b2f1adbe546bc3fd31a7ce01"
 FIRST_WEB_JAR_SHA256 = "0e4a9c7c3cb4bceddd550843578d9b74e184f94c6fd132c3f35a7f9e1bc88ba8"
 PRODUCTION_WEB_JAR_SHA256 = "8cd85417ce26c66a851054fcb8ea2a4df29871917fd9bf86019271317d56ed4c"
 ACTION_WEB_JAR_SHA256 = "4702525c31861cdf0692288e38583fd32a0adc586b93c318e302745bcb585caf"
 HISTORY_WEB_JAR_SHA256 = "8d682c8edc8c7c88bae5441719d19dd10060c3b74b619d1073d35d36186a3708"
+PRE_MODERATION_COMPLETION_JAR_SHA256 = "c330a170de8a1903ed3d0c35d148f5ba77679e45b73049a7def73718ac511693"
+MODERATION_COMPLETION_JAR_SHA256 = "aab7fc41dafa0a7a2f6978db7fa96fd31ba03dea1d2698bceaff7b1bcc264524"
+OWNER_POLICY_LIVE_JAR_SHA256 = "a474873b73c78fe0961be5ca6a2d075a2d1299f19d9157af25f2c34b41789c32"
+MODERATION_NOTIFICATION_LIVE_JAR_SHA256 = "60f5d0021106c8a73ec43f69d0932040473c0be1cc0f0c820f1349c20000cdb1"
+NOTIFICATION_PRESENTATION_JAR_SHA256 = "9a2fa4badd6c41cc16dd9f5811f0c31cc87efb86bf574655ff13ad10632b9b53"
+CUSTOM_HISTORY_LIVE_JAR_SHA256 = "aeb3f5471a34304b7ca56669e0c2b04dd1f43e343156983bffaa250f1a590515"
 KNOWN_JAR_SHA256 = {
     PREVIOUS_JAR_SHA256,
     FIRST_WEB_JAR_SHA256,
     PRODUCTION_WEB_JAR_SHA256,
     ACTION_WEB_JAR_SHA256,
     HISTORY_WEB_JAR_SHA256,
+    PRE_MODERATION_COMPLETION_JAR_SHA256,
+    MODERATION_COMPLETION_JAR_SHA256,
+    OWNER_POLICY_LIVE_JAR_SHA256,
+    MODERATION_NOTIFICATION_LIVE_JAR_SHA256,
+    NOTIFICATION_PRESENTATION_JAR_SHA256,
+    CUSTOM_HISTORY_LIVE_JAR_SHA256,
 }
-LOCAL_JAR = Path(__file__).resolve().parent.parent / "staff-bot/build/libs/EnthusiaStaff-StaffBot-0.1.0-SNAPSHOT.jar"
-DETAILS_FILE = Path.home() / "OneDrive/Desktop/SFTP Details- ENTHUSIA NETWORK.md"
+MODERATION_WEB_DIR = Path(__file__).resolve().parent
+DEPLOY_PRODUCTION_SCRIPT = MODERATION_WEB_DIR / "deploy-production.ps1"
+LOCAL_JAR = MODERATION_WEB_DIR.parent / "staff-bot/build/libs/EnthusiaStaff-StaffBot-0.1.0-SNAPSHOT.jar"
+DETAILS_FILES = (
+    Path.home() / "OneDrive/Desktop/SFTP Details- ENTHUSIA NETWORK.md",
+    Path.home() / "OneDrive/Desktop/EnthusiaNetworkCredentials.md",
+)
 HOST_KEYS_FILE = Path.home() / ".ssh/known_hosts_sentinel_bloom"
 WRANGLER_CREDENTIALS = Path.home() / ".wrangler/config/default.toml"
 CLOUDFLARE_HOST = "api.cloudflare.com"
@@ -44,18 +65,59 @@ CLOUDFLARE_PREFIX = "/client/v4/"
 
 
 def bloom_connection() -> tuple[str, int, str, str]:
-    lines = DETAILS_FILE.read_text(encoding="utf-8-sig").splitlines()
-    password = bloom_password(lines)
-    username = lines[79].strip()
-    host, port = bloom_endpoint(lines[77].strip(), username)
-    return host, port, username, password
+    last_error: RuntimeError | None = None
+    for details_file in DETAILS_FILES:
+        if not details_file.is_file():
+            continue
+        lines = details_file.read_text(encoding="utf-8-sig").splitlines()
+        try:
+            password = bloom_password(lines)
+            raw_url, username = bloom_staffbot_fields(lines)
+            host, port = bloom_endpoint(raw_url, username)
+            return host, port, username, password
+        except RuntimeError as error:
+            last_error = error
+    raise RuntimeError("Bloom Staff Bot SFTP details are unavailable") from last_error
 
 
 def bloom_password(lines: list[str]) -> str:
-    label, separator, value = lines[0].partition(":")
-    if label.strip() != "All passwords" or not separator or not value.strip():
-        raise RuntimeError("Bloom SFTP details are unavailable")
-    return value.strip()
+    for raw_line in lines:
+        line = raw_line.strip().strip("*").strip()
+        match = re.fullmatch(r"All passwords\s*:\s*(\S+)", line, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    raise RuntimeError("Bloom SFTP password is unavailable")
+
+
+def bloom_staffbot_fields(lines: list[str]) -> tuple[str, str]:
+    heading = "Discord Staff Bot"
+    start = next(
+        (index for index, raw in enumerate(lines)
+         if raw.strip().strip("*").strip() == heading),
+        None,
+    )
+    if start is None:
+        raise RuntimeError("Bloom Staff Bot SFTP section is unavailable")
+
+    raw_url: str | None = None
+    username: str | None = None
+    for raw in lines[start + 1:]:
+        stripped = raw.strip()
+        normalized = stripped.strip("*").strip()
+        if stripped.startswith("**") and normalized != heading:
+            break
+        if raw_url is None:
+            match = re.search(r"sftp://[^\s*]+", stripped, re.IGNORECASE)
+            if match:
+                raw_url = match.group(0)
+                continue
+        if raw_url is not None and re.fullmatch(r"[A-Za-z0-9_-]{3,80}\.[A-Za-z0-9_-]{4,32}", normalized):
+            username = normalized
+            break
+
+    if raw_url is None or username is None:
+        raise RuntimeError("Bloom Staff Bot SFTP section is incomplete")
+    return raw_url, username
 
 
 def bloom_endpoint(raw_url: str, username: str) -> tuple[str, int]:
@@ -214,7 +276,7 @@ def remove_if_present(sftp: Any, path: str) -> None:
 
 def command_mode(argv: list[str]) -> str:
     mode = argv[1] if len(argv) == 2 else "install-token"
-    if mode not in ("install-token", "--audit", "--upload-jar"):
+    if mode not in ("install-token", "--audit", "--upload-jar", "--deploy-web"):
         raise RuntimeError("Unsupported command line argument")
     return mode
 
@@ -223,30 +285,39 @@ def connected_client(host: str, port: int, username: str, password: str) -> Any:
     host_keys = paramiko.HostKeys()
     host_keys.load(str(HOST_KEYS_FILE))
     host_label = f"[{host}]:{port}"
-    if host_keys.lookup(host_label) is None:
+    matching_labels = [label for label in host_keys.keys()
+                       if label.lower() == host_label.lower()]
+    if len(matching_labels) != 1:
         raise RuntimeError("Trusted Bloom host key is unavailable")
+
     client = paramiko.SSHClient()
     client.load_host_keys(str(HOST_KEYS_FILE))
+    if matching_labels[0] != host_label:
+        for key_type, key in host_keys[matching_labels[0]].items():
+            client.get_host_keys().add(host_label, key_type, key)
     client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(host, port=port, username=username, password=password,
                    look_for_keys=False, allow_agent=False, timeout=20)
     return client
 
 
-def require_discord_enforcement_disabled(sftp: Any) -> None:
+def discord_enforcement_enabled(sftp: Any) -> bool:
     with sftp.open("m", "r") as config:
         lines = config.read().decode("utf-8").splitlines()
     enforcement = [line.strip() for line in lines
                    if line.strip().startswith("discord-enforcement.enabled=")]
-    if enforcement != ["discord-enforcement.enabled=false"]:
-        raise RuntimeError("Discord enforcement must remain disabled")
+    if enforcement == ["discord-enforcement.enabled=true"]:
+        return True
+    if enforcement == ["discord-enforcement.enabled=false"]:
+        return False
+    raise RuntimeError("Discord enforcement state is missing or ambiguous")
 
 
 def audit_remote(sftp: Any) -> None:
     with sftp.open(REMOTE_JAR, "rb") as current:
         digest = file_digest(current)
     print(f"remote_staff_jar_sha256={digest}")
-    print("discord_enforcement_disabled=true")
+    print(f"discord_enforcement_enabled={str(discord_enforcement_enabled(sftp)).lower()}")
 
 
 def existing_token_matches(sftp: Any, token: bytes) -> bool:
@@ -290,12 +361,60 @@ def install_connector_token(sftp: Any) -> None:
     secure_installed_token(sftp, token)
 
 
+def deploy_web(sftp: Any) -> None:
+    with sftp.open(REMOTE_BOT_TOKEN_FILE, "rb") as remote:
+        token = remote.read().strip()
+    if not token or not token.isascii() or any(byte in token for byte in b" \t\r\n"):
+        raise RuntimeError("Production bot token file format is invalid")
+
+    fd, raw_path = tempfile.mkstemp(prefix="enthusia-prod-token-", suffix=".txt")
+    token_path = Path(raw_path)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(token)
+            stream.flush()
+            os.fsync(stream.fileno())
+        token = b""
+
+        system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        powershell = system_root / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        if not powershell.is_file():
+            raise RuntimeError("Windows PowerShell is unavailable")
+
+        completed = subprocess.run(
+            [
+                str(powershell),
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", str(DEPLOY_PRODUCTION_SCRIPT),
+                "-TokenFile", str(token_path),
+            ],
+            cwd=str(MODERATION_WEB_DIR),
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("Production website deployment failed")
+    finally:
+        token = b""
+        if token_path.exists():
+            try:
+                size = token_path.stat().st_size
+                with token_path.open("r+b") as stream:
+                    stream.write(b"\x00" * size)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            finally:
+                token_path.unlink(missing_ok=True)
+
+
 def execute_mode(sftp: Any, mode: str) -> None:
-    require_discord_enforcement_disabled(sftp)
+    discord_enforcement_enabled(sftp)
     if mode == "--audit":
         audit_remote(sftp)
     elif mode == "--upload-jar":
         upload_jar(sftp)
+    elif mode == "--deploy-web":
+        deploy_web(sftp)
     else:
         install_connector_token(sftp)
 

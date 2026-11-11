@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
-import net.enthusia.staff.domain.player.PlayerNames;
 import net.enthusia.staff.domain.report.ReportAction;
 import net.enthusia.staff.domain.report.ReportDetails;
 import net.enthusia.staff.domain.report.ReportQueue;
@@ -13,6 +12,8 @@ import net.enthusia.staff.domain.report.ReportSummary;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
 import org.bukkit.Material;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -25,11 +26,14 @@ final class ReportGuiRenderer {
     private static final String QUEUE_KEY_PREFIX = "queue-";
 
     Inventory render(ReportGuiState state, ReportGuiConfiguration configuration) {
-        return render(state, configuration, PlayerNames::unknown);
+        return render(state, configuration, ReportGuiRenderer::displayName);
     }
 
-    Inventory render(ReportGuiState state, ReportGuiConfiguration configuration,
-            Function<UUID, String> names) {
+    Inventory render(
+            ReportGuiState state,
+            ReportGuiConfiguration configuration,
+            Function<UUID, String> names
+    ) {
         ReportGuiHolder holder = new ReportGuiHolder(state, configuration);
         Inventory inventory = Bukkit.createInventory(
                 holder,
@@ -43,7 +47,7 @@ final class ReportGuiRenderer {
         } else if (state instanceof ReportGuiState.Detail detail) {
             renderDetail(inventory, detail, configuration, names);
         } else if (state instanceof ReportGuiState.Review review) {
-            renderReview(inventory, review, configuration, names);
+            renderReview(inventory, review, configuration);
         }
         return inventory;
     }
@@ -73,15 +77,16 @@ final class ReportGuiRenderer {
             ReportSummary summary = state.reports().get(offset + index);
             inventory.setItem(configuration.contentSlots().get(index), item(
                     stateMaterial(summary.state(), configuration),
-                    summary.reasonId(),
+                    net.enthusia.staff.domain.report.ReportReasonLabel.display(summary.reasonId()),
                     List.of(
                             Component.text("Target: " + names.apply(summary.targetId()), NamedTextColor.WHITE),
+                            Component.text("Reporter: " + names.apply(summary.reporterId()), NamedTextColor.GRAY),
                             Component.text("State: " + summary.state(), NamedTextColor.GRAY),
                             Component.text("Assigned: " + summary.assignedTo().map(names).orElse("none"),
                                     NamedTextColor.GRAY),
                             Component.text("Server: " + summary.serverId(), NamedTextColor.DARK_GRAY),
                             Component.text("Updated: " + summary.updatedAt(), NamedTextColor.DARK_GRAY),
-                            Component.text("Revision: " + summary.revision(), NamedTextColor.DARK_GRAY),
+                            Component.text("Report ID: " + shortId(summary.reportId()), NamedTextColor.DARK_GRAY),
                             Component.text(configuration.message("click-inspect"), NamedTextColor.YELLOW)
                     )
             ));
@@ -135,7 +140,7 @@ final class ReportGuiRenderer {
     ) {
         ReportDetails details = state.details();
         ReportSummary summary = details.summary();
-        renderDetailHeader(inventory, summary, configuration);
+        renderDetailHeader(inventory, summary, configuration, names);
         renderDetailIdentity(inventory, details, configuration, names);
         renderDetailEvidence(inventory, details, configuration);
         renderQueueControls(inventory, state.queue(), configuration);
@@ -146,13 +151,17 @@ final class ReportGuiRenderer {
     private static void renderDetailHeader(
             Inventory inventory,
             ReportSummary summary,
-            ReportGuiConfiguration configuration
+            ReportGuiConfiguration configuration,
+            Function<UUID, String> names
     ) {
         inventory.setItem(configuration.slot("detail-header"), item(
                 stateMaterial(summary.state(), configuration),
-                "Report " + summary.reportId(),
+                "Report " + shortId(summary.reportId()),
                 List.of(
-                        Component.text(summary.reasonId(), NamedTextColor.WHITE),
+                        Component.text(net.enthusia.staff.domain.report.ReportReasonLabel.display(summary.reasonId()), NamedTextColor.WHITE),
+                        Component.text("Reporter: " + names.apply(summary.reporterId()), NamedTextColor.GRAY),
+                        Component.text("Target: " + names.apply(summary.targetId()), NamedTextColor.WHITE),
+                        Component.text("Report ID: " + summary.reportId(), NamedTextColor.DARK_GRAY),
                         Component.text("State: " + summary.state(), NamedTextColor.GRAY),
                         Component.text("Revision: " + summary.revision(), NamedTextColor.DARK_GRAY),
                         Component.text("Created: " + summary.createdAt(), NamedTextColor.DARK_GRAY),
@@ -171,12 +180,18 @@ final class ReportGuiRenderer {
         inventory.setItem(configuration.slot("detail-reporter"), item(
                 configuration.material("reporter"),
                 configuration.message("reporter"),
-                List.of(Component.text(names.apply(summary.reporterId()), NamedTextColor.GRAY))
+                List.of(
+                        Component.text("Username: " + names.apply(summary.reporterId()), NamedTextColor.WHITE),
+                        Component.text("Private staff-only report", NamedTextColor.DARK_GRAY)
+                )
         ));
         inventory.setItem(configuration.slot("detail-target"), item(
                 configuration.material("target"),
                 configuration.message("target"),
-                List.of(Component.text(names.apply(summary.targetId()), NamedTextColor.GRAY))
+                List.of(
+                        Component.text("Username: " + names.apply(summary.targetId()), NamedTextColor.WHITE),
+                        Component.text("Identity verified internally", NamedTextColor.DARK_GRAY)
+                )
         ));
         inventory.setItem(configuration.slot("detail-location"), item(
                 configuration.material("location"),
@@ -204,7 +219,8 @@ final class ReportGuiRenderer {
                                 NamedTextColor.GRAY),
                         Component.text("Client snapshots: " + details.clientEvidenceSnapshots().size(),
                                 NamedTextColor.GRAY),
-                        Component.text(configuration.message("sensitive-evidence"), NamedTextColor.YELLOW)
+                        Component.text("Click to choose evidence to inspect", NamedTextColor.YELLOW),
+                        Component.text(configuration.message("sensitive-evidence"), NamedTextColor.DARK_GRAY)
                 )
         ));
         inventory.setItem(configuration.slot("detail-description"), item(
@@ -276,16 +292,14 @@ final class ReportGuiRenderer {
     private static void renderReview(
             Inventory inventory,
             ReportGuiState.Review state,
-            ReportGuiConfiguration configuration,
-            Function<UUID, String> names
+            ReportGuiConfiguration configuration
     ) {
         ReportSummary summary = state.details().summary();
         inventory.setItem(configuration.slot("review-report"), item(
                 stateMaterial(summary.state(), configuration),
                 "Report " + summary.reportId(),
                 List.of(
-                        Component.text(summary.reasonId(), NamedTextColor.WHITE),
-                        Component.text("Target: " + names.apply(summary.targetId()), NamedTextColor.WHITE),
+                        Component.text(net.enthusia.staff.domain.report.ReportReasonLabel.display(summary.reasonId()), NamedTextColor.WHITE),
                         Component.text("Expected revision: " + summary.revision(), NamedTextColor.YELLOW),
                         Component.text("Current state: " + summary.state(), NamedTextColor.GRAY)
                 )
@@ -334,7 +348,8 @@ final class ReportGuiRenderer {
         if (snapshots.isEmpty()) {
             lore.add(Component.text(configuration.message("snapshot-none"), NamedTextColor.DARK_GRAY));
         } else {
-            lore.add(Component.text(configuration.message("snapshot-protected"), NamedTextColor.YELLOW));
+            lore.add(Component.text(configuration.message("snapshot-protected"), NamedTextColor.GRAY));
+            lore.add(Component.text("Click to inspect evidence (permission required)", NamedTextColor.YELLOW));
         }
         return item(material, name, lore);
     }
@@ -397,6 +412,22 @@ final class ReportGuiRenderer {
 
     private static String shortId(UUID id) {
         return id.toString().substring(0, 8);
+    }
+
+    // Render on the viewer's scheduler. Never replace a missing player name with a UUID.
+    // Report IDs remain available elsewhere for precise staff audit/actions.
+    private static String displayName(UUID id) {
+        Player online = Bukkit.getPlayer(id);
+        if (online != null) {
+            return humanName(id, online.getName());
+        }
+        OfflinePlayer cached = Bukkit.getOfflinePlayer(id);
+        return humanName(id, cached.getName());
+    }
+
+    static String humanName(UUID id, String cachedName) {
+        return cachedName != null && cachedName.matches("\\*?[A-Za-z0-9_]{1,32}")
+                ? cachedName : "Unknown player";
     }
 
     private static String queueKey(ReportQueue queue) {

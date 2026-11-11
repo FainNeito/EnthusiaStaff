@@ -1,5 +1,6 @@
 package net.enthusia.staff.paper.config;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import net.enthusia.staff.domain.report.ReportPolicyRuntime;
@@ -20,8 +21,12 @@ public final class ReportConfigurationRuntime {
         Objects.requireNonNull(plugin, "plugin");
         Objects.requireNonNull(delegate, "delegate");
         if (active == null) {
-            plugin.saveResource("reports.yml", false);
-            plugin.saveResource("gui/reports.yml", false);
+            if (Files.notExists(policyFile(plugin))) {
+                plugin.saveResource("reports.yml", false);
+            }
+            if (Files.notExists(guiFile(plugin))) {
+                plugin.saveResource("gui/reports.yml", false);
+            }
             ReportConfigurationLoader loader = new ReportConfigurationLoader();
             try {
                 active = new AtomicReportConfiguration(loader.load(policyFile(plugin), guiFile(plugin)));

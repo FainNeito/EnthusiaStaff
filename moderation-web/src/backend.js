@@ -8,7 +8,7 @@ const READ_API_ORIGIN = 'https://moderation-read-staging.enthusia.info';
 const PRODUCTION_READ_API_ORIGIN = 'https://moderation-read.enthusia.info';
 const MESSAGE_FILTER_KEYS = new Set(['channel', 'before', 'after', 'around', 'author', 'text', 'date', 'limit']);
 const BOOTSTRAP_FILTER_KEYS = new Set(['browse', 'channel', 'target']);
-const SIGNED_MESSAGE_FIELDS = Object.freeze(['afterMessageId', 'aroundMessageId', 'authorId', 'beforeMessageId', 'channelId', 'date', 'limit', 'text']);
+const SIGNED_MESSAGE_FIELDS = Object.freeze(['afterMessageId', 'aroundMessageId', 'authorId', 'authorText', 'beforeMessageId', 'channelId', 'date', 'limit', 'text']);
 const JSON_ESCAPES = new Map([
   ['"', '\\"'], ['\\', '\\\\'], ['\b', '\\b'], ['\f', '\\f'], ['\n', '\\n'], ['\r', '\\r'], ['\t', '\\t']
 ]);
@@ -183,7 +183,7 @@ export function browserMessageQuery(input) {
   addSnowflakeFilter(query, 'beforeMessageId', input.before, 'before');
   addSnowflakeFilter(query, 'afterMessageId', input.after, 'after');
   addSnowflakeFilter(query, 'aroundMessageId', input.around, 'around');
-  addSnowflakeFilter(query, 'authorId', input.author, 'author');
+  addAuthorFilter(query, input.author);
   addTextFilter(query, input.text);
   addDateFilter(query, input.date);
   query.limit = input.limit === undefined ? DEFAULT_LIMIT : boundedLimit(input.limit);
@@ -271,6 +271,19 @@ function requiredSnowflake(value, label) {
   const parsed = snowflakeFilter(value, label);
   if (parsed === null) throw new Error(`invalid ${label}`);
   return parsed;
+}
+
+function addAuthorFilter(query, value) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'string') throw new Error('invalid author filter');
+  const normalized = value.trim();
+  if (!normalized) return;
+  if (validSnowflakeText(normalized)) {
+    query.authorId = normalized;
+    return;
+  }
+  if (normalized.length > MAX_FILTER_TEXT) throw new Error('invalid author filter');
+  query.authorText = normalized;
 }
 
 function addTextFilter(query, value) {

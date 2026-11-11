@@ -35,35 +35,76 @@ class VanishStaffModeRestorationWiringTest {
 
         assertTrue(method.contains("staffMode.transitioning(playerId)"));
         assertTrue(method.indexOf("staffMode.transitioning(playerId)")
-                < method.indexOf("applyVanishGameMode(player)"));
+                < method.indexOf("reconcileVanishedGameMode(player)"));
     }
 
     @Test
     void manualVanishDoesNotForceSpectatorDuringStaffRebind() throws IOException {
-        String method = method("private void finishSet(", "private Set<UUID> hiddenPresenceViewers");
+        String method = method("private void finishSet(", "private Set<UUID> presenceViewers");
 
         assertTrue(method.contains("!staffMode.transitioning(playerId)"));
         assertTrue(method.indexOf("!staffMode.transitioning(playerId)")
-                < method.indexOf("applyVanishGameMode(player)"));
+                < method.indexOf("reconcileVanishedGameMode(player)"));
     }
 
     @Test
-    void explicitOwnerStaffExitDisablesVanishForEveryRank() throws IOException {
-        String method = method("private void disableAfterStaffModeExit",
-                "private static boolean requiresStaffMode");
+    void vanishPresenceTargetsEveryOtherOnlinePlayerRegardlessOfVisibility() throws IOException {
+        String method = method(
+                "private Set<UUID> presenceViewers",
+                "private void publishPresenceTransition"
+        );
+
+        assertTrue(method.contains("!viewerId.equals(subjectId)"));
+        assertFalse(method.contains("visibility.canSee"));
+    }
+
+    @Test
+    void vanishUsesRankAllowedRealModesInsteadOfForcingSpectator() throws IOException {
+        String change = method(
+                "public void onGameModeChange",
+                "@EventHandler(priority = EventPriority.HIGHEST)\n    public void onJoin"
+        );
+        assertTrue(change.contains(
+                "!isSelectableGameMode(playerId, rank, event.getNewGameMode(), unrestricted)"
+        ));
+
+        String reconcile = method(
+                "private void reconcileVanishedGameMode",
+                "private void restoreSelectedGameMode"
+        );
+        assertTrue(reconcile.contains("selectedGameModeForEnable(player, rank)"));
+        assertTrue(reconcile.contains("player.setGameMode(selected)"));
+        assertFalse(reconcile.contains("player.setGameMode(GameMode.SPECTATOR)"));
+    }
+
+    @Test
+    void selectedRankAllowedModeIsAppliedEvenWhileVanished() throws IOException {
+        String method = method(
+                "public boolean selectGameplayMode",
+                "/**\n     * Cross-server transfer hook"
+        );
+
+        assertTrue(method.contains(
+                "!isSelectableGameMode(playerId, rank, selected, isUnrestricted(player))"
+        ));
+        assertTrue(method.contains("persistSelectedGameMode(playerId, rank, selected)"));
+        assertTrue(method.contains("player.setGameMode(selected)"));
+        assertFalse(method.contains("GameMode.SPECTATOR;"));
+    }
+
+    @Test
+    void everyPlayerRankDisablesLiveVanishAfterStaffModeExitWithoutOverwritingPreference() throws IOException {
+        String method = method(
+                "private void disableAfterStaffModeExit",
+                "private static boolean requiresStaffMode"
+        );
+
         assertFalse(method.contains("if (!requiresStaffMode(rank))"));
         assertTrue(method.contains("pendingStaffModeExitDisables.add(playerId)"));
-        assertTrue(method.contains("set(player, rank, false, false)"));
-    }
-
-    @Test
-    void temporaryRestorationModeCannotReplaceTheVanishSelection() throws IOException {
-        String method = method("public void onSelectedGameModeCommitted",
-                "private void restoreSelectedGameMode");
-        assertTrue(method.contains("staffMode.transitioning(playerId)"));
-        assertTrue(method.contains("staffMode.restoringSavedState(playerId)"));
-        assertTrue(method.indexOf("staffMode.restoringSavedState(playerId)")
-                < method.indexOf("selectedGameModes.put(playerId"));
+        assertTrue(method.contains(
+                "set(player, rank, false, false, VanishStore.PreferenceUpdate.KEEP)"
+        ));
+        assertFalse(method.contains("reconcileVanishGameMode(player)"));
     }
 
     private static String method(String startMarker, String endMarker) throws IOException {

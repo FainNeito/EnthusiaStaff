@@ -7,8 +7,18 @@ public record PunishmentExpectation(
         String configurationVersion,
         int stepOrdinal,
         String stepLabel,
-        List<SanctionSpec> sanctions
+        List<SanctionSpec> sanctions,
+        boolean customDuration
 ) {
+    public PunishmentExpectation(
+            String configurationVersion,
+            int stepOrdinal,
+            String stepLabel,
+            List<SanctionSpec> sanctions
+    ) {
+        this(configurationVersion, stepOrdinal, stepLabel, sanctions, false);
+    }
+
     public PunishmentExpectation {
         if (configurationVersion == null || configurationVersion.isBlank()
                 || stepOrdinal < 0 || stepLabel == null || stepLabel.isBlank()
@@ -28,15 +38,22 @@ public record PunishmentExpectation(
                 assessment.configurationVersion(),
                 assessment.escalation().selectedStep().ordinal(),
                 assessment.escalation().selectedStep().label(),
-                assessment.sanctions()
+                assessment.sanctions(),
+                PunishmentApprovalRules.isCustomDuration(assessment.policy(), assessment.sanctions())
         );
     }
 
     public boolean matches(PunishmentAssessment assessment) {
-        return assessment != null
-                && configurationVersion.equals(assessment.configurationVersion())
+        if (assessment == null) {
+            return false;
+        }
+        List<SanctionSpec> selected = assessment.escalation().selectedStep().sanctions();
+        return configurationVersion.equals(assessment.configurationVersion())
                 && stepOrdinal == assessment.escalation().selectedStep().ordinal()
                 && stepLabel.equals(assessment.escalation().selectedStep().label())
-                && sanctions.equals(assessment.sanctions());
+                && sanctions.equals(assessment.sanctions())
+                && customDuration == PunishmentApprovalRules.isCustomDuration(
+                        assessment.policy(), assessment.sanctions()
+                );
     }
 }

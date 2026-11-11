@@ -49,23 +49,28 @@ function targetAvatarNode() {
 }
 
 function linkedIdentitySummary() {
-  const minecraftCount = liveModeration.accounts.length;
-  const altCount = identity.alts.length;
-  return `@${identity.username} • Accounts: 1 Discord + ${minecraftCount} Minecraft • ${altCount} linked Minecraft alt${altCount === 1 ? '' : 's'}`;
+  const main = liveModeration.accounts.find((account) => account.main) || liveModeration.accounts[0];
+  const parts = [`@${identity.username}`];
+  if (main) parts.push(`${main.username || main.playerId} · ${friendlyPlatform(main.platform)}`);
+  if (identity.alts.length) parts.push(`${identity.alts.length} alt${identity.alts.length === 1 ? '' : 's'}`);
+  return parts.join(' • ');
 }
 
 function hardenedRenderContextPanel() {
   const sanction = liveModeration.sanctions[0];
   const latestCase = liveModeration.cases[0];
   const latestNote = liveModeration.notes[0];
-  replaceChildrenOf($('#contextPanel'),
-    hardenedContextAccountsSection(),
-    contextSection('Current sanctions', sanction ? statusBadge('Active', 'warning') : null,
-      sanction ? friendlyPlatform(sanction.type) : 'None', sanction ? sanction.reason : 'No active sanctions were returned.'),
-    latestCase ? contextLinkedSection('Latest case', 'cases', latestCase.caseId, `${latestCase.reason} · ${latestCase.actorName}`)
-      : contextSection('Latest case', null, 'None', 'No case record was returned.'),
-    latestNote ? hardenedLatestNoteSection(latestNote) : contextSection('Latest staff note', null, 'None', 'No private staff note was returned.'),
-    contextReadinessSection());
+  const sections = [hardenedContextAccountsSection()];
+  if (sanction) {
+    sections.push(contextSection('Current sanction', statusBadge('Active', 'warning'),
+      friendlyPlatform(sanction.type), sanction.reason));
+  }
+  if (latestCase) {
+    sections.push(contextLinkedSection('Latest case', 'cases', latestCase.caseId,
+      `${latestCase.reason} · ${latestCase.actorName}`));
+  }
+  if (latestNote) sections.push(hardenedLatestNoteSection(latestNote));
+  replaceChildrenOf($('#contextPanel'), sections);
   $$('[data-context-view]').forEach((button) => button.addEventListener('click', () => switchView(button.dataset.contextView)));
 }
 
@@ -77,8 +82,7 @@ function hardenedContextAccountsSection() {
     liveModeration.accounts.forEach((account) => content.push(accountLine(
       account.username || account.playerId, minecraftRelationshipText(account))));
   }
-  content.push(element('p', {className:'muted small', text:'Accounts includes the Discord identity plus linked Minecraft identities. Linked alts counts only alternate Minecraft accounts.'}));
-  return element('div', {className:'context-section'}, content);
+  return element('div', {className:'context-section compact-context'}, content);
 }
 
 function minecraftRelationshipText(account) {
@@ -128,30 +132,36 @@ function overviewInvestigationCard() {
 
 function hardenedMessagesNode() {
   const messages = filteredMessages();
-  const content = [pageHeading('Message investigation', 'Messages & evidence',
-    'Review Discord messages, select evidence, and inspect surrounding context.')];
+  const content = [pageHeading('Messages', 'Messages & evidence',
+    'Select evidence or search older Discord history.')];
   if (state.contextId) content.push(contextAlertNode());
   if (liveModeration.warning) content.push(element('div', {className:'alert info'},
     element('strong',{text:'Discord read notice'}), element('span',{text:liveModeration.warning})));
   content.push(messageCoverageNode(), hardenedFiltersNode());
   content.push(element('section', {className:'message-investigation'}, messages.length
     ? groupedMessagesNodes(messages)
-    : emptyState('No loaded messages match these filters', 'Clear a filter or retrieve more Discord history for a specific channel.')));
+    : emptyState(state.remoteSearchActive ? 'No Discord history matches this search' : 'No loaded messages match these filters',
+      state.remoteSearchActive ? 'Try a broader term, channel, author ID, or date.' : 'Clear a filter or run a Discord history search.')));
   content.push(messagePaginationNode());
   return element('div', {}, content);
 }
 
 function messageCoverageNode() {
   const range = loadedMessageRange();
-  return element('section', {className:'card coverage-card'},
-    sectionHeading('Search coverage'),
-    summaryList([
-      ['Messages loaded', baseMessages.length],
-      ['Loaded date range', range],
-      ['Filters search', 'Loaded messages only'],
-      ['Coverage', state.contextId ? 'Complete for the loaded ±2 minute context' : 'Partial until Discord history is fully paged']
-    ]),
-    element('p', {className:'muted small', text:messageCoverageExplanation()}));
+  const remote = state.remoteSearchActive === true;
+  const countLabel = remote
+    ? `${baseMessages.length} search result${baseMessages.length === 1 ? '' : 's'}`
+    : `${baseMessages.length} message${baseMessages.length === 1 ? '' : 's'} loaded`;
+  const mode = state.contextId ? 'Context loaded' : remote ? 'History search' : 'Recent messages';
+  const detail = messageCoverageExplanation();
+  const details = element('div',{className:'coverage-details'},
+    element('div',{className:'muted small',text:range}));
+  if (detail) details.append(element('p',{text:detail}));
+  return element('details',{className:'coverage-summary'},
+    element('summary',{},
+      element('strong',{text:countLabel}),
+      element('span',{text:mode})),
+    details);
 }
 
 function loadedMessageRange() {
@@ -163,6 +173,11 @@ function loadedMessageRange() {
 
 function messageCoverageExplanation() {
   if (state.contextId) return contextCoverageExplanation();
+  if (state.remoteSearchActive) {
+    return state.channel === 'all'
+      ? 'Search queries Discord history beyond the messages already loaded, scanning a bounded amount of readable history across channels. Narrow to one channel for the deepest search and paging.'
+      : 'Search queries older Discord history in this channel, not just the messages already on screen. Use Load older from Discord to continue the same search behind the oldest result.';
+  }
   if (state.channel === 'all') return initialCoverageExplanation();
   return channelCoverageExplanation();
 }
@@ -176,18 +191,22 @@ function initialCoverageExplanation() {
 }
 
 function channelCoverageExplanation() {
-  return 'A channel page retrieves up to 25 Discord messages at a time. Text, author, and date-range filters do not fetch older history; use Load older/newer from Discord to extend the loaded range.';
+  return '';
 }
 
 function hardenedFiltersNode() {
   return element('section', {className:'card filters-card'},
     element('div', {className:'filter-row'},
-      filterField('Search loaded messages', element('input', {id:'messageSearch', type:'search', placeholder:'Text in loaded messages', value:state.search})),
+      filterField('Search Discord history', element('input', {
+        id:'messageSearch', type:'search', placeholder:'Search message text beyond the loaded page',
+        value:state.search, attrs:{autocomplete:'off'}
+      })),
       filterField('Author', element('input', {id:'authorFilter', type:'search', placeholder:'Name or Discord ID', value:state.author ?? ''})),
       filterField('Channel', channelFilterNode()),
       filterField('From date', element('input', {id:'dateFromFilter', type:'date', value:state.dateFrom || ''})),
       filterField('To date', element('input', {id:'dateToFilter', type:'date', value:state.dateTo || ''})),
       selectedFilterNode(),
+      buttonNode('Search Discord history', 'button primary filter-search', {runMessageSearch:''}),
       buttonNode('Clear filters', 'button ghost filter-clear', {clearFilters:''})));
 }
 
@@ -206,7 +225,9 @@ function messagePaginationNode() {
   if (state.contextId) return element('div');
   if (state.channel === 'all') {
     return element('div', {className:'pagination-note'},
-      element('span', {text:'Choose a readable channel to retrieve more Discord history.'}));
+      element('span', {text:state.remoteSearchActive
+        ? 'Cross-channel search scans bounded readable history. Choose one channel to page farther back.'
+        : 'Choose a readable channel to retrieve more Discord history.'}));
   }
   const newer = buttonNode('Load newer from Discord', 'button secondary', {loadDirection:'newer'});
   const older = buttonNode('Load older from Discord', 'button secondary', {loadDirection:'older'});
@@ -219,6 +240,7 @@ function hardenedBindMessageEvents() {
   $('[data-exit-context]')?.addEventListener('click', exitLiveContext);
   bindMessageFilters();
   $('#channelFilter')?.addEventListener('change', handleChannelFilterChange);
+  $('[data-run-message-search]')?.addEventListener('click', runDiscordHistorySearch);
   $('[data-clear-filters]')?.addEventListener('click', clearMessageFilters);
   $$('.message-select').forEach((checkbox) => checkbox.addEventListener('click', selectMessage));
   $$('[data-message-action]').forEach((button) => button.addEventListener('click', hardenedHandleMessageAction));
@@ -227,17 +249,89 @@ function hardenedBindMessageEvents() {
 }
 
 function bindMessageFilters() {
-  $('#messageSearch')?.addEventListener('input', (event) => { state.search = event.target.value; renderWorkspace(); });
-  $('#authorFilter')?.addEventListener('input', (event) => { state.author = event.target.value; renderWorkspace(); });
+  const search = $('#messageSearch');
+  const author = $('#authorFilter');
+  search?.addEventListener('input', (event) => { state.search = event.target.value; });
+  author?.addEventListener('input', (event) => { state.author = event.target.value; });
+  search?.addEventListener('keydown', runMessageSearchOnEnter);
+  author?.addEventListener('keydown', runMessageSearchOnEnter);
   $('#dateFromFilter')?.addEventListener('change', (event) => { state.dateFrom = event.target.value; renderWorkspace(); });
   $('#dateToFilter')?.addEventListener('change', (event) => { state.dateTo = event.target.value; renderWorkspace(); });
   $('#selectedFilter')?.addEventListener('change', (event) => { state.selectedOnly = event.target.checked; renderWorkspace(); });
+}
+
+function runMessageSearchOnEnter(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  runDiscordHistorySearch();
+}
+
+async function runDiscordHistorySearch() {
+  state.contextId = null;
+  state.contextReturn = null;
+  const params = discordHistorySearchParams();
+  if (!hasDiscordHistorySearchCriteria(params)) {
+    state.remoteSearchActive = false;
+    state.remoteSearchCriteria = null;
+    await loadChannelPage();
+    return;
+  }
+  const previousActive = state.remoteSearchActive;
+  const previousCriteria = state.remoteSearchCriteria;
+  state.remoteSearchActive = true;
+  state.remoteSearchCriteria = submittedHistorySearchCriteria(params);
+  const loaded = await loadMessageRequest(params, 'replace');
+  if (!loaded) {
+    state.remoteSearchActive = previousActive;
+    state.remoteSearchCriteria = previousCriteria;
+  }
+}
+
+function submittedHistorySearchCriteria(params) {
+  return Object.freeze({
+    text:params.get('text') || '',
+    author:params.get('author') || '',
+    date:params.get('date') || ''
+  });
+}
+
+function discordHistorySearchParams() {
+  const params = new URLSearchParams({limit:'50'});
+  addSearchChannel(params);
+  addSearchText(params);
+  addSearchAuthor(params);
+  addSearchDate(params);
+  return params;
+}
+
+function addSearchChannel(params) {
+  if (state.channel !== 'all') params.set('channel', state.channel);
+}
+
+function addSearchText(params) {
+  const text = String(state.search || '').trim();
+  if (text) params.set('text', text);
+}
+
+function addSearchAuthor(params) {
+  const author = String(state.author || '').trim();
+  if (author) params.set('author', author);
+}
+
+function addSearchDate(params) {
+  if (state.dateFrom && state.dateFrom === state.dateTo) params.set('date', state.dateFrom);
+}
+
+function hasDiscordHistorySearchCriteria(params) {
+  return params.has('text') || params.has('author') || params.has('date');
 }
 
 function handleChannelFilterChange(event) {
   state.channel = event.target.value;
   state.contextId = null;
   state.contextReturn = null;
+  state.remoteSearchActive = false;
+  state.remoteSearchCriteria = null;
   loadChannelPage();
 }
 
@@ -257,10 +351,14 @@ function clearLocalMessageFilters() {
   state.selectedOnly = false;
   state.contextId = null;
   state.contextReturn = null;
+  state.remoteSearchActive = false;
+  state.remoteSearchCriteria = null;
 }
 
 state.dateFrom = state.dateFrom || '';
 state.dateTo = state.dateTo || '';
+state.remoteSearchActive = state.remoteSearchActive || false;
+state.remoteSearchCriteria = state.remoteSearchCriteria || null;
 installMessageMapperHardening();
 window.renderTargetHeader = hardenedRenderTargetHeader;
 window.renderContextPanel = hardenedRenderContextPanel;

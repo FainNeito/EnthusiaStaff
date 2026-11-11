@@ -1,16 +1,18 @@
 # Discord Channel Mapping — Staff Plugin Logging
 
 **Authoritative mapping of Staff plugin Discord outbox destinations to Discord channels.**
-Last updated: 2026-10-03 (owner spec: rich punishment logging in #in-game-punishments)
+Last updated: 2026-10-12 (source-verified event matrix and punishment-note privacy; staging release only)
 
 ## Destination → Channel Map
 
 | Outbox Destination | Discord Channel | Status | Purpose |
 |---|---|---|---|
-| `punishments` | #in-game-punishments | ✅ ACTIVE | **Central punishment log.** Every punishment from every source with rich details. |
-| `logs-staffmode` | #staff-logs | ✅ ACTIVE | Staff mode enter/exit, vanish changes. |
-| `reports` | #reports | ⚠️ DEPRECATED | Owner authorized deletion/repurposing of #reports (stale since Sep 2025). Destination retained in code but should not be configured with a webhook. |
-| `alerts` | *(unassigned)* | ❌ UNUSED | No producer writes to this destination. Reserved for future use. |
+| `punishments` | #in-game-punishments | ⚠️ CONFIG REQUIRED | Central log for every punishment originating from EnthusiaStaff's authoritative event pipeline (external anticheat sources not covered). |
+| `logs-staffmode` | #staff-logs | ⚠️ CONFIG REQUIRED | Staff entry/exit, vanish and detailed StaffActionLogger events, now using the supported delivery route. |
+| `reports` | Private #staff-reviews or a replacement report channel | ⚠️ CONFIG REQUIRED | Private report notifications with current reporter/target usernames and readable reason labels; keep this destination restricted to staff. |
+| `alerts` | Private #staff-reviews | ⚠️ CONFIG REQUIRED | Punishment approval required, alt-suspicion join, inherited-muted chat attempt; optional exactly one reviewer-role ping. |
+
+**Important:** All four webhook destinations currently require valid configured URLs whenever `discord.enabled=true`. These messages now use clean embeds. See `docs/discord-integration-rollout-20261010.md` for the exact enabled/not-yet-enabled breakdown and bot-side approval blockers.
 
 ## What Gets Logged to #in-game-punishments
 
@@ -19,7 +21,7 @@ Fired for every freeze/unfreeze from **every** source (staff `/freeze` command, 
 reconciliation). These are punishments: they land in #in-game-punishments with the target,
 the acting staffer, and the freeze reason.
 
-**Rich fields included:**
+**Fields eligible for the punishment webhook embed:**
 | Field | Description |
 |---|---|
 | `targetId` | Frozen player's UUID |
@@ -27,10 +29,10 @@ the acting staffer, and the freeze reason.
 | `reason` | Freeze reason |
 
 ### Event: `PUNISHMENT_CREATED`
-Fired for every new punishment from **every** source:
+Emitted for new punishments committed through **EnthusiaStaff's punishment pipeline** (not independent external punishment sources):
 - Staff commands (`/punish`, `/ban`, `/mute`, `/kick`, `/warn`, `/freeze`)
 - RoseChat AI automated moderation (30-day public mutes)
-- Any future automated source via `PunishmentService.create()`
+- Other sources invoking `PunishmentService.create()` with the required authority and policy
 
 **Rich fields included:**
 | Field | Description |
@@ -40,13 +42,14 @@ Fired for every new punishment from **every** source:
 | `reasonId` | Configured reason ID (e.g., `chat.ai-moderation`) |
 | `family` | Punishment family/category |
 | `publicReason` | Human-readable public reason |
-| `internalExplanation` | Full internal notes — **includes exact offending message for RoseChat mutes** (truncated to 1,000 chars) |
 | `issuedAt` | Timestamp of issuance |
 | `actorName` | Display name of issuer (staff name or "Enthusia AI Moderation") |
 | `actorRank` | Rank of issuer (HELPER, MOD, ADMIN, FOUNDER, SYSTEM) |
 | `sanctionTypes` | List of sanction types (e.g., `["PUBLIC_MUTE"]`) |
 | `sanctionDetails` | Human-readable per-sanction details (e.g., `["PUBLIC_MUTE (30 days)"]`) |
 | `sanctionIds` | Individual sanction UUIDs |
+
+The `PUNISHMENT_CREATED` webhook view is a **whitelisted projection**, not a dump of the persisted punishment case. The private `internalExplanation` field may exist in MariaDB, including sensitive moderation evidence, but the outbound Discord renderer excludes it (PR #531). Do not copy raw outbox payloads into Discord or public CI logs to bypass this boundary. The public reason, sanction type/duration, actor and case identifiers remain visible.
 
 ### Event: `SANCTION_CHANGED`
 Fired when a sanction is modified after creation:
@@ -73,6 +76,10 @@ Helper punishment request workflow (not final punishments):
 | `STAFF_MODE_ENTERED` / `STAFF_MODE_EXITED` | JdbcStaffSessionStore | staffId, actorId, sessionId, rank, active, reason, serverId |
 | `VANISH_CHANGED` | JdbcVanishStore | staffId, actorId, rank, vanished |
 
+### Additional staff-action events
+
+`StaffActionLogger` also sends `STAFF_ACTION` (command identity without private arguments, teleport, gamemode, inventory/container/world interactions) through `logs-staffmode`. This is an asynchronous best-effort database enqueue backed by local JSONL auditing; a busy server may need queue scaling/digesting before every frequent interaction can reliably reach Discord.
+
 ## Punishment Sources — Coverage Status
 
 | Source | Integration | Logged? |
@@ -81,7 +88,7 @@ Helper punishment request workflow (not final punishments):
 | Staff `/ban` (Founder only) | PunishmentService | ✅ Yes |
 | Staff `/mute`, `/kick`, `/warn` | PunishmentService | ✅ Yes |
 | Staff `/freeze` | FreezeStore → punishments | ✅ Yes (in #in-game-punishments) |
-| RoseChat AI moderation | RoseChatAutomatedModerationProvider → PunishmentService | ✅ Yes (with message content) |
+| RoseChat AI moderation | RoseChatAutomatedModerationProvider → PunishmentService | ✅ Via the Staff punishment pipeline when enabled; **offending chat text and internal investigation notes are not shown in the Discord embed** |
 | Polar anticheat | **No integration** | ❌ Not logged |
 | Other automated systems | **No integration** | ❌ Not logged |
 
@@ -101,9 +108,8 @@ pointing to an environment variable containing the Discord webhook URL:
 ```properties
 discord.punishments.webhook-environment=DISCORD_PUNISHMENTS_WEBHOOK
 discord.logs-staffmode.webhook-environment=DISCORD_STAFF_LOGS_WEBHOOK
-# discord.reports.webhook-environment — DEPRECATED, do not configure
-# discord.alerts.webhook-environment — UNUSED, do not configure
+discord.reports.webhook-environment=ES_DISCORD_REPORTS_WEBHOOK
+discord.alerts.webhook-environment=ES_DISCORD_ALERTS_WEBHOOK
 ```
 
-Webhooks are disabled by default. The plugin will not post to Discord until
-webhook URLs are configured.
+Webhooks are disabled by default. All four webhook destinations must be configured to start the delivery worker. This does not activate Discord approval buttons: those still need the signed StaffBot-to-Paper review action bridge.

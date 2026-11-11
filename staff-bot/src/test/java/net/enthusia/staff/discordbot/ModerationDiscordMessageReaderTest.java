@@ -14,6 +14,7 @@ import net.dv8tion.jda.api.entities.User;
 import org.junit.jupiter.api.Test;
 
 class ModerationDiscordMessageReaderTest {
+    private static final String SEARCH_NEEDLE = "needle";
     @Test
     void messageReadsRequireActorAndBotChannelAccess() {
         assertFalse(ModerationDiscordMessageReader.hasReadPermissions(false, false, true, true));
@@ -37,16 +38,51 @@ class ModerationDiscordMessageReaderTest {
     }
 
     @Test
+    void textAuthorAndDateFiltersUseServerSideHistorySearch() {
+        assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.of("older phrase"), Optional.empty(), Optional.empty())));
+        assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.of("222"), Optional.empty())));
+        assertTrue(ModerationDiscordMessageReader.searchRequested(new ModerationReadApiModel.MessageQuery(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of("alice"), Optional.empty(), 50)));
+        assertTrue(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.empty(), Optional.of("2026-09-01"))));
+        assertFalse(ModerationDiscordMessageReader.searchRequested(query(Optional.of("   "), Optional.empty(), Optional.empty())));
+        assertFalse(ModerationDiscordMessageReader.searchRequested(query(Optional.empty(), Optional.empty(), Optional.empty())));
+    }
+
+    private static ModerationReadApiModel.MessageQuery query(
+            Optional<String> text,
+            Optional<String> author,
+            Optional<String> date
+    ) {
+        return new ModerationReadApiModel.MessageQuery(
+                Optional.empty(), Optional.empty(), Optional.empty(), text, author, date, 50);
+    }
+
+    @Test
+    void authorNameFiltersMatchHistoricalDiscordNames() {
+        ModerationReadApiModel.MessageQuery query = new ModerationReadApiModel.MessageQuery(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of("alice"), Optional.empty(), 50);
+        List<Message> source = List.of(
+                message("matching", 222L, "Alice Example", SEARCH_NEEDLE, "2026-09-01T10:00:00Z"),
+                message("other", 333L, "Bob Example", SEARCH_NEEDLE, "2026-09-01T09:00:00Z"));
+
+        List<Message> result = ModerationDiscordMessageReader.filterAndLimit(source, query, 50);
+
+        assertEquals(List.of("matching"), result.stream().map(Message::getId).toList());
+    }
+
+    @Test
     void recentQueriesApplyAuthorTextDateAndLimitBeforeMapping() {
         ModerationReadApiModel.MessageQuery query = new ModerationReadApiModel.MessageQuery(
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("needle"), Optional.of("222"),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(SEARCH_NEEDLE), Optional.of("222"),
                 Optional.of("2026-09-01"), 1);
         List<Message> source = List.of(
                 message("first", 222L, "needle one", "2026-09-01T10:00:00Z"),
                 message("second", 222L, "needle two", "2026-09-01T09:00:00Z"),
-                message("wrong-author", 333L, "needle", "2026-09-01T08:00:00Z"),
+                message("wrong-author", 333L, SEARCH_NEEDLE, "2026-09-01T08:00:00Z"),
                 message("wrong-text", 222L, "other", "2026-09-01T07:00:00Z"),
-                message("wrong-date", 222L, "needle", "2026-08-31T23:00:00Z"));
+                message("wrong-date", 222L, SEARCH_NEEDLE, "2026-08-31T23:00:00Z"));
 
         List<Message> result = ModerationDiscordMessageReader.filterAndLimit(source, query, 1);
 
@@ -55,12 +91,18 @@ class ModerationDiscordMessageReaderTest {
     }
 
     private static Message message(String id, long authorId, String content, String createdAt) {
+        return message(id, authorId, "Tester", content, createdAt);
+    }
+
+    private static Message message(String id, long authorId, String authorName, String content, String createdAt) {
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         User author = (User) Proxy.newProxyInstance(
                 loader,
                 new Class<?>[] {User.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getIdLong" -> authorId;
+                    case "getName" -> authorName;
+                    case "getGlobalName" -> null;
                     default -> throw new UnsupportedOperationException(method.getName());
                 });
         return (Message) Proxy.newProxyInstance(

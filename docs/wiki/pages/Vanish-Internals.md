@@ -33,8 +33,9 @@ paper/src/main/java/net/enthusia/staff/paper/auth/PaperStaffRankResolver.java
 
 `VanishManager` owns lifecycle, persistence coordination, live rank
 reconciliation, and Bukkit application. `DefaultStaffVisibilityService` owns the
-current in-memory visibility decision. `JdbcVanishStore` persists whether a staff
-member should remain vanished and the rank used for visibility hierarchy.
+current in-memory visibility decision. `JdbcVanishStore` persists the current
+live vanish state, the rank used for visibility hierarchy, the selected real game
+mode where applicable, and a separate nullable remembered vanish preference.
 
 ## State and startup
 
@@ -52,11 +53,12 @@ Each audience registration receives a monotonically increasing session identifie
 Queued owner callbacks verify that identifier before running, so a disconnect and
 reconnect cannot apply work through the retired `Player` handle.
 
-Startup staff-mode recovery is asynchronous. Helper, Mod, and Developer vanish is
+Startup staff-mode recovery is asynchronous. Vanish for every player staff rank is
 therefore not disabled merely because the in-memory staff-mode cache is not ready.
 When required, vanish checks the durable `StaffSessionStore` on the bounded worker
-executor. An open durable staff session preserves the vanish state while recovery
-continues; a confirmed missing session disables it.
+executor. An open durable staff session preserves the live vanish state while
+recovery continues; a confirmed missing session disables it without overwriting
+the remembered next-entry preference.
 
 ## Toggle flow
 
@@ -66,11 +68,12 @@ The current flow is:
 
 1. Resolve the player's explicit EnthusiaStaff rank from permissions.
 2. Reject the request when no supported rank can be resolved.
-3. Require active staff mode for Helper, Mod, and Developer.
-4. Calculate the opposite of the current vanish state.
+3. Require active Staff Mode for every player staff rank.
+4. Calculate the opposite of the current live vanish state.
 5. Permit only one state write for that player.
-6. Persist the new state asynchronously in `VanishStore`.
-7. When staff mode is active, update the staff-session vanish mirror too.
+6. Persist the new live state asynchronously in `VanishStore` and mark the change as
+   an intentional preference update.
+7. Update the active staff-session vanish mirror in the same durable transaction.
 8. Update the concurrent viewer-rank and vanished-state maps.
 9. Return to the current player's entity scheduler through the session-fenced
    audience coordinator.
@@ -103,19 +106,21 @@ have only one queued entity check. The entity check:
 5. compares the vanished target's live rank with the durable rank;
 6. updates target classification and persists a changed rank;
 7. disables vanish after rank removal or invalid `SYSTEM` resolution;
-8. verifies lower-rank staff-session authority durably when in-memory recovery is
-   not yet established.
+8. verifies staff-session authority durably for every player staff rank when
+   in-memory recovery is not yet established.
 
 Durable staff-session checks are bounded to one in-flight check per player. Each
 check has a unique token; disconnect invalidates that token, so an old result
 cannot mutate a replacement session. Failed checks back off before retrying.
 
-Helper, Mod, and Developer normally leave vanish when staff mode exits. If that
-cleanup collides with another state write or fails, a pending cleanup marker keeps
-the disable operation eligible for retry. A later restart also detects the closed
-staff session through durable verification, covering the crash window between
-staff-session closure and vanish disable. Transient cleanup markers are removed on
-quit; reconnect re-establishes authority from durable storage.
+Every player staff rank leaves the live vanish state when Staff Mode exits. That
+automatic cleanup uses `PreferenceUpdate.KEEP`, so the last intentional choice is
+retained for the next entry. If cleanup collides with another state write or fails,
+a pending cleanup marker keeps the disable operation eligible for retry. A later
+restart also detects the closed staff session through durable verification,
+covering the crash window between staff-session closure and vanish disable.
+Transient cleanup markers are removed on quit; reconnect re-establishes authority
+from durable storage.
 
 Viewer authority and target classification are separate:
 
@@ -127,9 +132,10 @@ Viewer authority and target classification are separate:
 ## Staff-mode exit
 
 `StaffModeManager` calls `VanishManager.staffModeExited(UUID)` only after verified
-durable staff-session closure. If the current live rank requires staff mode,
-vanish is disabled through the normal persisted path. Admin and Founder may remain
-vanished independently.
+durable staff-session closure. Every player staff rank requires Staff Mode for
+normal vanish, so exit disables the live state through the normal persisted path
+while preserving the remembered next-entry preference. This does not restrict the
+real game-mode freedom of Developer/Admin/Founder while Staff Mode is active.
 
 ## Events handled directly
 
@@ -157,22 +163,22 @@ Registered at `EventPriority.HIGHEST`.
 
 Registered at `EventPriority.HIGHEST` with cancelled changes ignored.
 
-- While full vanish is active, the player's authoritative server-side game mode
-  remains `SPECTATOR`.
-- Admin and Founder requests for Survival, Creative, or Spectator update the
-  independent logical gameplay mode that will be restored when vanish is
-  disabled; non-Spectator transitions are cancelled before they can replace the
-  authoritative Spectator state.
-- Lower ranks keep Spectator as their only selectable Staff Mode game mode.
-- The bounded Staff Mode snapshot-restoration phase releases the vanish game-mode
-  guard before #280 restores the pre-Staff state.
+- Developer, Admin, and Founder keep any real authoritative Bukkit/Paper game mode
+  they select while vanished, including Survival, Creative, Adventure, or
+  Spectator. Vanish does not rewrite that mode.
+- Helper and Mod remain restricted by Staff Mode policy to protected Survival or
+  real Spectator; vanish does not add a second game-mode restriction.
+- The bounded Staff Mode snapshot-restoration phase preserves the exact pre-Staff
+  mode while visibility state is reconciled independently.
 - Re-resolves live viewer rank, re-evaluates spectator-tab policy, updates the
   coordinator's cached game mode, and refreshes affected audience state.
 
-Vanish therefore uses vanilla/Paper Spectator behavior for block phasing instead
-of `noPhysics`, NMS/reflection, or a client-only fake game mode. The logical mode
-to restore is tracked separately from the authoritative Spectator mode and is
-persisted with durable vanish state. The manager does not directly listen for
+When the real mode is Spectator, vanish uses normal vanilla/Paper spectator
+phasing; it does not use `noPhysics`, NMS/reflection, or a client-only fake game
+mode. Developer/Admin/Founder Survival, Creative, and Adventure remain those
+exact real modes while vanished. The selected real mode is persisted with durable vanish
+state. The
+manager does not directly listen for
 chat, command completion, sound, particle, inventory, pickup, advancement,
 scoreboard, or voice events.
 
@@ -245,10 +251,10 @@ spectator staff remain unlisted.
 
 Do not extend that claim to entity-destroy, spawn-player, metadata, equipment, or
 other visibility packets. ProtocolLib is limited to observer-facing player-info
-masking; EnthusiaStaff does not send a self-only fake game-mode packet. During
-full vanish, the player's authoritative Bukkit/Paper game mode is real
-`SPECTATOR`; the selected gameplay mode is separate state restored when vanish
-ends.
+masking; EnthusiaStaff does not send a self-only fake game-mode packet. For
+Developer/Admin/Founder, the authoritative Bukkit/Paper game mode while vanished
+is the actual selected vanilla mode, including Survival, Creative, Adventure, or
+Spectator.
 
 ## What is not currently intercepted
 
@@ -309,12 +315,11 @@ provider integrations that trigger additional scans.
 - Failed durable session verification leaves current visibility unchanged and
   retries after backoff.
 - A persisted vanish record restores visibility/privacy state and its selected
-  gameplay mode on startup/reconnect, then re-enforces authoritative Spectator
-  while vanish remains active.
-- Vanish-off restores the independently selected gameplay mode; Staff Mode exit
-  instead gives #280's pre-Staff snapshot restoration precedence.
-- Full vanish always uses real Spectator, so vanilla/Paper supplies block phasing
-  without a version-specific noclip layer.
+  gameplay mode on startup/reconnect.
+- For Developer/Admin/Founder, vanish-on/off preserves any real selected game
+  mode. For Helper/Mod, it preserves protected Survival or Spectator.
+- Spectator phasing is provided only by real Spectator mode; vanish itself does
+  not claim noclip in Survival, Creative, or Adventure.
 - Complete visual and integration coverage still requires staging.
 
 ## Review and staging checklist
@@ -331,10 +336,12 @@ Reviewers should verify:
 - normal players never seeing vanished staff;
 - self-visibility;
 - tab list and entity visibility on each supported Paper version;
-- real server-side Spectator throughout full vanish on every supported runtime;
-- independent Admin/Founder Survival/Creative selection while vanished and exact
-  restoration of that selected mode when vanish is disabled;
-- wall, floor, and ceiling phasing while vanished through real Spectator behavior;
+- Developer/Admin/Founder real Survival, Creative, Adventure, and Spectator modes
+  remain unchanged when vanish is toggled on or off;
+- Helper/Mod remain limited to protected Survival or Spectator;
+- game-mode changes while vanished preserve vanish and Staff Mode state;
+- wall, floor, and ceiling phasing while vanished when the real mode is Spectator,
+  with no phasing claim in Survival, Creative, or Adventure;
 - ProtocolLib present, absent, incompatible, and runtime failure paths;
 - RoseChat, voice, `/seen`, commands, player counts, and public APIs;
 - sounds, particles, containers, damage, pickup, and other observable effects;

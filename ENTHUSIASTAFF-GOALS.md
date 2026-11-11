@@ -1,5 +1,7 @@
 # EnthusiaStaff Platform — Authoritative Goals and Task Specification
 
+> **Current-state note (2026-10-07):** EnthusiaStaff is live on the Enthusia Network and continues to evolve. This file remains the broad long-term product specification, but older deployment/migration assumptions inside it are historical unless reaffirmed by current production evidence. Use [docs/current-roadmap.md](docs/current-roadmap.md) for the active post-launch roadmap, including configurability program #425 and repository cleanup #426.
+
 ## 0. Purpose
 
 This file is the authoritative goals and requirements document for the complete Enthusia Network staff, moderation, punishment, reporting, vanish, inventory-inspection, alt-detection, LiteBans migration, integration, Discord, and punishment/appeal website platform.
@@ -588,7 +590,7 @@ Historical Developer-issued cases remain valid and preserve original actor/rank.
 
 ### Admin
 
-May apply configured punishments, raise/lower, use custom durations with configured types, fully overturn, approve/deny punishment and overturn requests, and reopen appeals as configured.
+May apply configured punishments, raise/lower, and request custom durations with configured types. Admin custom-duration requests require Founder approval before application. Admin may fully overturn, approve/deny ordinary punishment and overturn requests, and reopen appeals as configured.
 
 ### Founder/Owner
 
@@ -744,15 +746,15 @@ Exit removes all staff items, restores exact state/location/server where safe, v
 
 Crash/reconnect resumes until normal exit, preserves original snapshot, resumes vanish, and prevents staff-item leakage.
 
-Staff-mode/vanished players cannot be combat tagged or tag others.
+Staff-mode/vanished players cannot be combat tagged or tag others, except Developer while actively on duty: Developer may exercise real combat mechanics for technical testing, and those actions must be audit-logged.
 
 Rank profiles:
 
-- Helper: spectator only; no creative; no item pickup/drop/swap/movement; no inventory or Ender mutation; no giving, receiving, taking, or moving player items; no advanced cheat/client-evidence or recovery tools.
-- Mod: no creative; Ender unavailable; only configured moderation tools.
-- Developer: no creative; Ender unavailable; technical tools remain available but no direct punishment authority.
-- Admin: creative allowed; Ender view-only unless separately authorized by a destructive workflow.
-- Founder: creative and normal configured owner access.
+- Helper: protected Survival or Spectator only; no Creative/Adventure; no item pickup/drop/swap/movement; no inventory or Ender mutation; no giving, receiving, taking, or moving player items; no advanced cheat/client-evidence or recovery tools.
+- Mod: protected Survival or Spectator only; no Creative/Adventure; Ender unavailable; only configured moderation tools.
+- Developer: unrestricted technical Staff Mode for testing, including Creative/Adventure/Spectator/Survival, world/container interaction, Ender mutation, and combat testing. Technical actions are audit-logged. This freedom does not grant direct punishment or approval authority.
+- Admin: unrestricted normal game-mode choice; Ender view-only unless separately authorized by a destructive workflow.
+- Founder: unrestricted normal game-mode choice and normal configured owner access.
 
 An active staff session must reject or immediately correct any game-mode or inventory transition that exceeds the rank profile, even when another permission plugin accidentally grants the underlying vanilla command.
 

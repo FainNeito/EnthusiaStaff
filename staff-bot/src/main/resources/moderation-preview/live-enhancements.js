@@ -322,6 +322,10 @@ function rememberMessageView() {
     author:state.author,
     channel:state.channel,
     date:state.date,
+    dateFrom:state.dateFrom || '',
+    dateTo:state.dateTo || '',
+    remoteSearchActive:state.remoteSearchActive === true,
+    remoteSearchCriteria:state.remoteSearchCriteria ? {...state.remoteSearchCriteria} : null,
     selectedOnly:state.selectedOnly,
     olderCursor:liveModeration.olderCursor,
     newerCursor:liveModeration.newerCursor
@@ -363,6 +367,10 @@ function exitLiveContext() {
   state.author = previous.author;
   state.channel = previous.channel;
   state.date = previous.date;
+  state.dateFrom = previous.dateFrom || '';
+  state.dateTo = previous.dateTo || '';
+  state.remoteSearchActive = previous.remoteSearchActive === true;
+  state.remoteSearchCriteria = previous.remoteSearchCriteria ? {...previous.remoteSearchCriteria} : null;
   state.selectedOnly = previous.selectedOnly;
   liveModeration.olderCursor = previous.olderCursor;
   liveModeration.newerCursor = previous.newerCursor;

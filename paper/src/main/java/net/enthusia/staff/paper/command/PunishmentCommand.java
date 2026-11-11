@@ -54,7 +54,6 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
     private static final String MUTE_COMMAND = "mute";
     private static final String BAN_COMMAND = "ban";
     private static final String IP_BAN_COMMAND = "ipban";
-    private static final String PERMISSION = "enthusiastaff.punish.configured";
     private static final String PRIVATE_FLAG = "--private";
     private static final Set<String> LEGACY_MUTE_UNITS = Set.of(
             "second",
@@ -169,7 +168,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean requireDraftPermission(CommandSender sender, Actor actor) {
-        if (sender.hasPermission(PERMISSION) && permitsPunishmentDraft(actor)) {
+        if (permitsPunishmentDraft(actor)) {
             return true;
         }
         sender.sendMessage(StaffMessageStyle.style(Component.text(
@@ -285,7 +284,12 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
             send(sender, Component.text(rejected.code() + ": " + rejected.message(), NamedTextColor.RED));
             return;
         }
-        sendPrepared(sender, target, (PunishmentDraftEvaluation.Prepared) evaluation);
+        PunishmentDraftEvaluation.Prepared prepared = (PunishmentDraftEvaluation.Prepared) evaluation;
+        if (sender instanceof Player player) {
+            gui.showPreparedDraft(player, target, route, actor, prepared);
+        } else {
+            sendPrepared(sender, target, prepared);
+        }
     }
 
     private static PreparePunishmentDraftRequest prepareRequest(
@@ -319,27 +323,31 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
 
     private void confirm(CommandSender sender, Actor actor, String[] args) {
         if (args.length != SUBCOMMAND_ARGUMENT_COUNT) {
-            sender.sendMessage(StaffMessageStyle.style(Component.text("Usage: /punish confirm <player>", NamedTextColor.RED)));
+            sender.sendMessage(StaffMessageStyle.style(Component.text(
+                    "Usage: /punish confirm <draft-id|target>", NamedTextColor.RED)));
             return;
         }
         submit(sender, () -> {
             PunishmentDraftWorkflow workflow = workflows.get();
-            confirmationDraftId(args[1],
+            confirmationDraftId(
+                    args[1],
                     id -> actor != null && workflow != null && workflow.find(id, actor.id()).isPresent(),
-                    input -> targetDraftId(sender, actor, input))
-                    .ifPresent(draftId -> confirmStoredDraft(sender, actor, draftId));
+                    input -> targetDraftId(sender, actor, input)
+            ).ifPresent(draftId -> confirmStoredDraft(sender, actor, draftId));
         });
     }
 
-    static Optional<UUID> confirmationDraftId(String input, Predicate<UUID> actorDraftLookup,
-            Function<String, Optional<UUID>> targetDraftLookup) {
+    static Optional<UUID> confirmationDraftId(
+            String input,
+            Predicate<UUID> actorDraftLookup,
+            Function<String, Optional<UUID>> targetDraftLookup
+    ) {
         UUID parsed;
         try {
             parsed = UUID.fromString(input);
         } catch (IllegalArgumentException exception) {
             return targetDraftLookup.apply(input);
         }
-        // UUID.fromString also accepts shortened forms that may be literal player names.
         if (parsed.toString().equalsIgnoreCase(input) && actorDraftLookup.test(parsed)) {
             return Optional.of(parsed);
         }
@@ -528,7 +536,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
         ));
         send(sender, Component.text("Draft expires: " + draft.expiresAt(), NamedTextColor.GRAY));
         send(sender, Component.text(
-                "Review the frozen outcome, then run /punish confirm " + confirmationTarget(target, draft)
+                "Review the frozen outcome, then run /punish confirm " + draft.draftId()
                         + ". Required approvals are submitted durably instead of applied directly.",
                 NamedTextColor.AQUA
         ));
@@ -548,7 +556,7 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
                 "Policy version: " + draft.expectation().configurationVersion() + " | expires: " + draft.expiresAt(),
                 NamedTextColor.GRAY
         ));
-        send(sender, Component.text("Confirm with /punish confirm " + confirmationTarget(target, draft), NamedTextColor.AQUA));
+        send(sender, Component.text("Confirm with /punish confirm " + draft.draftId(), NamedTextColor.AQUA));
     }
 
     private void sendConfirmation(CommandSender sender, PunishmentDraftConfirmation result) {
@@ -623,17 +631,15 @@ public final class PunishmentCommand implements CommandExecutor, TabCompleter {
         return target.currentUsername().orElse("offline target");
     }
 
-    private static String confirmationTarget(PlayerIdentity target, PunishmentDraft draft) {
-        return target.currentUsername().orElseGet(() -> draft.draftId().toString());
-    }
-
     private static void usage(CommandSender sender, String label, String route) {
         sender.sendMessage(StaffMessageStyle.style(Component.text(
                 "Usage: /" + label + " <target> [reason-id] [--private] [internal explanation]",
                 NamedTextColor.YELLOW
         )));
         sender.sendMessage(StaffMessageStyle.style(Component.text(
-                "Draft controls: /punish resume <target> | /punish confirm <player>",
+                sender instanceof Player
+                        ? "Draft controls: /punish resume <target> opens the confirmation menu."
+                        : "Draft controls: /punish resume <target> | /punish confirm <draft-id>",
                 NamedTextColor.GRAY
         )));
         if (CENTRAL_COMMAND.equals(route)) {
