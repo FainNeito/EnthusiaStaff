@@ -39,7 +39,7 @@ final class VanishGameModePolicy {
             return allows(rank, mode);
         }
         if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
-            return mode == GameMode.SURVIVAL || mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR;
+            return true;
         }
         if (rank == StaffRank.MOD || rank == StaffRank.DEVELOPER) {
             return mode == GameMode.SURVIVAL;

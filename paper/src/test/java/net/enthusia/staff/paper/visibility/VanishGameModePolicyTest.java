@@ -27,7 +27,12 @@ class VanishGameModePolicyTest {
     @Test
     void dutyCompositionPreservesAdminModesAndFailsClosedWithoutAuthority() {
         for (StaffRank rank : new StaffRank[]{StaffRank.ADMIN, StaffRank.FOUNDER}) {
-            for (GameMode mode : new GameMode[]{GameMode.SURVIVAL, GameMode.CREATIVE, GameMode.SPECTATOR}) {
+            for (GameMode mode : new GameMode[]{
+                GameMode.SURVIVAL,
+                GameMode.CREATIVE,
+                GameMode.SPECTATOR,
+                GameMode.ADVENTURE
+            }) {
                 assertEquals(mode, VanishGameModePolicy.reconcile(rank, mode, true));
             }
         }
