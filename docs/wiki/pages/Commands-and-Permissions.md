@@ -92,7 +92,7 @@ Do not manually edit link rows to recover a normal user flow. See [[Discord Mode
 | --- | --- | --- |
 | `/freeze <player> <reason>` | durable investigation freeze | `enthusiastaff.freeze` |
 | `/unfreeze <player> <reason> CONFIRM` | release freeze | `enthusiastaff.freeze` |
-| `/staff` | enter/leave durable Staff Mode | `enthusiastaff.staffmode` |
+| `/staff [recover|-v|vanish|-nv|visible]` | enter/leave durable Staff Mode, recover a snapshot, or choose entry visibility | `enthusiastaff.staffmode` |
 | `/stafftools` | Staff Tools menu and supported direct sub-actions | `enthusiastaff.stafftools.menu` plus action node |
 | `/fakebase ...` | bounded fake-base tester workflow | `enthusiastaff.cheattester.fake-base` |
 | `/vanish` | toggle vanish / supported tab options | `enthusiastaff.vanish` |
@@ -190,13 +190,13 @@ Legacy aggregate rank nodes remain relevant during transition/configuration comp
 
 ## Active Staff Mode context
 
-Paper publishes an active LuckPerms context:
+Paper and Velocity publish the same active LuckPerms context:
 
 ```text
 enthusiastaff-duty=active
 ```
 
-This represents current on-duty Staff Mode state. It is not a replacement for permanent identity and it is not used as a universal Discord/website authority flag.
+Paper uses the local authoritative session; Velocity requires a durable ACTIVE session owned by the player's current backend. This represents current on-duty Staff Mode state. It is not a replacement for permanent identity and it is not used as a universal Discord/website authority flag.
 
 See [[Rank Authority]].
 
@@ -256,6 +256,8 @@ enthusiastaff.inventory.view
 enthusiastaff.inventory.edit
 enthusiastaff.inspect
 ```
+
+`enthusiastaff.vanish` is not granted by the Helper aggregate. Mod receives it explicitly (and Admin/Founder inherit it); Developer retains its separate grant. Runtime rank policy also rejects Helper vanish even if the node is granted directly.
 
 Target-side `stafftools.*-exempt` nodes are deliberate exemptions; do not assume operators are implicitly exempt.
 

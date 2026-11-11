@@ -29,10 +29,11 @@ test('message query allowlists bounded filters', () => {
   });
 });
 
-test('message query rejects retargeting-shaped and unbounded inputs', () => {
+test('message query accepts bounded author names and rejects retargeting-shaped or unbounded inputs', () => {
+  assert.deepEqual(browserMessageQuery({author:'Alice Example'}), {authorText:'Alice Example',limit:25});
   for (const filters of [
     {channel:'0'}, {before:'1', after:'2'}, {before:'1', around:'2'}, {after:'1', around:'2'},
-    {author:'abc'}, {date:'August-31'}, {limit:'51'}, {limit:'01'}, {limit:1.5},
+    {author:'x'.repeat(201)}, {date:'August-31'}, {limit:'51'}, {limit:'01'}, {limit:1.5},
     {text:'x'.repeat(201)}, {target:'discord:999'}, {actor:'999'}, {guild:'999'}
   ]) assert.throws(() => browserMessageQuery(filters));
 });

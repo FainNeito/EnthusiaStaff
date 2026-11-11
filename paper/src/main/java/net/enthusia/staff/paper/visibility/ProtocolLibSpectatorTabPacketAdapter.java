@@ -91,7 +91,10 @@ final class ProtocolLibSpectatorTabPacketAdapter implements SpectatorTabPacketAd
         if (result.entries().isEmpty()) {
             event.setCancelled(true);
         } else {
-            modifier.write(0, result.entries());
+            // Broadcast handles are shared; isolate this viewer's presentation changes.
+            PacketContainer viewerPacket = packet.shallowClone();
+            viewerPacket.getPlayerInfoDataLists().write(0, result.entries());
+            event.setPacket(viewerPacket);
         }
     }
 

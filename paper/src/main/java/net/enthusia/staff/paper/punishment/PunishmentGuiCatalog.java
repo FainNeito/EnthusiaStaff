@@ -2,6 +2,7 @@ package net.enthusia.staff.paper.punishment;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import net.enthusia.staff.domain.auth.Actor;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
@@ -22,19 +23,76 @@ final class PunishmentGuiCatalog {
         this.authorization = authorization;
     }
 
-    List<String> categories(Actor actor, String commandName) {
-        return available(actor, commandName).stream()
-                .map(ReasonPolicy::family)
-                .distinct()
-                .sorted()
+    List<PunishmentGuiCategory> categories(Actor actor, String commandName) {
+        List<ReasonPolicy> visible = available(actor, commandName);
+        return PunishmentGuiCategory.ordered().stream()
+                .filter(category -> visible.stream().anyMatch(policy -> category.includes(policy.family())))
                 .toList();
     }
 
-    List<ReasonPolicy> reasons(Actor actor, String commandName, String family) {
+    List<ReasonPolicy> reasons(Actor actor, String commandName, String categoryId) {
+        PunishmentGuiCategory category = PunishmentGuiCategory.byId(categoryId);
+        if (category == null) {
+            return List.of();
+        }
         return available(actor, commandName).stream()
-                .filter(policy -> policy.family().equals(family))
+                .filter(policy -> category.includes(policy.family()))
                 .sorted(Comparator.comparing(ReasonPolicy::publicReason).thenComparing(ReasonPolicy::id))
                 .toList();
+    }
+
+    /**
+     * Search is a pure presentation filter over the *same* rank/command-limited
+     * manual reasons that the category picker uses. It never reads history.
+     */
+    List<ReasonPolicy> search(Actor actor, String commandName, String query) {
+        String normalized = normalizeQuery(query);
+        if (normalized.codePointCount(0, normalized.length()) < 2
+                || normalized.codePointCount(0, normalized.length()) > 64) {
+            return List.of();
+        }
+        return available(actor, commandName).stream()
+                .map(policy -> new RankedResult(policy, searchRank(policy, normalized)))
+                .filter(result -> result.rank() < 4)
+                .sorted(Comparator.comparingInt(RankedResult::rank)
+                        .thenComparing(result -> result.policy().publicReason())
+                        .thenComparing(result -> result.policy().id()))
+                .map(RankedResult::policy)
+                .toList();
+    }
+
+    private static int searchRank(ReasonPolicy policy, String query) {
+        String id = policy.id().toLowerCase(Locale.ROOT);
+        String name = policy.publicReason().toLowerCase(Locale.ROOT);
+        if (id.equals(query) || name.equals(query)) {
+            return 0;
+        }
+        if (id.startsWith(query) || name.startsWith(query)) {
+            return 1;
+        }
+        if (id.contains(query) || name.contains(query)) {
+            return 2;
+        }
+        return matchesContext(policy, query) ? 3 : 4;
+    }
+
+    private static boolean matchesContext(ReasonPolicy policy, String query) {
+        if (policy.family().toLowerCase(Locale.ROOT).contains(query)) {
+            return true;
+        }
+        return policy.examples().stream()
+                .anyMatch(example -> example.toLowerCase(Locale.ROOT).contains(query));
+    }
+
+    private record RankedResult(ReasonPolicy policy, int rank) {
+    }
+
+    private static String normalizeQuery(String query) {
+        return query == null ? "" : query.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    String categoryId(String family) {
+        return PunishmentGuiCategory.forFamily(family).id();
     }
 
     Optional<ReasonPolicyRepository.ReasonDescriptor> describe(String reasonId) {
@@ -56,6 +114,8 @@ final class PunishmentGuiCatalog {
             return List.of();
         }
         return policies.all().stream()
+                .filter(policy -> !policy.family().startsWith("cheating.polar")
+                        && !policy.id().startsWith("cheating.polar."))
                 .filter(policy -> visibleAtRank(actor.rank(), policy.requiredRank(), mayRequest))
                 .filter(policy -> PunishmentCommandFilter.includes(commandName, policy))
                 .toList();

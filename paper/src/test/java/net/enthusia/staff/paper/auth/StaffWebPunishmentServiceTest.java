@@ -104,6 +104,32 @@ final class StaffWebPunishmentServiceTest {
     }
 
     @Test
+    void capabilitiesExposeFullVisibleCatalogWithLaddersAndExecutionSupportMetadata() {
+        Fixture fixture = new Fixture();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> capabilities = (Map<String, Object>) fixture.service.execute("capabilities",
+                new StaffWebPunishmentService.Request(ACTOR, null, SESSION, null, null, null));
+        @SuppressWarnings("unchecked")
+        List<StaffWebPunishmentService.Reason> reasons =
+                (List<StaffWebPunishmentService.Reason>) capabilities.get("reasons");
+        @SuppressWarnings("unchecked")
+        List<StaffWebPunishmentService.Reason> configured =
+                (List<StaffWebPunishmentService.Reason>) capabilities.get("configuredReasons");
+
+        StaffWebPunishmentService.Reason chat = configured.stream()
+                .filter(reason -> reason.id().equals("chat.toxicity")).findFirst().orElseThrow();
+        StaffWebPunishmentService.Reason asset = configured.stream()
+                .filter(reason -> reason.id().equals("asset.confiscation")).findFirst().orElseThrow();
+
+        assertEquals(List.of("chat.toxicity"), reasons.stream().map(StaffWebPunishmentService.Reason::id).toList());
+        assertTrue(chat.minecraftSupported());
+        assertEquals("Mute", chat.ladder().getFirst().label());
+        assertEquals("MUTE", chat.ladder().getFirst().consequences().getFirst().type());
+        assertFalse(asset.minecraftSupported());
+        assertEquals("INVENTORY_CONFISCATION", asset.ladder().getFirst().consequences().getFirst().type());
+    }
+
+    @Test
     void unsupportedAssetConsequencesDoNotEnterTheWebsiteWorkflow() {
         Fixture fixture = new Fixture();
         assertThrows(IllegalArgumentException.class, () -> fixture.service.execute("prepare",
@@ -130,10 +156,16 @@ final class StaffWebPunishmentServiceTest {
                 public Clock withZone(ZoneId zone) { return this; }
                 public Instant instant() { return now.get(); }
             };
-            var policies = new AtomicReasonPolicyRepository("v1", List.of(new ReasonPolicy(
-                    "chat.toxicity", "chat", "Chat toxicity", 10, true,
-                    List.of(new PunishmentStep(0, "Mute", List.of(new SanctionSpec(SanctionType.MUTE,
-                            SanctionLength.temporary(Duration.ofHours(1)))))))));
+            var policies = new AtomicReasonPolicyRepository("v1", List.of(
+                    new ReasonPolicy(
+                            "chat.toxicity", "chat", "Chat toxicity", 10, true,
+                            List.of(new PunishmentStep(0, "Mute", List.of(new SanctionSpec(
+                                    SanctionType.MUTE, SanctionLength.temporary(Duration.ofHours(1))))))),
+                    new ReasonPolicy(
+                            "asset.confiscation", "asset", "Asset confiscation", 50, true,
+                            List.of(new PunishmentStep(0, "Confiscate", List.of(new SanctionSpec(
+                                    SanctionType.INVENTORY_CONFISCATION, SanctionLength.instant())))))
+            ));
             var authorization = new ActiveDutyAuthorizationPolicy(new DefaultAuthorizationPolicy(), id -> activeDuty.get());
             ModerationStore moderation = new ModerationStore() {
                 public List<PriorOffense> relatedHistory(UUID id, String family) { return List.of(); }

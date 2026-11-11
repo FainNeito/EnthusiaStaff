@@ -4,8 +4,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.staff.paper.visibility.VanishManager;
-import net.enthusia.staff.paper.auth.PaperStaffRankResolver;
-import org.bukkit.event.player.PlayerJoinEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -17,14 +15,13 @@ import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/** Keeps staff/vanish state visible without mutating the actor's own PlayerInfo entry. */
+/** Keeps staff/vanish state visible to the actor without mutating the actor's own PlayerInfo entry. */
 public final class StaffStatePresentation implements Listener {
     private static final long REFRESH_TICKS = 10L;
 
     private final JavaPlugin plugin;
     private final StaffModeManager staffMode;
     private final VanishManager vanish;
-    private final StaffGameModeShortcutHint shortcuts = new StaffGameModeShortcutHint();
     private final Set<UUID> indicatorVisible = ConcurrentHashMap.newKeySet();
 
     public StaffStatePresentation(JavaPlugin plugin, StaffModeManager staffMode, VanishManager vanish) {
@@ -36,14 +33,23 @@ public final class StaffStatePresentation implements Listener {
     public void start() {
         plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(plugin, ignored -> {
             for (Player player : plugin.getServer().getOnlinePlayers()) {
+                UUID playerId = player.getUniqueId();
+                if (!needsRefresh(playerId)) {
+                    continue;
+                }
                 player.getScheduler().run(plugin, ignoredEntity -> refresh(player), null);
             }
         }, 1L, REFRESH_TICKS);
     }
 
+    private boolean needsRefresh(UUID playerId) {
+        return staffMode.active(playerId)
+                || vanish.isVanished(playerId)
+                || indicatorVisible.contains(playerId);
+    }
+
     private void refresh(Player player) {
         UUID playerId = player.getUniqueId();
-        shortcuts.refresh(player, PaperStaffRankResolver.resolve(player::hasPermission).orElse(null));
         boolean staffActive = staffMode.active(playerId);
         boolean vanished = vanish.isVanished(playerId);
 
@@ -75,18 +81,13 @@ public final class StaffStatePresentation implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
-        Player player = event.getPlayer();
-        player.getScheduler().execute(plugin, () -> refresh(player), null, 1L);
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onJoin(PlayerJoinEvent event) {
-        refresh(event.getPlayer());
+        if (vanish.isVanished(event.getPlayer().getUniqueId())) {
+            refresh(event.getPlayer());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         indicatorVisible.remove(event.getPlayer().getUniqueId());
-        shortcuts.forget(event.getPlayer().getUniqueId());
     }
 }

@@ -34,7 +34,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public final class PunishmentRequestGuiController implements Listener {
     private static final int MAXIMUM_REQUESTS = 500;
-    private static final String REVIEW_PERMISSION = "enthusiastaff.punishment.requests.review";
     private static final String NOT_READY_MESSAGE = "Punishment request storage is not ready.";
 
     private final Plugin plugin;
@@ -376,7 +375,11 @@ public final class PunishmentRequestGuiController implements Listener {
             return;
         }
         PunishmentRequestResult result = decision.apply(service);
-        PunishmentRequestGuiState.RequestView resolvedView = resolvedView(service, actor, lease, result);
+        PunishmentRequestGuiState.RequestView resolvedView = result instanceof PunishmentRequestResult.Approved approved
+                ? view(approved.request())
+                : result instanceof PunishmentRequestResult.Denied denied
+                ? view(denied.request())
+                : resolvedView(service, actor, lease, result);
         onEntity(player, () -> presentDecision(player, result, resolvedView, returnPage));
     }
 
@@ -402,8 +405,11 @@ public final class PunishmentRequestGuiController implements Listener {
             PunishmentRequestGuiState.RequestView resolvedView,
             int returnPage
     ) {
-        decisionMessage(player, result);
-        if (!(result instanceof PunishmentRequestResult.Rejected)) {
+        decisionMessage(player, result, resolvedView);
+        if (result instanceof PunishmentRequestResult.Approved || result instanceof PunishmentRequestResult.Denied) {
+            player.openInventory(PunishmentRequestGuiRenderer.renderDetails(new PunishmentRequestGuiState.Details(
+                    resolvedView, returnPage
+            )));
             return;
         }
         if (resolvedView != null) {
@@ -417,10 +423,6 @@ public final class PunishmentRequestGuiController implements Listener {
     }
 
     private Actor authorizedActor(Player player) {
-        if (!player.hasPermission(REVIEW_PERMISSION)) {
-            player.sendMessage(StaffMessageStyle.style(Component.text("You do not have permission to review requests.", NamedTextColor.RED)));
-            return null;
-        }
         Actor actor = PaperActorResolver.resolve(player).orElse(null);
         if (actor == null
                 || !authorization.permits(actor, ModerationAction.APPROVE_POLICY_SANCTION)
@@ -499,13 +501,17 @@ public final class PunishmentRequestGuiController implements Listener {
         return new PunishmentRequestGuiState.RequestView(request, targetName(request));
     }
 
-    private static void decisionMessage(Player player, PunishmentRequestResult result) {
+    private void decisionMessage(Player player, PunishmentRequestResult result,
+            PunishmentRequestGuiState.RequestView resolvedView) {
         if (result instanceof PunishmentRequestResult.Approved approved) {
             player.sendMessage(StaffMessageStyle.style(Component.text(
-                    "Punishment request approved as case " + approved.caseId().value()
-                            + (approved.replayed() ? " (idempotent replay)." : "."),
+                    "Approved and saved | Case " + approved.caseId().value()
+                            + (approved.replayed() ? " (already processed)." : "."),
                     NamedTextColor.GREEN
             )));
+            PunishmentPublicAnnouncement.publish(plugin, approved.request().proposal().visibility(),
+                    approved.replayed(), resolvedView.targetName(),
+                    approved.request().proposal().sanctions(), approved.request().proposal().publicReason());
         } else if (result instanceof PunishmentRequestResult.Denied denied) {
             player.sendMessage(StaffMessageStyle.style(Component.text(
                     denied.replayed()
@@ -519,7 +525,7 @@ public final class PunishmentRequestGuiController implements Listener {
     }
 
     private static void rejection(Player player, PunishmentRequestResult.Rejected rejected) {
-        player.sendMessage(StaffMessageStyle.style(Component.text(rejected.code() + ": " + rejected.message(), NamedTextColor.RED)));
+        player.sendMessage(StaffMessageStyle.style(Component.text("Request not completed: " + rejected.message(), NamedTextColor.RED)));
     }
 
     private static PunishmentRequestResult.Rejected rejected(String code, String message) {

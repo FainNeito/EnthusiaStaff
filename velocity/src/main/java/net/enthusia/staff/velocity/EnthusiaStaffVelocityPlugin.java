@@ -14,8 +14,8 @@ import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
-import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -26,8 +26,6 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,21 +48,20 @@ import javax.net.ssl.SSLContext;
 import net.enthusia.staff.common.CaseId;
 import net.enthusia.staff.common.security.HmacTokenService;
 import net.enthusia.staff.common.security.NetworkIdentityProtector;
-import net.enthusia.staff.common.security.PrivateRuntimeSecrets;
 import net.enthusia.staff.common.security.SecretKeyMaterial;
+import net.enthusia.staff.common.security.PrivateRuntimeSecrets;
 import net.enthusia.staff.domain.OperationalMode;
 import net.enthusia.staff.domain.alt.AltRelationshipState;
 import net.enthusia.staff.domain.alt.AltRelationshipSummary;
 import net.enthusia.staff.domain.application.SanctionChangeService;
 import net.enthusia.staff.domain.auth.AuthorizationPolicy;
 import net.enthusia.staff.domain.auth.DefaultAuthorizationPolicy;
+import net.enthusia.staff.domain.moderation.CurrentLinkedMinecraftAccount;
 import net.enthusia.staff.domain.migration.CutoverAssessment;
 import net.enthusia.staff.domain.migration.CutoverEvidence;
 import net.enthusia.staff.domain.migration.DecisionComparison;
 import net.enthusia.staff.domain.migration.FounderOverride;
 import net.enthusia.staff.domain.migration.MigrationMode;
-import net.enthusia.staff.domain.moderation.CurrentLinkedMinecraftAccount;
-import net.enthusia.staff.domain.player.PlayerNames;
 import net.enthusia.staff.domain.player.PlayerPlatform;
 import net.enthusia.staff.domain.ports.AccountLinkingStore;
 import net.enthusia.staff.domain.ports.DiscordOutboxStore;
@@ -81,6 +78,7 @@ import net.enthusia.staff.domain.runtime.OperationalStateSnapshot;
 import net.enthusia.staff.domain.sanction.ActiveSanction;
 import net.enthusia.staff.domain.sanction.SanctionType;
 import net.enthusia.staff.domain.website.PunishmentCodeDisplay;
+import net.enthusia.staff.persistence.JdbcPolicyV2Store;
 import net.enthusia.staff.persistence.MariaDb;
 import net.enthusia.staff.persistence.MariaDbRuntime;
 import net.enthusia.staff.persistence.migration.CutoverOutcome;
@@ -100,10 +98,12 @@ import org.slf4j.Logger;
         version = "0.1.0-SNAPSHOT",
         description = "Enthusia Network staff and moderation runtime for Velocity",
         authors = {"P2wn"},
-        dependencies = {@Dependency(id = "velocitab", optional = true)}
+        dependencies = {
+                @Dependency(id = "velocitab", optional = true),
+                @Dependency(id = "luckperms", optional = true)
+        }
 )
 public final class EnthusiaStaffVelocityPlugin {
-    private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ISO_OFFSET_DATE_TIME.withZone(ZoneOffset.UTC);
     private static final Set<SanctionType> LOGIN_BLOCKS = Set.of(
             SanctionType.BAN, SanctionType.NETWORK_BAN, SanctionType.NETWORK_IDENTITY_BAN
     );
@@ -155,6 +155,7 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile VelocityConfiguration configuration;
     private volatile MariaDbRuntime databaseRuntime;
     private VelocitabStaffBridge staffTabBridge;
+    private VelocityStaffDutyContext staffDutyContext;
     private volatile SanctionLookup sanctionLookup;
     private volatile PlayerDirectory playerDirectory;
     private final VelocityPlayerSuggestions playerSuggestions;
@@ -167,7 +168,19 @@ public final class EnthusiaStaffVelocityPlugin {
     private volatile NetworkIdentityProtector networkIdentityProtector;
     private volatile boolean activeAuthorityObserved;
     private volatile ScheduledTask operationalStateTask;
+    private volatile ScheduledTask onlineAltReconciliationTask;
+    private final java.util.concurrent.atomic.AtomicBoolean onlineAltReconcileRunning =
+            new java.util.concurrent.atomic.AtomicBoolean();
+    private final java.util.concurrent.atomic.AtomicInteger onlineAltReconcileCursor =
+            new java.util.concurrent.atomic.AtomicInteger();
     private volatile PersistentChannelServer channelServer;
+    private volatile VelocityChatBridgeRelay chatBridgeRelay;
+    private volatile VelocityChatArtifactRelay chatArtifactRelay;
+    private volatile VelocityRenderedChatBridgeRelay renderedChatBridgeRelay;
+    private volatile VelocityDiscordChatIngressRelay discordChatIngressRelay;
+    private volatile VelocityChatBridgeRelay.Registration chatBridgeSinkRegistration;
+    private volatile VelocityChatArtifactRelay.Registration chatArtifactSinkRegistration;
+    private volatile VelocityRenderedChatBridgeRelay.Registration renderedChatBridgeSinkRegistration;
     private volatile NetworkOutboxWorker outboxWorker;
     private volatile DiscordOutboxWorker discordOutboxWorker;
     private volatile WebsiteModerationStore websiteModerationStore;
@@ -202,6 +215,9 @@ public final class EnthusiaStaffVelocityPlugin {
     public void onProxyInitialization(ProxyInitializeEvent ignored) {
         workers = createWorkers();
         staffTabBridge = VelocitabStaffBridge.start(this, proxy, logger, () -> databaseRuntime, workers).orElse(null);
+        staffDutyContext = VelocityStaffDutyContext.start(
+                this, proxy, logger, () -> staffSessionStore
+        ).orElse(null);
         registerCommands();
         health.update(OperationalMode.BOOTSTRAP, Map.of("bootstrap", "MariaDB initialization is in progress"));
         VelocityBootstrapCoordinator coordinator = new VelocityBootstrapCoordinator(
@@ -308,6 +324,8 @@ public final class EnthusiaStaffVelocityPlugin {
         }
         cancelScheduledTask("operational state refresh", operationalStateTask);
         operationalStateTask = null;
+        cancelScheduledTask("online alt reconciliation", onlineAltReconciliationTask);
+        onlineAltReconciliationTask = null;
         closeOutboxWorker();
         closeDiscordWorker();
         cancelScheduledTask("website maintenance", websiteMaintenanceTask);
@@ -318,6 +336,9 @@ public final class EnthusiaStaffVelocityPlugin {
         closeChannelServer();
         if (staffTabBridge != null) {
             staffTabBridge.close();
+        }
+        if (staffDutyContext != null) {
+            staffDutyContext.close();
         }
         workers.shutdown();
         try {
@@ -480,6 +501,10 @@ public final class EnthusiaStaffVelocityPlugin {
         operationalStateTask = proxy.getScheduler().buildTask(this, this::refreshOperationalState)
                 .repeat(5, TimeUnit.SECONDS)
                 .schedule();
+        onlineAltReconciliationTask = proxy.getScheduler()
+                .buildTask(this, this::queueOnlineAltReconciliation)
+                .delay(15, TimeUnit.SECONDS)
+                .repeat(15, TimeUnit.SECONDS).schedule();
         initializeShadowMigrationSchedule(loaded);
         logger.info("MariaDB verified; Velocity moderation authority is {}", state.mode());
     }
@@ -520,6 +545,8 @@ public final class EnthusiaStaffVelocityPlugin {
     private void cleanupFailedInitialization(MariaDbRuntime opened) {
         cancelScheduledTask("failed operational state refresh", operationalStateTask);
         operationalStateTask = null;
+        cancelScheduledTask("failed online alt reconciliation", onlineAltReconciliationTask);
+        onlineAltReconciliationTask = null;
         cancelScheduledTask("failed website maintenance", websiteMaintenanceTask);
         websiteMaintenanceTask = null;
         cancelScheduledTask("failed shadow migration", shadowMigrationTask);
@@ -617,13 +644,90 @@ public final class EnthusiaStaffVelocityPlugin {
     @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
     // Clear the published reference before closing; SLF4J placeholders defer formatting.
     private void closeChannelServer() {
+        closeChatBridgeRelay();
+        VelocityDiscordChatIngressRelay inboundRelay = discordChatIngressRelay;
+        discordChatIngressRelay = null;
         PersistentChannelServer server = channelServer;
         channelServer = null;
+        if (inboundRelay != null) {
+            try {
+                inboundRelay.unbind(server);
+                inboundRelay.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity Discord chat ingress cleanup failed ({})", exception.getClass().getSimpleName());
+            }
+        }
         if (server != null) {
             try {
                 server.close();
             } catch (RuntimeException exception) {
                 logger.warn("Persistent channel cleanup failed ({})", exception.getClass().getSimpleName());
+            }
+        }
+    }
+
+    @SuppressWarnings({"PMD.NullAssignment", "PMD.GuardLogStatement"})
+    private void closeChatBridgeRelay() {
+        VelocityChatArtifactRelay.Registration artifactRegistration =
+                chatArtifactSinkRegistration;
+        chatArtifactSinkRegistration = null;
+        if (artifactRegistration != null) {
+            try {
+                artifactRegistration.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity chat artifact sink cleanup failed ({})",
+                        exception.getClass().getSimpleName());
+            }
+        }
+        VelocityChatArtifactRelay artifactRelay = chatArtifactRelay;
+        chatArtifactRelay = null;
+        if (artifactRelay != null) {
+            try {
+                artifactRelay.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity chat artifact relay cleanup failed ({})",
+                        exception.getClass().getSimpleName());
+            }
+        }
+
+        VelocityRenderedChatBridgeRelay.Registration renderedRegistration =
+                renderedChatBridgeSinkRegistration;
+        renderedChatBridgeSinkRegistration = null;
+        if (renderedRegistration != null) {
+            try {
+                renderedRegistration.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity styled chat sink cleanup failed ({})",
+                        exception.getClass().getSimpleName());
+            }
+        }
+        VelocityRenderedChatBridgeRelay renderedRelay = renderedChatBridgeRelay;
+        renderedChatBridgeRelay = null;
+        if (renderedRelay != null) {
+            try {
+                renderedRelay.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity styled chat relay cleanup failed ({})",
+                        exception.getClass().getSimpleName());
+            }
+        }
+
+        VelocityChatBridgeRelay.Registration registration = chatBridgeSinkRegistration;
+        chatBridgeSinkRegistration = null;
+        if (registration != null) {
+            try {
+                registration.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity chat sink cleanup failed ({})", exception.getClass().getSimpleName());
+            }
+        }
+        VelocityChatBridgeRelay relay = chatBridgeRelay;
+        chatBridgeRelay = null;
+        if (relay != null) {
+            try {
+                relay.close();
+            } catch (RuntimeException exception) {
+                logger.warn("Velocity chat relay cleanup failed ({})", exception.getClass().getSimpleName());
             }
         }
     }
@@ -710,19 +814,57 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         if (loaded.backendSecretEnvironments().isEmpty()) {
-            throw new IllegalStateException("No required backend channel secrets are configured");
+            throw new IllegalStateException("No authenticated channel peer secrets are configured");
         }
-        Map<String, SecretKey> backendKeys = new LinkedHashMap<>();
+        Map<String, SecretKey> peerKeys = new LinkedHashMap<>();
         loaded.backendSecretEnvironments().forEach((serverId, environment) ->
-                backendKeys.put(serverId, secretFromEnvironment(environment)));
+                peerKeys.put(serverId, secretFromEnvironment(environment)));
+        final Set<String> requiredBackends;
+        try {
+            VelocityChannelPeerPolicy.validateIndependentStaffBotSecrets(peerKeys);
+            requiredBackends = VelocityChannelPeerPolicy.requiredPaperBackends(peerKeys.keySet());
+            VelocityChannelPeerPolicy.validateProxyIdentity(loaded.channelProxyId(), peerKeys.keySet());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException("Persistent channel peer policy is invalid", exception);
+        }
         SecretKey proxyKey = secretFromEnvironment(loaded.channelProxySecretEnvironment());
         SSLContext tlsContext = serverTlsContext(loaded);
+        VelocityChatBridgeRelay relay = new VelocityChatBridgeRelay(Clock.systemUTC());
+        VelocityChatArtifactRelay artifactRelay = new VelocityChatArtifactRelay(Clock.systemUTC());
+        VelocityRenderedChatBridgeRelay renderedRelay = new VelocityRenderedChatBridgeRelay(Clock.systemUTC());
+        VelocityDiscordChatIngressRelay inboundRelay = new VelocityDiscordChatIngressRelay(
+                Set.copyOf(requiredBackends), Clock.systemUTC());
+        VelocityStaffBotChatHealthRelay healthRelay =
+                new VelocityStaffBotChatHealthRelay(Set.copyOf(requiredBackends), Clock.systemUTC());
+        chatBridgeRelay = relay;
+        chatArtifactRelay = artifactRelay;
+        renderedChatBridgeRelay = renderedRelay;
+        discordChatIngressRelay = inboundRelay;
         try {
             PersistentChannelServer server = createChannelServer(
-                    loaded, outbox, backendKeys, proxyKey, tlsContext
+                    loaded,
+                    outbox,
+                    peerKeys,
+                    Set.copyOf(requiredBackends),
+                    proxyKey,
+                    tlsContext,
+                    relay,
+                    artifactRelay,
+                    renderedRelay,
+                    inboundRelay,
+                    healthRelay
             );
             server.start();
+            inboundRelay.bind(server);
+            healthRelay.bind(server);
             channelServer = server;
+            if (peerKeys.keySet().stream().anyMatch(VelocityStaffBotPeerRoute::isStaffBotPeer)) {
+                chatBridgeSinkRegistration = relay.installSink(new VelocityStaffBotChatSink(server));
+                chatArtifactSinkRegistration = artifactRelay.installSink(
+                        new VelocityStaffBotChatArtifactSink(server));
+                renderedChatBridgeSinkRegistration = renderedRelay.installSink(
+                        new VelocityStaffBotRenderedChatSink(server));
+            }
             outboxWorker = new NetworkOutboxWorker(
                     this,
                     proxy,
@@ -731,50 +873,79 @@ public final class EnthusiaStaffVelocityPlugin {
                     workers,
                     outbox,
                     server,
-                    backendKeys.keySet()
+                    Set.copyOf(requiredBackends)
             );
             outboxWorker.start();
         } catch (java.io.IOException exception) {
+            closeChannelServer();
             throw new IllegalStateException("Unable to bind the persistent backend channel", exception);
+        } catch (RuntimeException exception) {
+            closeChannelServer();
+            throw exception;
         }
     }
 
     private PersistentChannelServer createChannelServer(
             VelocityConfiguration loaded,
             NetworkOutboxStore outbox,
-            Map<String, SecretKey> backendKeys,
+            Map<String, SecretKey> peerKeys,
+            Set<String> paperBackendIds,
             SecretKey proxyKey,
-            SSLContext tlsContext
+            SSLContext tlsContext,
+            VelocityChatBridgeRelay chatRelay,
+            VelocityChatArtifactRelay artifactRelay,
+            VelocityRenderedChatBridgeRelay renderedChatRelay,
+            VelocityDiscordChatIngressRelay discordIngressRelay,
+            VelocityStaffBotChatHealthRelay chatHealthRelay
     ) throws java.net.UnknownHostException {
         return new PersistentChannelServer(
                 new PersistentChannelServer.Configuration(
                         loaded.channelProxyId(),
                         InetAddress.getByName(loaded.channelBindAddress()),
                         loaded.channelPort(),
-                        backendKeys,
+                        peerKeys,
                         proxyKey,
                         tlsContext,
-                        backendKeys.size() + 2
+                        peerKeys.size() + 2
                 ),
                 Clock.systemUTC(),
-                envelope -> {
-                    if (acceptTransferSnapshot(envelope)) {
-                        return true;
-                    }
-                    if (networkVerifier.acceptReport(envelope) || acceptStaffModeReady(envelope)) {
-                        return true;
-                    }
-                    outbox.recordInboxOnce(
-                            loaded.serverId(),
-                            envelope.messageId(),
-                            envelope.messageType(),
-                            "{\"outcome\":\"accepted\"}",
-                            Clock.systemUTC().instant()
-                    );
-                    return true;
-                },
+                new VelocityChannelMessageRouter(
+                        paperBackendIds,
+                        chatRelay,
+                        artifactRelay,
+                        renderedChatRelay,
+                        discordIngressRelay,
+                        chatHealthRelay,
+                        envelope -> {
+                            if (acceptTransferSnapshot(envelope)) {
+                                return true;
+                            }
+                            if (networkVerifier.acceptReport(envelope) || acceptStaffModeReady(envelope)) {
+                                return true;
+                            }
+                            outbox.recordInboxOnce(
+                                    loaded.serverId(),
+                                    envelope.messageId(),
+                                    envelope.messageType(),
+                                    "{\"outcome\":\"accepted\"}",
+                                    Clock.systemUTC().instant()
+                            );
+                            return true;
+                        }
+                ),
                 warning -> logger.warn("{}", warning)
         );
+    }
+
+    private static boolean allPaperBackendsConnected(
+            VelocityConfiguration loaded,
+            PersistentChannelServer channel
+    ) {
+        return loaded != null
+                && channel != null
+                && VelocityChannelPeerPolicy.allPaperBackendsConnected(
+                        loaded.backendSecretEnvironments().keySet(),
+                        channel.connectedServers());
     }
 
     private void initializeNetworkIdentity(VelocityConfiguration loaded, NetworkIdentityStore store) {
@@ -875,7 +1046,18 @@ public final class EnthusiaStaffVelocityPlugin {
                         Duration.ofSeconds(loaded.websiteApiTimestampSkewSeconds()),
                         store
                 ),
-                new WebsiteApiRouter(store, authorization, sanctionChanges, authorityMode::get, apiClock),
+                new WebsiteApiRouter(
+                        store,
+                        authorization,
+                        sanctionChanges,
+                        authorityMode::get,
+                        apiClock,
+                        WebsiteReviewerAuthority.production(logger),
+                        new PolicyV2PublicWebsiteView(new JdbcPolicyV2Store(runtime.dataSource()))
+                ).withAccounts(new WebsiteAccountReader(runtime.dataSource(), apiClock, discordId ->
+                        net.enthusia.staff.domain.application.AccountLinkingService.issueFromDiscord(
+                                apiClock, new java.security.SecureRandom(), runtime.discordModerationPersistenceStore(),
+                                runtime.accountLinkingStore(), discordId))),
                 apiClock,
                 (message, failure) -> logger.error(message, failure)
         );
@@ -957,6 +1139,57 @@ public final class EnthusiaStaffVelocityPlugin {
         }
     }
 
+    /**
+     * Rechecks only verified linked accounts and previously adjudicated high-confidence
+     * relationships while they remain online. Shared-network hints never trigger this path.
+     * A rotating 24-player batch prevents a full-network synchronous database scan.
+     */
+    private void queueOnlineAltReconciliation() {
+        if (authorityMode.get() != OperationalMode.ACTIVE || shuttingDown.get()
+                || configuration == null || !configuration.altInheritanceEnabled()
+                || networkIdentityStore == null
+                || !onlineAltReconcileRunning.compareAndSet(false, true)) {
+            return;
+        }
+        if (!submitWorker(() -> {
+            try {
+                reconcileOnlineAlts();
+            } finally {
+                onlineAltReconcileRunning.set(false);
+            }
+        })) {
+            onlineAltReconcileRunning.set(false);
+        }
+    }
+
+    private void reconcileOnlineAlts() {
+        NetworkIdentityStore store = networkIdentityStore;
+        if (store == null || configuration == null || !configuration.altInheritanceEnabled()
+                || authorityMode.get() != OperationalMode.ACTIVE || shuttingDown.get()) {
+            return;
+        }
+        List<UUID> players = proxy.getAllPlayers().stream()
+                .map(com.velocitypowered.api.proxy.Player::getUniqueId)
+                .sorted().toList();
+        if (players.isEmpty()) {
+            return;
+        }
+        int start = Math.floorMod(onlineAltReconcileCursor.getAndAdd(24), players.size());
+        int count = Math.min(24, players.size());
+        Instant now = Clock.systemUTC().instant();
+        for (int index = 0; index < count && authorityMode.get() == OperationalMode.ACTIVE; index++) {
+            UUID id = players.get((start + index) % players.size());
+            try {
+                store.observeConnectedAlts(id, now, false);
+            } catch (RuntimeException exception) {
+                health.update(OperationalMode.DEGRADED,
+                        Map.of("alt-reconciliation", "Online identity reconciliation failed"));
+                logger.warn("Unable to reconcile current authoritative alt sanctions", exception);
+                return;
+            }
+        }
+    }
+
     private void enforceLogin(LoginEvent event) {
         OperationalMode current = authorityMode.get();
         if (!recordPlayerAndNetworkIdentitySafely(event, current)) {
@@ -1000,17 +1233,17 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         try {
+            Instant now = Clock.systemUTC().instant();
             List<ActiveSanction> sanctions = lookup.activeFor(
-                    event.getPlayer().getUniqueId(), LOGIN_BLOCKS, Clock.systemUTC().instant()
+                    event.getPlayer().getUniqueId(), LOGIN_BLOCKS, now
             );
             if (!sanctions.isEmpty()) {
                 ActiveSanction sanction = sanctions.getFirst();
-                String expiration = sanction.expiresAt().map(TIMESTAMP::format).orElse("Permanent");
-                event.setResult(ResultedEvent.ComponentResult.denied(Component.text(
-                        "Network access denied\nCase: " + sanction.caseId() + "\nReason: "
-                                + sanction.publicReason() + "\nExpires: " + expiration
-                                + appealInstructions(sanction)
-                )));
+                event.setResult(ResultedEvent.ComponentResult.denied(
+                        VelocityPunishmentDisconnectRenderer.render(
+                                sanction, now, appealsUrl(), appealCode(sanction)
+                        )
+                ));
             }
         } catch (RuntimeException exception) {
             activeAuthorityObserved = true;
@@ -1033,11 +1266,16 @@ public final class EnthusiaStaffVelocityPlugin {
         directory.recordSeen(playerId, event.getPlayer().getUsername(), PlayerPlatform.JAVA, loaded.serverId(), now);
         NetworkIdentityStore identityStore = networkIdentityStore;
         NetworkIdentityProtector protector = networkIdentityProtector;
-        if (identityStore == null || protector == null) {
+        if (identityStore == null || !loaded.altInheritanceEnabled()) {
+            return;
+        }
+        boolean suppressEvidence = current != OperationalMode.ACTIVE;
+        // Verified Discord peers and manual high-confidence alts work even with IP matching disabled.
+        identityStore.observeConnectedAlts(playerId, now, suppressEvidence);
+        if (protector == null) {
             return;
         }
         byte[] rawAddress = event.getPlayer().getRemoteAddress().getAddress().getAddress();
-        boolean suppressEvidence = current != OperationalMode.ACTIVE;
         try {
             identityStore.observeAndInherit(playerId, protector.protect(rawAddress), now, suppressEvidence);
         } finally {
@@ -1060,8 +1298,7 @@ public final class EnthusiaStaffVelocityPlugin {
 
     private void addChannelIssue(Map<String, String> issues, VelocityConfiguration loaded) {
         PersistentChannelServer channel = channelServer;
-        if (loaded == null || channel == null
-                || !channel.connectedServers().containsAll(loaded.backendSecretEnvironments().keySet())) {
+        if (!allPaperBackendsConnected(loaded, channel)) {
             issues.put("channel", "Every configured Paper backend is not authenticated and connected");
         }
     }
@@ -1114,7 +1351,7 @@ public final class EnthusiaStaffVelocityPlugin {
             return;
         }
         if (event.getPreviousServer() == null) {
-            // Initial asset routing already applies Staff reconnect only when no asset owns admission.
+            // Initial asset routing invokes Staff reconnect only when no asset owns admission.
             return;
         }
         enforceModerationSwitchSafety(event);
@@ -1194,15 +1431,16 @@ public final class EnthusiaStaffVelocityPlugin {
             UUID playerId = event.getPlayer().getUniqueId();
             Instant now = Clock.systemUTC().instant();
             Optional<String> inventoryOwner = inventories.lockedOwningServer(playerId, now);
+            Optional<String> economyOwner = economies.lockedOwningServer(playerId);
             if (event.getPreviousServer() == null) {
                 return initialAssetFencesAllowSwitch(
-                        event, inventoryOwner, economies.lockedOwningServer(playerId), requested
+                        event, inventories, inventoryOwner, economyOwner, requested, now
                 );
             }
             if (denyOwnerMismatch(event, inventoryOwner, requested, "inventory")) {
                 return false;
             }
-            return !denyOwnerMismatch(event, economies.lockedOwningServer(playerId), requested, "economy");
+            return !denyOwnerMismatch(event, economyOwner, requested, "economy");
         } catch (RuntimeException exception) {
             logger.error("Asset fence lookup failed during server connection", exception);
             denyServerSwitchWhenActive(event, "Asset safety status could not be verified.");
@@ -1212,9 +1450,11 @@ public final class EnthusiaStaffVelocityPlugin {
 
     private boolean initialAssetFencesAllowSwitch(
             ServerPreConnectEvent event,
+            InventoryJournalStore inventories,
             Optional<String> inventoryOwner,
             Optional<String> economyOwner,
-            String requested
+            String requested,
+            Instant now
     ) {
         if (inventoryOwner.isPresent() && economyOwner.isPresent()
                 && !inventoryOwner.orElseThrow().equalsIgnoreCase(economyOwner.orElseThrow())) {
@@ -1234,8 +1474,6 @@ public final class EnthusiaStaffVelocityPlugin {
             enforceStaffReconnectOwnership(event);
             return true;
         }
-        // Even when the requested backend already owns the asset, Staff reconnect
-        // must not override that backend with a different snapshot owner.
         if (owner.orElseThrow().equalsIgnoreCase(requested)) {
             return true;
         }
@@ -1251,6 +1489,53 @@ public final class EnthusiaStaffVelocityPlugin {
                     requested,
                     required
             );
+            return true;
+        }
+
+        if (inventoryOwner.isPresent() && economyOwner.isEmpty()
+                && inventories.resolveAbandonedOfflineEdit(
+                        event.getPlayer().getUniqueId(), required, now
+                )) {
+            Optional<String> remainingOwner = inventories.lockedOwningServer(
+                    event.getPlayer().getUniqueId(),
+                    now
+            );
+            if (remainingOwner.isPresent() && !remainingOwner.orElseThrow().equalsIgnoreCase(requested)) {
+                String remaining = remainingOwner.orElseThrow();
+                Optional<com.velocitypowered.api.proxy.server.RegisteredServer> backend = proxy.getServer(remaining);
+                if (backend.isPresent()) {
+                    event.setResult(ServerPreConnectEvent.ServerResult.allowed(backend.orElseThrow()));
+                    logger.warn(
+                            "Resolved one abandoned offline inventory edit for {} ({}); routing remaining recovery to {}",
+                            event.getPlayer().getUsername(),
+                            event.getPlayer().getUniqueId(),
+                            remaining
+                    );
+                    return true;
+                }
+                logger.warn(
+                        "Resolved one abandoned offline inventory edit for {} ({}), but another recovery owner {} is unavailable",
+                        event.getPlayer().getUsername(),
+                        event.getPlayer().getUniqueId(),
+                        remaining
+                );
+                denyServerSwitch(
+                        event,
+                        "Another protected inventory recovery is assigned to unavailable backend "
+                                + remaining + ". Please contact staff."
+                );
+                return false;
+            }
+            logger.warn(
+                    "Resolved abandoned offline inventory edit for {} ({}) owned by unavailable backend {}; allowing {}",
+                    event.getPlayer().getUsername(),
+                    event.getPlayer().getUniqueId(),
+                    required,
+                    requested
+            );
+            if (remainingOwner.isEmpty()) {
+                enforceStaffReconnectOwnership(event);
+            }
             return true;
         }
 
@@ -1646,18 +1931,17 @@ public final class EnthusiaStaffVelocityPlugin {
         return loaded == null ? "https://enthusia.net/appeals" : loaded.appealsUrl();
     }
 
-    private String appealInstructions(ActiveSanction sanction) {
+    private Optional<String> appealCode(ActiveSanction sanction) {
         WebsiteModerationStore store = websiteModerationStore;
         if (store == null) {
-            return "\nAppeal: " + appealsUrl();
+            return Optional.empty();
         }
         try {
             return store.codeForSanction(sanction.sanctionId(), Clock.systemUTC().instant())
-                    .map(code -> "\nAppeal: " + appealsUrl() + "\nPunishment code: " + code.code())
-                    .orElse("\nAppeal: " + appealsUrl());
+                    .map(PunishmentCodeDisplay::code);
         } catch (RuntimeException exception) {
             logger.error("A punishment code could not be prepared for a denied login", exception);
-            return "\nAppeal: " + appealsUrl();
+            return Optional.empty();
         }
     }
 
@@ -1774,6 +2058,32 @@ public final class EnthusiaStaffVelocityPlugin {
                 : "";
     }
 
+    private boolean requireActiveStaffDuty(CommandSource source) {
+        if (!(source instanceof Player player)) {
+            return true;
+        }
+        StaffSessionStore store = staffSessionStore;
+        String backend = player.getCurrentServer()
+                .map(connection -> connection.getServerInfo().getName())
+                .orElse(null);
+        boolean active = false;
+        if (store != null && backend != null) {
+            try {
+                active = VelocityStaffDutyContext.matchesActiveSession(
+                        store.active(player.getUniqueId()), backend
+                );
+            } catch (RuntimeException exception) {
+                logger.warn("Unable to verify Staff Mode session for proxy command", exception);
+            }
+        }
+        if (!active) {
+            source.sendMessage(VelocityMessageStyle.style(Component.text(
+                    "That command requires active staff mode. Use /staff on a backend first."
+            )));
+        }
+        return active;
+    }
+
     private final class AltsCommand implements SimpleCommand {
         @Override
         public CompletableFuture<List<String>> suggestAsync(Invocation invocation) {
@@ -1787,6 +2097,9 @@ public final class EnthusiaStaffVelocityPlugin {
         @Override
         public void execute(Invocation invocation) {
             CommandSource source = invocation.source();
+            if (!requireActiveStaffDuty(source)) {
+                return;
+            }
             String[] arguments = invocation.arguments();
             if (arguments.length != SINGLE_OPERATION_ARGUMENT) {
                 source.sendMessage(VelocityMessageStyle.style(Component.text("Usage: /alts <player>")));
@@ -1810,8 +2123,7 @@ public final class EnthusiaStaffVelocityPlugin {
                         target,
                         linkedAccounts.orElseGet(List::of),
                         linkedAccounts.isPresent(),
-                        relationships,
-                        new PlayerNames(directory)
+                        relationships
                 ).forEach(source::sendMessage);
             });
         }
@@ -1841,6 +2153,9 @@ public final class EnthusiaStaffVelocityPlugin {
         @Override
         public void execute(Invocation invocation) {
             CommandSource source = invocation.source();
+            if (!requireActiveStaffDuty(source)) {
+                return;
+            }
             String[] arguments = invocation.arguments();
             if (arguments.length < MINIMUM_ALT_ARGUMENTS) {
                 source.sendMessage(VelocityMessageStyle.style(Component.text(
@@ -1925,6 +2240,9 @@ public final class EnthusiaStaffVelocityPlugin {
         try {
             workers.execute(() -> {
                 try {
+                    if (!requireActiveStaffDuty(source)) {
+                        return;
+                    }
                     operation.run();
                 } catch (RuntimeException exception) {
                     logger.error("Alt command failed", exception);
@@ -1941,7 +2259,11 @@ public final class EnthusiaStaffVelocityPlugin {
         public void execute(Invocation invocation) {
             CommandSource source = invocation.source();
             String[] arguments = invocation.arguments();
-            switch (normalizedArgument(arguments, ROOT_OPERATION_INDEX)) {
+            String operation = normalizedArgument(arguments, ROOT_OPERATION_INDEX);
+            if (!operation.isEmpty() && !requireActiveStaffDuty(source)) {
+                return;
+            }
+            switch (operation) {
                 case "reload" -> executeReload(source, arguments);
                 case "verify" -> executeVerify(source, arguments);
                 case "migration" -> executeMigration(source, arguments);
@@ -2707,8 +3029,7 @@ public final class EnthusiaStaffVelocityPlugin {
         ) {
             VelocityConfiguration loaded = configuration;
             PersistentChannelServer channel = channelServer;
-            if (loaded == null || channel == null
-                    || !channel.connectedServers().containsAll(loaded.backendSecretEnvironments().keySet())) {
+            if (!allPaperBackendsConnected(loaded, channel)) {
                 source.sendMessage(VelocityMessageStyle.style(Component.text(
                         "Cutover blocked: every configured Paper backend must have an authenticated persistent connection."
                 )));

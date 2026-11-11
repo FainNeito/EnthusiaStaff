@@ -4,13 +4,13 @@ This document is the concise feature index for future Enthusia documentation/wik
 
 ## Deployment / authority status
 
-EnthusiaStaff is currently **pre-release** on `main`. The latest production server-state snapshot does not contain an active `plugins/EnthusiaStaff/` deployment. LiteBans remains the production punishment authority until the Staff migration/shadow/cutover gates are completed.
+EnthusiaStaff is **live on the Enthusia Network** and remains under active development. Current `main` contains both deployed behavior and work that is still staged, shadow-only, provider-blocked, or awaiting hands-on acceptance. LiteBans has been removed from the current network; its migration/cutover documentation is retained as historical and compatibility material.
 
 Therefore:
 
-- the features below describe the implemented/target EnthusiaStaff runtime,
-- they must not be represented publicly as the current live moderation authority until cutover is recorded,
-- public punishment pages and appeals should be described as upcoming until the website/API deployment is confirmed.
+- the features below must be described according to their individual live/staged/planned status rather than calling the entire plugin pre-release,
+- merged code is not automatically proof that a feature has been deployed or accepted on every backend,
+- public punishment pages and appeals should still be described according to their actual website/API deployment state.
 
 ## Runtime shape
 
@@ -81,7 +81,7 @@ Freeze state is designed to survive ordinary runtime transitions rather than bei
 
 ## Staff mode and tools
 
-`/staff` enters/exits durable staff mode. Fresh entry automatically enables durable vanish; entering while already vanished never toggles it off. If automatic vanish cannot be saved, the same newly entered session exits through normal snapshot restoration. Recovery and cross-server resumes retain their existing visibility state, and existing rank-specific exit behavior remains intact.
+`/staff` enters/exits durable staff mode. Fresh entry uses the configured/remembered visibility policy for vanish-capable ranks. Helpers are always forced visible and cannot enable full vanish through `/vanish`, Staff Mode entry options, direct permission grants, persisted state, or cross-server snapshots. If an allowed visibility transition cannot be saved, the same newly entered session exits through normal snapshot restoration. Recovery and cross-server resumes remain subject to current rank policy.
 
 Player-name arguments use bounded, case-insensitive completion with permission and visibility filtering. This includes direct moderation/report/history/client/inventory commands, inspector sub-actions, freeze targets, staff flags, staff-tool follow/spectate, tester/fake-base targets, and console-only staff recovery/API targets. Paper suggests visible local online names and retains its existing offline inventory cache. Velocity `/alts` and both `/alt` player arguments asynchronously suggest known network names, including offline accounts. Reason, case-ID, draft-ID and confirmation inputs retain their existing completion. These changes are unmerged proposals; live Java/Bedrock acceptance remains pending.
 
@@ -93,7 +93,7 @@ Staff tools have explicit exemptions/permissions so ordinary moderation helpers 
 
 ## Vanish
 
-`/vanish` controls durable, rank-aware vanish. The implementation separately supports tab-list presentation through `/vanish tab <show|hide>`.
+`/vanish` controls durable, rank-aware vanish for Mod, Developer, Admin, and Founder. Helper has no full-vanish authority. The implementation separately supports tab-list presentation through `/vanish tab <show|hide>` where that presentation policy permits it.
 
 Vanish is designed around staff hierarchy and recovery rather than only `Player#hidePlayer` state.
 
@@ -193,20 +193,15 @@ Until that website/API deployment is confirmed, future wiki generation should la
 
 Private reports, staff notes, sensitive evidence, protected identity data and internal case material must never be treated as public merely because a website API exists.
 
-## LiteBans migration and cutover
+## Historical LiteBans migration and cutover
 
-LiteBans remains authoritative until the migration program completes. The repository contains dedicated documentation for:
+LiteBans has been removed from the current Enthusia network. The repository retains the original migration, shadow-mode, cutover, and rollback documentation because it records important compatibility, recovery, and historical design constraints.
 
-- LiteBans import/migration,
-- shadow mode,
-- cutover,
-- rollback.
+Current documentation should not present LiteBans as the live production authority. Old ADRs, dated handoffs, validation reports, and legacy wiki snapshots may still contain that wording because they describe the state at the time.
 
-No build or documentation change itself performs production cutover. A future wiki should switch its wording from “planned” to “live” only when production authority has actually moved to EnthusiaStaff.
+## Player-facing impact
 
-## Player-facing impact after cutover
-
-Once active, the pieces ordinary players are expected to notice are primarily:
+For the corresponding live/enabled surfaces, the pieces ordinary players are expected to notice are primarily:
 
 - consistent punishment enforcement across the network,
 - warnings/mutes/bans/kicks from one system,

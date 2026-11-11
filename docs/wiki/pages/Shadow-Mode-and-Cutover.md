@@ -1,6 +1,8 @@
 # Shadow Mode and Cutover
 
-Shadow mode proves that EnthusiaStaff reaches the same enforcement decisions as
+> **Historical migration documentation:** EnthusiaStaff is live on the Enthusia Network and LiteBans has been removed from the current network. The procedure below records the old authority-transition safety model and remains useful for audit/rollback reasoning.
+
+Shadow mode was used to prove that EnthusiaStaff reached the same enforcement decisions as
 LiteBans without enforcing them.
 
 ## Shadow mode
@@ -9,7 +11,7 @@ Default duration: exactly **168 continuous hours**.
 
 During shadow:
 
-- LiteBans remains authoritative.
+- LiteBans remained authoritative for the duration of the migration shadow.
 - EnthusiaStaff mirrors new and imported punishment state.
 - EnthusiaStaff calculates expected login, mute, and network decisions.
 - The decisions are compared and recorded.

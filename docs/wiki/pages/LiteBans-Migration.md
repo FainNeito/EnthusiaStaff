@@ -1,10 +1,12 @@
 # LiteBans Migration
 
-LiteBans migration is a controlled data and authority transition. Importing
-rows is not the same as completing cutover.
+> **Historical migration documentation:** EnthusiaStaff is live on the Enthusia Network and LiteBans has been removed from the current network. This page is retained for audit, rollback history, and legacy migration tooling.
 
-> LiteBans remains authoritative until preflight, import, exact 168-hour shadow
-> comparison, final reconciliation, and cutover all pass.
+LiteBans migration was a controlled data and authority transition. Importing
+rows was not the same as completing cutover.
+
+> During the migration, LiteBans remained authoritative until preflight, import,
+> shadow comparison, final reconciliation, and cutover passed.
 
 ## Imported records
 

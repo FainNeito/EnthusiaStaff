@@ -71,7 +71,7 @@ enum StaffToolDefinition {
             true,
             false,
             CooldownClass.TARGET,
-            "Right-click a player to follow them in spectator mode."
+            "Right-click a player to follow them. Right-click air to stop."
     ),
     VANISH(
             "vanish",
@@ -104,7 +104,7 @@ enum StaffToolDefinition {
             false,
             false,
             CooldownClass.MENU,
-            "Right-click to open the staff tools menu."
+            "Right-click to open tools; sneak + right-click to launch forward."
     );
 
     enum CooldownClass {
@@ -180,6 +180,9 @@ enum StaffToolDefinition {
 
     boolean availableFor(StaffRank rank) {
         if (rank == null || rank == StaffRank.SYSTEM) {
+            return false;
+        }
+        if (this == VANISH && rank == StaffRank.HELPER) {
             return false;
         }
         return !advancedOnly || StaffModeAccessPolicy.hasAdvancedStaffTools(rank);

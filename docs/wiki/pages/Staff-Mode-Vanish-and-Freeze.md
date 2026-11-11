@@ -35,13 +35,23 @@ Enter or leave with:
 
 ```text
 /staff
+/staff -v
+/staff vanish
+/staff -nv
+/staff visible
+/staff recover
 ```
+
+Bare `/staff` restores the remembered vanish preference for vanish-capable ranks. `-v` / `vanish` enters vanished, while
+`-nv` / `visible` enters visible. **Helpers are always visible and cannot enter full vanish**; a Helper's old remembered or explicit vanish choice is forced visible. `/staff recover` retains its existing durable snapshot-recovery role.
 
 Staff mode durably records the normal player state **before** applying the temporary staff profile. That saved state is the recovery authority for inventory, armor, offhand, XP, health/hunger, effects, location/server, game mode, flight and other owned state.
 
 Entry should fail closed when combat safety, storage, worker capacity, or durable snapshot creation cannot be proved. A reconnect or restart recovers the existing durable session rather than creating a new “normal” snapshot from temporary staff state.
 
-The pending investigation-tools PR makes fresh Staff Mode entry enable vanish automatically. An already vanished staff member stays vanished. If vanish cannot be saved, the same fresh session leaves Staff Mode through normal snapshot restoration; failed restoration retains the existing recovery protections. Recovery and cross-server resumes preserve their prior visibility choice. This proposal does not change the existing rank-specific vanish behavior on exit.
+Fresh Staff Mode entry resolves visibility in this order: explicit command override, remembered preference, then first-use default of vanish ON. Helper is the exception: Helper entry is always forced visible and cannot enable vanish through an old preference, an explicit `-v`, a direct permission grant, or a transferred/persisted vanish snapshot. The preference is loaded before Staff Mode activation and the resolved choice is staged for the normal serialized vanish path. If the visibility choice cannot be persisted/applied, the fresh session leaves Staff Mode through normal snapshot restoration; failed restoration retains the existing recovery protections. Recovery and cross-server resume paths preserve allowed visibility state rather than bypassing current rank policy.
+
+Mod, Developer, Admin, and Founder require an active Staff Mode session for normal vanish unless an explicitly unrestricted identity path applies. Helper has no full-vanish authority. Leaving Staff Mode disables the live vanish state but preserves the staff member's last intentional vanish preference for a later vanish-capable rank.
 
 ### Before entering
 
@@ -54,15 +64,23 @@ Staff mode must never be used to escape combat, travel for normal play, protect 
 
 ### Game mode while Staff Mode is active
 
-Staff Mode and game mode are separate states. The entry profile still starts Admin
-and Founder in Creative and lower staff in Spectator. After activation, Admin and
-Founder may freely select Survival, Creative, or Spectator without entering or
-leaving Staff Mode and without changing vanish. Lower staff remain Spectator-only.
+Staff Mode, vanish, and real game mode are separate states. The entry profile starts
+Developer/Admin/Founder in Creative, Mod in protected Survival, and Helper in
+Spectator. After activation:
 
+- Developer, Admin, and Founder may freely use any normal Bukkit/Paper game mode,
+  including Survival, Creative, Adventure, and Spectator.
+- Helper and Mod may use only protected Survival or Spectator; they cannot enter
+  Creative or Adventure while Staff Mode is active.
+- Developer is a technical testing role: world/container interaction, Ender
+  mutation, and combat testing remain available while on duty and are audit-logged.
+  This does not elevate Developer into Mod/Admin punishment or approval authority.
+
+Changing game mode does not enter/leave Staff Mode and does not toggle vanish.
 The selected mode is the real Bukkit/Paper game mode. Spectator block phasing comes
-from actual Spectator mode; vanish does not provide block no-clip in Survival or
-Creative. When Staff Mode exits, the exact pre-Staff game mode from the durable
-snapshot is restored with the rest of the saved state.
+from actual Spectator mode; vanish itself does not add no-clip to Survival,
+Creative, or Adventure. When Staff Mode exits, the exact pre-Staff game mode from
+the durable snapshot is restored with the rest of the saved state.
 
 Vanish now honors that same rank-authorized mode selection. Admin and Founder keep
 their real Survival or Creative mode and its normal hotbar when enabling vanish;
@@ -88,7 +106,7 @@ The operational hotbar routes into existing commands/services; possessing the it
 | 4 | Reports | Open report management | `/reports` |
 | 5 | Cheat Tester | Cycle/run bounded evidence probes | `/cheattester ...` |
 | 6 | Follow / Spectate | Follow an eligible player | `/stafftools spectate <player>` |
-| 7 | Vanish | Toggle normal vanish path | `/vanish` |
+| 7 | Vanish | Toggle normal vanish path (Mod/Developer/Admin/Founder only) | `/vanish` |
 | 8 | Staff Chat | Toggle configured staff channel | `/staffchat` |
 | 9 | Staff Tools Menu | Show available actions | `/stafftools` |
 
@@ -138,7 +156,7 @@ Toggle with:
 /vanish
 ```
 
-Use vanish only when visible staff presence would interfere with a legitimate investigation. Vanish is separately durable from staff mode and uses a rank-aware visibility policy.
+Use vanish only when visible staff presence would interfere with a legitimate investigation. Helpers cannot use full vanish and remain visible in Staff Mode. For Mod, Developer, Admin, and Founder, live vanish is session-bound and uses a rank-aware visibility policy. An intentional `/vanish` change updates the durable preference used by the next bare `/staff` entry; automatic exit/rank reconciliation must not overwrite that preference.
 
 Important limitation: hiding an entity through Paper does not automatically prove invisibility from every plugin, command suggestion, tab implementation, voice/chat provider, sound/particle effect, analytics surface or external API. Those are separate integration surfaces.
 

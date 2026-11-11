@@ -2,8 +2,11 @@ package net.enthusia.staff.discordbot;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /** Privacy-safe process health state; no user, message, punishment, or credential data is stored here. */
 public final class StaffBotHealth {
@@ -20,6 +23,9 @@ public final class StaffBotHealth {
     private final StaffBotEnvironment environment;
     private final AtomicReference<Snapshot> snapshot;
     private final AtomicBoolean failedEver = new AtomicBoolean();
+    private volatile BooleanSupplier criticalReadiness = () -> true;
+    private final AtomicBoolean criticalUnavailable = new AtomicBoolean();
+    private volatile Supplier<AiMirrorRecoveryMetrics> stagingMirrorMetrics;
 
     public StaffBotHealth(StaffBotEnvironment environment) {
         this.environment = Objects.requireNonNull(environment, "environment");
@@ -44,8 +50,59 @@ public final class StaffBotHealth {
                 Math.incrementExact(current.rejectedWork())));
     }
 
+    /**
+     * Attach a staging-only critical subsystem readiness check. Its result
+     * contains no message identifiers, tokens, source text or file paths.
+     * The existing READY phase remains unaffected when no check is installed.
+     */
+    void requireCriticalReadiness(BooleanSupplier check) {
+        criticalReadiness = Objects.requireNonNull(check, "check");
+    }
+
+    /**
+     * A strictly opt-in, loopback-only aggregate telemetry supplier for
+     * durable mirror STAGING. The absence of the supplier preserves the
+     * existing health response shape, including on PRODUCTION.
+     */
+    void requireStagingMirrorMetrics(Supplier<AiMirrorRecoveryMetrics> supplier) {
+        if (environment != StaffBotEnvironment.STAGING) {
+            throw new IllegalStateException("mirror metrics require staging");
+        }
+        stagingMirrorMetrics = Objects.requireNonNull(supplier, "mirror metrics");
+    }
+
+    Optional<AiMirrorRecoveryMetrics> stagingMirrorMetrics() {
+        Supplier<AiMirrorRecoveryMetrics> current = stagingMirrorMetrics;
+        if (environment != StaffBotEnvironment.STAGING || current == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(current.get());
+        } catch (RuntimeException unavailable) {
+            // This path must not expose receipt data or diagnostics.
+            return Optional.empty();
+        }
+    }
+
     public Snapshot snapshot() {
-        return snapshot.get();
+        Snapshot current = snapshot.get();
+        if (current.phase() != Phase.READY) {
+            return current;
+        }
+        try {
+            if (!criticalReadiness.getAsBoolean()) {
+                criticalUnavailable.set(true);
+            }
+        } catch (RuntimeException unavailable) {
+            // This readiness callback must never expose sensitive error detail.
+            criticalUnavailable.set(true);
+        }
+        if (!criticalUnavailable.get()) {
+            return current;
+        }
+        failedEver.set(true);
+        return new Snapshot(Phase.DISCONNECTED, "mirror_recovery_unavailable",
+                current.changedAt(), current.rejectedWork());
     }
 
     public StaffBotEnvironment environment() {
@@ -53,7 +110,7 @@ public final class StaffBotHealth {
     }
 
     public boolean isReady() {
-        return snapshot.get().phase() == Phase.READY;
+        return snapshot().phase() == Phase.READY;
     }
 
     public boolean isLive() {

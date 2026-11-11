@@ -64,7 +64,7 @@ public final class FakeBaseManager implements Listener, AutoCloseable {
     }
 
     boolean authorized(Player staff) {
-        return staff != null && !closed.get() && staffMode.active(staff.getUniqueId()) && staff.hasPermission(PERMISSION);
+        return staff != null && !closed.get() && staffMode.authorityActiveOrUnrestricted(staff.getUniqueId()) && staff.hasPermission(PERMISSION);
     }
 
     void create(Player staff, Player target) {
@@ -165,7 +165,7 @@ public final class FakeBaseManager implements Listener, AutoCloseable {
     }
 
     private void prepareCreate(UUID staffId, Player target) {
-        if (closed.get() || !target.isOnline() || !staffMode.active(staffId)) {
+        if (closed.get() || !target.isOnline() || !staffMode.authorityActiveOrUnrestricted(staffId)) {
             return;
         }
         World world = target.getWorld();
@@ -243,7 +243,7 @@ public final class FakeBaseManager implements Listener, AutoCloseable {
             return "OPERATION_CLOSED";
         }
         if (!target.isOnline() || !target.getWorld().getUID().equals(operation.worldId)
-                || !staffMode.active(operation.staffId)) {
+                || !staffMode.authorityActiveOrUnrestricted(operation.staffId)) {
             return "TARGET_OR_CONTROLLER_UNAVAILABLE";
         }
         return null;

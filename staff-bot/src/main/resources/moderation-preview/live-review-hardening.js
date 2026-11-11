@@ -19,8 +19,9 @@ function hardenedRenderOffenseStep() {
   if (!w.offenseTab) w.offenseTab = 'discord';
   const offenses = OFFENSES.filter(([key]) => w.offenseTab === 'game' ? key === 'cheating' : key !== 'cheating');
   replaceChildrenOf($('#workflowBody'),
-    stepIntro('What happened?', 'Choose the rule family. Each option links to the public rule staff should apply.'),
+    stepIntro('What happened?', 'Choose the rule family, then review the exact punishment details.'),
     punishmentScopeTabs(w.offenseTab),
+    policyLinkNode({label:'Server rules',href:RULES_BASE_URL},'Open'),
     element('div',{className:'option-grid'},offenses.map(([key,label]) => hardenedOffenseOptionNode(key,label))));
   replaceChildrenOf($('#workflowFooter'),buttonNode('Cancel','button ghost',{cancel:''}));
   $$('[data-offense-tab]').forEach((button) => button.addEventListener('click', () => { w.offenseTab = button.dataset.offenseTab; renderWorkflow(); }));
@@ -31,17 +32,16 @@ function hardenedRenderOffenseStep() {
 function hardenedOffenseOptionNode(key, label) {
   const choice = buttonNode('', 'choice-card', {offense:key});
   choice.append(element('strong',{text:label}),element('span',{text:offenseHint(key)}));
-  return element('div',{className:'choice-card-wrap'},choice,policyLinkNode(offensePolicy(key),'View applicable rule'));
+  return choice;
 }
 
 function hardenedRecommendationCard(recommendation) {
-  const policy = offensePolicy(state.workflow?.offense?.key || 'other');
   const approval = approvalFor(recommendation.action,recommendation.duration);
   const card = element('section',{className:'recommendation-card'},
     element('div',{className:'eyebrow',text:'Recommended'}),
     element('div',{className:'recommendation-action',text:recommendation.action}),
     element('div',{className:'recommendation-duration',text:`${recommendation.duration} · ${recommendation.scope}`}),
-    element('p',{text:recommendation.explanation}), policyLinkNode(policy,'Open rule'));
+    element('p',{text:recommendation.explanation}));
   if (approval !== 'None') card.append(element('div',{className:'approval-note',text:approval}));
   return card;
 }
@@ -65,10 +65,8 @@ function hardenedCommunicationOptionsNode(w) {
   if (w.approvalConfirmed === undefined) w.approvalConfirmed = false;
   const children = [
     element('label',{className:'checkbox-control prominent'},element('input',{id:'dmUserOption',type:'checkbox',checked:w.dm}),' Include a DM with this action'),
-    fieldLabel('Staff explanation / case note',element('textarea',{id:'reasonInput',text:w.reason,placeholder:'Required: explain what happened and why this action fits',attrs:{rows:'3',maxlength:'300'}})),
-    element('p',{className:'field-help',text:'Required before Final review; use at least 10 characters.'}),
-    fieldLabel('Outside-Discord evidence reference',element('textarea',{id:'externalEvidenceInput',text:w.externalEvidence,placeholder:'Ticket, recording, game log, screenshot set, or other evidence location',attrs:{rows:'2',maxlength:'300'}})),
-    element('p',{className:'field-help',text:'Use this when the incident evidence is not a Discord message. A reference is required for most non-warning actions when no Discord evidence is selected.'})
+    fieldLabel('Staff explanation / case note',element('textarea',{id:'reasonInput',text:w.reason,placeholder:'Enter a clear explanation of why this punishment is being issued',attrs:{rows:'3',maxlength:'300'}})),
+    fieldLabel('Outside-Discord evidence reference',element('textarea',{id:'externalEvidenceInput',text:w.externalEvidence,placeholder:'Add a ticket, recording, screenshot, game log, or other evidence reference',attrs:{rows:'2',maxlength:'300'}}))
   ];
   if (workflowApprovalRequired(w)) children.push(approvalConfirmationNode(w));
   return element('section',{className:'card option-section'},children);
@@ -133,22 +131,31 @@ function focusFirstMissingReviewField(status) {
 }
 
 function hardenedReviewGridNode(w, recommendation) {
-  const policy = offensePolicy(w.offense.key);
+  const evidence = reviewEvidenceCountText(w);
   const items = [
     ['Target',`${identity.displayName} · ${identity.minecraft}`],
     ['Offense',w.offense.label],
-    ['Rule',policy.label],
-    ['Ladder recommendation',`${recommendation.action} · ${recommendation.duration}`],
     ['Action',`${w.actual.action}${w.custom ? ' · Custom override' : ''}`],
-    ['Scope / platform',w.scope],
-    ['Discord evidence',String(state.evidence.size)],
-    ['Outside-Discord evidence',workflowExternalEvidenceReady(w) ? 'Referenced' : 'None'],
-    ['Messages to delete',String(state.deleting.size)],
-    ['DM',w.dm ? 'Included' : 'Not included'],
-    ['Approval',approvalReviewText(w)]
+    ['Platform',w.scope],
+    ['Evidence',evidence],
+    ['Player notification',w.dm ? 'Included' : 'Not included']
   ];
-  if (w.duration !== '—') items.splice(5,0,['Duration',w.duration]);
+  if (w.duration !== '—') items.splice(3,0,['Duration',w.duration]);
+  if (w.custom) {
+    const duration = recommendation.duration && recommendation.duration !== '—'
+      ? ' · ' + recommendation.duration : '';
+    items.splice(2,0,['Recommended',recommendation.action + duration]);
+  }
+  if (state.deleting.size) items.push(['Messages to delete',String(state.deleting.size)]);
+  if (workflowApprovalRequired(w)) items.push(['Approval',approvalReviewText(w)]);
   return element('div',{className:'review-grid'},items.map(([label,value]) => reviewItemNode(label,value)));
+}
+
+function reviewEvidenceCountText(workflow) {
+  const parts = [];
+  if (state.evidence.size) parts.push(`${state.evidence.size} Discord message${state.evidence.size === 1 ? '' : 's'}`);
+  if (workflowExternalEvidenceReady(workflow)) parts.push('Outside reference');
+  return parts.length ? parts.join(' + ') : 'None';
 }
 
 function approvalReviewText(w) {
@@ -162,7 +169,6 @@ function hardenedReviewEvidenceNode(w) {
     sectionHeadingNode('Case readiness','Review every item before confirming the action.'),
     readinessChecklistNode(w),
     reviewValidationAlert(status),
-    policyLinkNode(offensePolicy(w.offense.key),'Open applicable rule'),
     reviewEvidenceSummaryNode(w),
     staffExplanationNode(w),
     dmPreviewNode(w),
@@ -187,17 +193,62 @@ function reviewEvidenceSummaryNode(w) {
 function staffExplanationNode(w) {
   const reason = String(w.reason || '').trim();
   return element('div',{className:'staff-reason'},element('span',{text:'Staff explanation'}),
-    element('p',{text:reason || 'Missing — return to Punishment options and add an explanation.'}));
+    element('p',{text:reason || 'No additional staff explanation was provided.'}));
 }
 
 function dmPreviewNode(w) {
-  const detail = w.dm ? actionDmText(w) : 'No DM is included with this action.';
-  return element('div',{className:'dm-preview'},element('span',{text:'Notification message'}),element('p',{text:detail}));
+  return element('div',{className:'dm-preview'},
+    element('span',{text:'Notification message'}),
+    w.dm ? punishmentNotificationPreview(w) : element('p',{text:'No DM is included with this action.'}));
+}
+
+function punishmentNotificationPreview(w) {
+  const action = notificationPreviewAction(w);
+  const rows = [
+    element('strong',{className:'notification-preview-title',text:'Punishment Alert'}),
+    element('p',{text:`You have been ${action} on the Enthusia SMP Discord${notificationPreviewDuration(w)}.`}),
+    notificationPreviewReason(w),
+    notificationPreviewExplanation(w),
+    notificationPreviewExpiry(w,action),
+    element('p',{className:'muted small',text:
+      'Appeal: Enthusia Discord appeal channel or Enthusia.info/appeal'})
+  ].filter(Boolean);
+  return element('div',{className:'notification-preview-body'},rows);
+}
+
+function notificationPreviewAction(w) {
+  const actions = {Warning:'warned',Mute:'muted',Kick:'kicked',Ban:'banned',Restrict:'restricted'};
+  return actions[w.actual?.action] || String(w.actual?.action || 'action').toLowerCase();
+}
+
+function notificationPreviewDuration(w) {
+  if (!w.duration || w.duration === '—') return '';
+  return ` for ${w.duration}`;
+}
+
+function notificationPreviewReason(w) {
+  return element('p',{},element('strong',{text:'Reason: '}),
+    document.createTextNode(w.custom ? 'Custom punishment' : (w.offense?.label || 'Custom punishment')));
+}
+
+function notificationPreviewExplanation(w) {
+  const explanation = String(w.reason || '').trim() || 'No additional staff explanation was provided.';
+  return element('p',{},element('strong',{text:'Staff explanation: '}),
+    document.createTextNode(explanation));
+}
+
+function notificationPreviewExpiry(w,action) {
+  if (['warning','kick'].includes(action)) return null;
+  const expiry = w.duration === 'Permanent'
+    ? 'Permanent'
+    : 'Discord timestamp and live countdown generated from the confirmed action time';
+  return element('p',{},element('strong',{text:'Expires: '}),document.createTextNode(expiry));
 }
 
 function actionDmText(w) {
+  const action = String(w.actual?.action || 'action').toLowerCase();
   const duration = w.duration && w.duration !== '—' ? ` for ${w.duration}` : '';
-  return `Enthusia moderation: ${w.actual.action}${duration} for ${w.offense.label}. Staff explanation: ${String(w.reason || '').trim()}`;
+  return `Punishment Alert — You have been ${action} on the Enthusia SMP Discord${duration}. Reason: ${w.offense?.label || 'Custom'}`;
 }
 
 function testEnvironmentBoundary() {

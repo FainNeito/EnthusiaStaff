@@ -17,6 +17,9 @@ final class ModerationDiscordMessageReader {
     private static final int DEFAULT_PAGE = 25;
     private static final int MAX_RECENT_CHANNELS = 8;
     private static final int RECENT_PER_CHANNEL = 20;
+    private static final int SEARCH_BATCH = 50;
+    private static final int MAX_SEARCH_SCAN = 1000;
+    private static final int MAX_SEARCH_SCAN_PER_CHANNEL = 250;
 
     private final ModerationDiscordMessageMapper mapper = new ModerationDiscordMessageMapper();
 
@@ -48,12 +51,117 @@ final class ModerationDiscordMessageReader {
             ModerationReadApiModel.MessageQuery query
     ) {
         int limit = boundedLimit(query.limit());
+        if (searchRequested(query)) {
+            return search(context, query, limit);
+        }
         if (query.channelId().isEmpty()) {
             return recentAcrossVisibleChannels(context, visibleChannels(context), query, limit);
         }
         long channelId = ModerationReadRequestAuthorizer.snowflake(query.channelId().orElseThrow(), "channel");
         TextChannel channel = visibleChannel(context, channelId);
         return mapper.page(context, filterAndLimit(page(channel, query, limit), query, limit), limit);
+    }
+
+    static boolean searchRequested(ModerationReadApiModel.MessageQuery query) {
+        return query.text().filter(value -> !value.isBlank()).isPresent()
+                || query.authorId().isPresent()
+                || query.authorText().filter(value -> !value.isBlank()).isPresent()
+                || query.date().isPresent();
+    }
+
+    private ModerationReadApiModel.MessagePageDto search(
+            ModerationReadContext context,
+            ModerationReadApiModel.MessageQuery query,
+            int limit
+    ) {
+        ModerationReadApiModel.MessageQuery scoped = scopedSearchQuery(context, query);
+        if (scoped.channelId().isPresent()) {
+            long channelId = ModerationReadRequestAuthorizer.snowflake(scoped.channelId().orElseThrow(), "channel");
+            return mapper.page(context, searchChannel(visibleChannel(context, channelId), scoped, limit, MAX_SEARCH_SCAN), limit);
+        }
+        List<Message> matches = new ArrayList<>();
+        for (ModerationReadApiModel.ChannelDto visible : visibleChannels(context).stream().limit(MAX_RECENT_CHANNELS).toList()) {
+            TextChannel channel = context.guild().getTextChannelById(visible.id());
+            if (channel != null) {
+                matches.addAll(searchChannel(channel, scoped, limit, MAX_SEARCH_SCAN_PER_CHANNEL));
+            }
+        }
+        matches.sort(Comparator.comparing(Message::getTimeCreated).reversed());
+        return mapper.page(context, matches.stream().limit(limit).toList(), limit);
+    }
+
+    private static ModerationReadApiModel.MessageQuery scopedSearchQuery(
+            ModerationReadContext context,
+            ModerationReadApiModel.MessageQuery query
+    ) {
+        OptionalLong targetUser = context.readTarget().userId();
+        if (targetUser.isEmpty()) {
+            return query;
+        }
+        return new ModerationReadApiModel.MessageQuery(
+                query.channelId(),
+                query.beforeMessageId(),
+                query.afterMessageId(),
+                query.aroundMessageId(),
+                query.text(),
+                Optional.of(Long.toUnsignedString(targetUser.orElseThrow())),
+                Optional.empty(),
+                query.date(),
+                query.limit()
+        );
+    }
+
+    private static List<Message> searchChannel(
+            TextChannel channel,
+            ModerationReadApiModel.MessageQuery query,
+            int limit,
+            int scanLimit
+    ) {
+        if (forwardOrCentered(query)) {
+            return filterAndLimit(page(channel, query, limit), query, limit);
+        }
+        return scanOlderHistory(channel, query, limit, scanLimit);
+    }
+
+    private static boolean forwardOrCentered(ModerationReadApiModel.MessageQuery query) {
+        return query.afterMessageId().isPresent() || query.aroundMessageId().isPresent();
+    }
+
+    private static List<Message> scanOlderHistory(
+            TextChannel channel,
+            ModerationReadApiModel.MessageQuery query,
+            int limit,
+            int scanLimit
+    ) {
+        List<Message> matches = new ArrayList<>();
+        String before = query.beforeMessageId().orElse(null);
+        int scanned = 0;
+        while (matches.size() < limit && scanned < scanLimit) {
+            int batchSize = Math.min(SEARCH_BATCH, scanLimit - scanned);
+            List<Message> batch = historyBatch(channel, before, batchSize);
+            if (batch.isEmpty()) {
+                break;
+            }
+            scanned += batch.size();
+            matches.addAll(ModerationMessageFilter.apply(batch, query));
+            String nextBefore = batch.getLast().getId();
+            if (searchExhausted(before, nextBefore, batch.size(), batchSize)) {
+                break;
+            }
+            before = nextBefore;
+        }
+        return matches.stream().limit(limit).toList();
+    }
+
+    private static List<Message> historyBatch(TextChannel channel, String before, int limit) {
+        if (before == null) {
+            return channel.getHistory().retrievePast(limit).complete();
+        }
+        return channel.getHistoryBefore(before, limit).complete().getRetrievedHistory();
+    }
+
+    private static boolean searchExhausted(String before, String nextBefore, int batchSize, int requested) {
+        return nextBefore.equals(before) || batchSize < requested;
     }
 
     static OptionalLong initialChannel(ModerationReadTarget target) {

@@ -28,6 +28,8 @@ import org.slf4j.helpers.NOPLogger;
 final class DiscordOutboxWorkerTest {
     private static final Instant NOW = Instant.parse("2026-08-10T12:00:00Z");
     private static final String REPORTS = "reports";
+    private static final String ALERTS = "alerts";
+    private static final String STAFF_LOGS = "logs-staffmode";
     private static final String REPORT_CREATED = "REPORT_CREATED";
     private static final String STAGING_HOST = "discord-staging.example.test";
 
@@ -56,6 +58,80 @@ final class DiscordOutboxWorkerTest {
     }
 
     @Test
+    void retriesAreDeliveredWithoutAnotherRolePing() {
+        DiscordOutboxMessage initial = message(ALERTS, "DISCORD_CHANNEL_UNHEALTHY",
+                "{\"destination\":\"reports\"}");
+        DiscordOutboxMessage retried = new DiscordOutboxMessage(UUID.randomUUID(), ALERTS,
+                "DISCORD_CHANNEL_UNHEALTHY", "{\"destination\":\"reports\"}",
+                2, NOW.minusSeconds(1));
+        List<Boolean> pingFlags = new ArrayList<>();
+        DiscordWebhookTransport transport = new DiscordWebhookTransport() {
+            @Override
+            public Delivery send(DiscordWebhookRoute route, String content) {
+                throw new AssertionError("worker must pass the durable delivery attempt");
+            }
+
+            @Override
+            public Delivery send(DiscordWebhookRoute route, String content, boolean allowRolePing) {
+                assertEquals(ALERTS, route.destination());
+                pingFlags.add(allowRolePing);
+                return Delivery.delivered();
+            }
+        };
+
+        worker(new FakeStore(List.of(initial, retried)), transport).runOnce();
+        assertEquals(List.of(true, false), pingFlags);
+    }
+
+    @Test
+    void staffAuditDeliveryPreservesEventIdAndSuppressesRetryRolePing() {
+        UUID messageId = UUID.fromString("35de41db-4b90-4a4c-b972-94a16b53e301");
+        UUID eventId = UUID.fromString("580d2f0a-dc03-4818-9663-57f4513e7f50");
+        String payload = "{\"eventId\":\"" + eventId + "\","
+                + "\"action\":\"staff-mode-exited\","
+                + "\"detail\":\"session=example reason=manual\","
+                + "\"token\":\"do-not-render\","
+                + "\"privateCommandArgs\":\"do-not-render-args\"}";
+        DiscordOutboxMessage initial = new DiscordOutboxMessage(
+                messageId, STAFF_LOGS, "STAFF_ACTION", payload, 0, NOW.minusSeconds(1));
+        DiscordOutboxMessage retry = new DiscordOutboxMessage(
+                messageId, STAFF_LOGS, "STAFF_ACTION", payload, 1, NOW.minusSeconds(1));
+
+        List<String> deliveredContents = new ArrayList<>();
+        List<Boolean> rolePingFlags = new ArrayList<>();
+        DiscordWebhookTransport transport = new DiscordWebhookTransport() {
+            @Override
+            public Delivery send(DiscordWebhookRoute route, String content) {
+                throw new AssertionError("worker must pass the durable attempt");
+            }
+
+            @Override
+            public Delivery send(DiscordWebhookRoute route, String content, boolean allowRolePing) {
+                assertEquals(STAFF_LOGS, route.destination());
+                deliveredContents.add(content);
+                rolePingFlags.add(allowRolePing);
+                return Delivery.delivered();
+            }
+        };
+        FakeStore firstStore = new FakeStore(List.of(initial));
+        FakeStore retryStore = new FakeStore(List.of(retry));
+        worker(firstStore, transport).runOnce();
+        worker(retryStore, transport).runOnce();
+
+        assertEquals(messageId, firstStore.deliveredId);
+        assertEquals(messageId, retryStore.deliveredId);
+        assertEquals(List.of(true, false), rolePingFlags);
+        assertEquals(2, deliveredContents.size());
+        for (String content : deliveredContents) {
+            assertTrue(content.contains("eventId=" + eventId));
+            assertTrue(content.contains("action=staff-mode-exited"));
+            assertFalse(content.contains("do-not-render"));
+            assertFalse(content.contains("do-not-render-args"));
+            assertFalse(content.contains("privateCommandArgs"));
+        }
+    }
+
+    @Test
     void poisonPayloadFailsWithoutCallingTransport() {
         DiscordOutboxMessage message = message(REPORTS, REPORT_CREATED, "not-json");
         FakeStore store = new FakeStore(List.of(message));
@@ -75,7 +151,7 @@ final class DiscordOutboxWorkerTest {
 
     @Test
     void redirectFailureUsesDurableRetryPath() {
-        DiscordOutboxMessage message = message("alerts", "DISCORD_CHANNEL_UNHEALTHY", "{\"destination\":\"reports\"}");
+        DiscordOutboxMessage message = message(ALERTS, "DISCORD_CHANNEL_UNHEALTHY", "{\"destination\":\"reports\"}");
         FakeStore store = new FakeStore(List.of(message));
         DiscordWebhookTransport transport = (route, content) ->
                 DiscordWebhookTransport.Delivery.failed("HTTP_REDIRECT_REJECTED");
@@ -142,10 +218,10 @@ final class DiscordOutboxWorkerTest {
                         "punishments", URI.create("https://" + STAGING_HOST + "/punishments"), hosts),
                 REPORTS, DiscordWebhookRoute.approvedStaging(
                         REPORTS, URI.create("https://" + STAGING_HOST + "/reports"), hosts),
-                "logs-staffmode", DiscordWebhookRoute.approvedStaging(
-                        "logs-staffmode", URI.create("https://" + STAGING_HOST + "/staffmode"), hosts),
-                "alerts", DiscordWebhookRoute.approvedStaging(
-                        "alerts", URI.create("https://" + STAGING_HOST + "/alerts"), hosts)
+                STAFF_LOGS, DiscordWebhookRoute.approvedStaging(
+                        STAFF_LOGS, URI.create("https://" + STAGING_HOST + "/staffmode"), hosts),
+                ALERTS, DiscordWebhookRoute.approvedStaging(
+                        ALERTS, URI.create("https://" + STAGING_HOST + "/alerts"), hosts)
         );
     }
 

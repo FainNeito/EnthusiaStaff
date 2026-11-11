@@ -220,6 +220,52 @@ class ModerationHistoryIntegrationTest {
     }
 
     @Test
+    void importedConsoleMaintenanceKickDoesNotCountAsPunishmentHistory() throws Exception {
+        UUID subjectId = uuid(18);
+        CaseId maintenance = caseId(18);
+        CaseId restart = caseId(17);
+        CaseId punitive = caseId(19);
+        insertPlayer(subjectId, "RestartedPlayer", PlayerPlatform.JAVA, BASE);
+        insertCase(maintenance, subjectId, BASE, "Rejoin later (maintainance)", "Imported LiteBans kick");
+        insertCase(restart, subjectId, BASE.plusSeconds(5), "Daily server restart", "Imported LiteBans kick");
+        insertCase(punitive, subjectId, BASE.plusSeconds(10), "Wurst Client is not allowed.",
+                "Imported LiteBans kick");
+        markLegacyConsoleKick(maintenance);
+        markLegacyConsoleKick(restart);
+        markLegacyConsoleKick(punitive);
+        insertSanction(uuid(180), maintenance, subjectId, "KICK", "APPLIED", BASE, null);
+        insertSanction(uuid(170), restart, subjectId, "KICK", "APPLIED", BASE.plusSeconds(5), null);
+        insertSanction(uuid(190), punitive, subjectId, "KICK", "APPLIED", BASE.plusSeconds(10), null);
+
+        try (MariaDbRuntime runtime = MariaDb.initialize(databaseConfig())) {
+            ModerationHistoryPage history = runtime.moderationHistoryStore().page(subjectId, 1, 20,
+                    HistoryQueryOptions.publicStaffView(false, false));
+            assertEquals(3, history.totalEntries());
+            assertTrue(history.entries().stream().allMatch(entry ->
+                    entry.caseId().isPresent() && entry.caseId().orElseThrow().equals(punitive)));
+            assertTrue(runtime.moderationHistoryStore().caseDetail(maintenance,
+                    HistoryQueryOptions.publicStaffView(false, false)).isEmpty());
+            assertTrue(runtime.moderationHistoryStore().caseDetail(restart,
+                    HistoryQueryOptions.publicStaffView(false, false)).isEmpty());
+            assertEquals(List.of(punitive), runtime.caseReviewStore().recent(subjectId, 10).stream()
+                    .map(review -> review.caseId()).toList());
+        }
+    }
+
+    private static void markLegacyConsoleKick(CaseId caseId) throws SQLException {
+        try (HikariDataSource dataSource = MariaDb.open(databaseConfig());
+             Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE cases SET exact_reason_id = 'legacy.litebans.kick',
+                         actor_name = 'Console', sanction_family = 'legacy'
+                     WHERE case_id = ?
+                     """)) {
+            statement.setString(1, caseId.value());
+            assertEquals(1, statement.executeUpdate());
+        }
+    }
+
+    @Test
     void historyIncludesRequestAppealSanctionAndMutationEventsWithSensitiveGating() throws Exception {
         UUID subjectId = uuid(20);
         UUID sanctionId = uuid(21);

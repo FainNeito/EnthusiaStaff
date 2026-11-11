@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import net.enthusia.staff.domain.discord.DiscordOutboxMessage;
+import net.enthusia.staff.domain.report.ReportReasonLabel;
 
 final class DiscordEventRenderer {
     private static final int MAX_PAYLOAD_CHARACTERS = 16_384;
@@ -19,7 +20,8 @@ final class DiscordEventRenderer {
     private static final Map<String, List<String>> ALLOWED_FIELDS = Map.of(
             "punishments", List.of(
                     "caseId", TARGET_ID, "subjectId", "reasonId", "family",
-                    "publicReason", "internalExplanation", "issuedAt",
+                    // Internal case notes remain in case storage, never in webhook embeds.
+                    "publicReason", "issuedAt",
                     "sanctionId", "sanctionIds", "sanctionType", "sanctionTypes", "sanctionDetails",
                     "requestId", "actorId", "actorName", "actorRank",
                     "action", "status", "previousStatus", "resultingStatus",
@@ -29,12 +31,18 @@ final class DiscordEventRenderer {
                     "reason",
                     STATE, "type", "decision", "outcome"
             ),
-            "reports", List.of("reportId", TARGET_ID, "reasonId", "serverId", "status", STATE, "actorId"),
+            "reports", List.of("reportId", "targetName", "reporterName", "reasonId", "serverId", "status", STATE),
             "logs-staffmode", List.of(
-                    "staffId", TARGET_ID, "actorId", "sessionId", "rank", "active", "reason", "serverId", STATE
+                    "eventId", "staffId", TARGET_ID, "actorId", "actor", "name", "sessionId",
+                    "rank", "active", "vanished", "staffMode", "server", "serverId",
+                    "action", "detail", "reason", "ts", STATE
             ),
             "alerts", List.of(
-                    "caseId", TARGET_ID, "sanctionId", "requestId", "reportId", "destination",
+                    "caseId", TARGET_ID, "relatedPlayerId", "sourcePlayerId",
+                    "sanctionId", "sourceSanctionId", "sanctionType",
+                    "relationshipState", "confidencePolicyGrade", "trigger",
+                    "requestId", "requestRevision", "requesterId", "requiredRank", "reasonId",
+                    "visibility", "reportId", "destination",
                     "errorCode", "status", STATE, "type", "serverId"
             )
     );
@@ -70,7 +78,18 @@ final class DiscordEventRenderer {
             JsonNode value = payload.get(field);
             String safe = safeValue(value);
             if (safe != null) {
-                appendField(rendered, field, safe);
+                if ("reports".equals(message.destination()) && "reasonId".equals(field)) {
+                    appendField(rendered, "reason", ReportReasonLabel.display(safe));
+                } else {
+                    appendField(rendered, field, safe);
+                }
+            }
+        }
+        if ("PUNISHMENT_APPROVAL_REQUIRED".equals(message.eventType())) {
+            String requestId = safeValue(payload.get("requestId"));
+            if (requestId != null && requestId.matches("[0-9a-fA-F-]{36}")) {
+                appendField(rendered, "review", "/review-request request-id:" + requestId
+                        + " decision:approve (or deny with a note)");
             }
         }
         return truncateWithEllipsis(rendered.toString(), MAX_CONTENT_CHARACTERS);

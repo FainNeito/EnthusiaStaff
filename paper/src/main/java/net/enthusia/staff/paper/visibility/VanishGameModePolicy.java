@@ -25,11 +25,26 @@ final class VanishGameModePolicy {
     }
 
     static GameMode defaultMode(StaffRank rank, boolean onDuty) {
-        return onDuty ? StaffModeAccessPolicy.initialGameMode(rank) : defaultMode(rank);
+        if (!onDuty) {
+            return defaultMode(rank);
+        }
+        if (rank == StaffRank.MOD || rank == StaffRank.DEVELOPER || rank == StaffRank.HELPER) {
+            return GameMode.SURVIVAL;
+        }
+        return StaffModeAccessPolicy.initialGameMode(rank);
     }
 
     static boolean allows(StaffRank rank, GameMode mode, boolean onDuty) {
-        return onDuty ? StaffModeAccessPolicy.allowsGameMode(rank, mode) : allows(rank, mode);
+        if (!onDuty) {
+            return allows(rank, mode);
+        }
+        if (rank == StaffRank.ADMIN || rank == StaffRank.FOUNDER) {
+            return true;
+        }
+        if (rank == StaffRank.MOD || rank == StaffRank.DEVELOPER) {
+            return mode == GameMode.SURVIVAL;
+        }
+        return rank == StaffRank.HELPER && (mode == GameMode.SURVIVAL || mode == GameMode.SPECTATOR);
     }
 
     static GameMode reconcile(StaffRank rank, GameMode selected, boolean onDuty) {

@@ -24,6 +24,7 @@ final class ModerationReadApiModel {
             Optional<String> aroundMessageId,
             Optional<String> text,
             Optional<String> authorId,
+            Optional<String> authorText,
             Optional<String> date,
             int limit
     ) {
@@ -34,6 +35,7 @@ final class ModerationReadApiModel {
             aroundMessageId = safe(aroundMessageId);
             text = safe(text);
             authorId = safe(authorId);
+            authorText = safe(authorText);
             date = safe(date);
             int cursorCount = (beforeMessageId.isPresent() ? 1 : 0)
                     + (afterMessageId.isPresent() ? 1 : 0)
@@ -47,12 +49,25 @@ final class ModerationReadApiModel {
                 Optional<String> channelId,
                 Optional<String> beforeMessageId,
                 Optional<String> afterMessageId,
+                Optional<String> aroundMessageId,
                 Optional<String> text,
                 Optional<String> authorId,
                 Optional<String> date,
                 int limit
         ) {
-            this(channelId, beforeMessageId, afterMessageId, Optional.empty(), text, authorId, date, limit);
+            this(channelId, beforeMessageId, afterMessageId, aroundMessageId, text, authorId, Optional.empty(), date, limit);
+        }
+
+        MessageQuery(
+                Optional<String> channelId,
+                Optional<String> beforeMessageId,
+                Optional<String> afterMessageId,
+                Optional<String> text,
+                Optional<String> authorId,
+                Optional<String> date,
+                int limit
+        ) {
+            this(channelId, beforeMessageId, afterMessageId, Optional.empty(), text, authorId, Optional.empty(), date, limit);
         }
 
         private static Optional<String> safe(Optional<String> value) {
@@ -229,6 +244,7 @@ final class ModerationReadApiModel {
             Optional<String> replyToMessageId,
             Optional<ReplyPreviewDto> replyPreview,
             List<AttachmentDto> attachments,
+            List<MediaDto> media,
             boolean targetAuthor,
             boolean deletedKnown
     ) {
@@ -239,6 +255,7 @@ final class ModerationReadApiModel {
             replyToMessageId = replyToMessageId == null ? Optional.empty() : replyToMessageId;
             replyPreview = replyPreview == null ? Optional.empty() : replyPreview;
             attachments = List.copyOf(attachments);
+            media = List.copyOf(media);
         }
     }
 
@@ -264,6 +281,18 @@ final class ModerationReadApiModel {
 
     record AttachmentDto(String id, String fileName, Optional<String> contentType, long size, String url) {
         AttachmentDto {
+            contentType = contentType == null ? Optional.empty() : contentType;
+        }
+    }
+
+    record MediaDto(
+            String kind,
+            String url,
+            Optional<String> contentType,
+            int width,
+            int height
+    ) {
+        MediaDto {
             contentType = contentType == null ? Optional.empty() : contentType;
         }
     }

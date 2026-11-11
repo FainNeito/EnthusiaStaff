@@ -1,13 +1,17 @@
 package net.enthusia.staff.paper.visibility;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 class StaffModeEntryVanishWiringTest {
-    @Test void freshEntryEnablesVanishAfterSuccessfulPublicationWithoutChangingRecoveryOrHandoff() throws IOException {
+    @Test
+    void freshEntryStillPublishesSessionBeforeInvokingVisibilityListener() throws IOException {
         String source = read("staff/StaffModeManager.java");
         assertEquals(2, source.split("activateFreshSession", -1).length - 1);
         String fresh = source.substring(source.indexOf("private void activateFreshSession"),
@@ -17,23 +21,65 @@ class StaffModeEntryVanishWiringTest {
         assertTrue(read("PaperRuntimeComponents.java").contains("staffMode.setEntryListener(vanish::staffModeEntered)"));
     }
 
-    @Test void automaticEntryIsEnableOnlyAndUsesExistingDurableVanishPath() throws IOException {
+    @Test
+    void preparedPreferenceIsConsumedByExistingDurableVanishPath() throws IOException {
         String source = read("visibility/VanishManager.java");
-        String entry = source.substring(source.indexOf("public void staffModeEntered("),
+        String entry = source.substring(source.indexOf("public UUID prepareStaffModeEntry("),
                 source.indexOf("public void configureSpectatorTab("));
-        assertTrue(entry.contains("staffMode.active(player.getUniqueId())"));
-        assertTrue(entry.contains("!isVanished(player.getUniqueId())"));
-        assertTrue(entry.contains("set(player, rank, true, true)"));
+
+        assertTrue(entry.contains("PreparedStaffModeEntry prepared = preparedStaffModeEntries.remove(playerId)"));
+        assertTrue(entry.contains("boolean desired = prepared == null || prepared.desired()"));
+        assertTrue(entry.contains("VanishStore.PreferenceUpdate.SET"));
+        assertTrue(entry.contains("VanishStore.PreferenceUpdate.KEEP"));
+        assertTrue(entry.contains("set(player, rank, desired, true, preferenceUpdate)"));
         assertFalse(entry.contains("toggle("));
         assertTrue(entry.contains("sessionId.equals(staffMode.activeSessionId(playerId))"));
         assertTrue(entry.contains("staffMode.exit(current)"));
     }
 
-    @Test void vanishEnableRechecksOwnerAndFencesDurableCommit() throws IOException {
+    @Test
+    void pendingEnableRechecksLiveRankBeforeQueuingPersistence() throws IOException {
         String source = read("visibility/VanishManager.java");
-        assertTrue(source.contains("validatePendingEnable("));
-        assertTrue(source.contains("VanishEnableAuthorityFence.commitIfEligible("));
-        assertTrue(source.contains("() -> onlineStaffRanks.get(playerId)"));
+        String validation = source.substring(
+                source.indexOf("private void validatePendingEnable("),
+                source.indexOf("private boolean queuePersistSet(")
+        );
+
+        assertTrue(validation.contains("audiences.onOwner("));
+        assertTrue(validation.indexOf("resolveAndPublishRank(current)")
+                < validation.indexOf("VanishRankReconciliationPolicy.mayVanish(liveRank)"));
+        assertTrue(validation.indexOf("VanishRankReconciliationPolicy.mayVanish(liveRank)")
+                < validation.indexOf("queuePersistSet("));
+        assertTrue(validation.contains("failPendingSet("));
+    }
+
+    @Test
+    void persistenceBoundaryRechecksPendingEnableAndRollsBackIfRankChanges() throws IOException {
+        String source = read("visibility/VanishManager.java");
+        String persistence = source.substring(
+                source.indexOf("private boolean persistSet("),
+                source.indexOf("private void rememberCommittedState(")
+        );
+
+        int fence = persistence.indexOf("VanishEnableAuthorityFence.commitIfEligible(");
+        int liveRank = persistence.indexOf("() -> onlineStaffRanks.get(playerId)");
+        int enable = persistence.indexOf("persistState(loaded, playerId, rank, true");
+        int compensate = persistence.indexOf("VanishStore.PreferenceUpdate.KEEP", enable);
+        int publish = persistence.indexOf("rememberCommittedState(");
+
+        assertTrue(fence >= 0 && fence < liveRank);
+        assertTrue(liveRank < enable && enable < compensate && compensate < publish);
+        assertTrue(persistence.contains("return false;"));
+    }
+    @Test
+    void manualToggleRemembersChoiceButAutomaticExitCleanupDoesNotOverwriteIt() throws IOException {
+        String source = read("visibility/VanishManager.java");
+        assertTrue(source.contains(
+                "set(player, rank, next, true, VanishStore.PreferenceUpdate.SET)"
+        ));
+        assertTrue(source.contains(
+                "set(player, rank, false, false, VanishStore.PreferenceUpdate.KEEP)"
+        ));
     }
 
     private static String read(String suffix) throws IOException {
