@@ -851,3 +851,7 @@ bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f.
 Next action: non-production hotbar, spectator wall movement, F3 shortcut, permission
 revocation, restart, and names acceptance plus available integration/hosted gates before
 merge. Preserve draft PR #1 and implementation branch; exact frozen heads are on the PR.
+
+## Owner-directed MARKET-02 continuation — 2026-11-10
+
+After syncing fork `main` with upstream, source inspection found the rankless destination-handoff recovery fix is not in fork `main`; it remains on fork branch `agent/market-orphan-staff-tools-20261020`, PR #647, exact head `383859b5740f25113b7b6b8455256717ebe3635a`. A new isolated integration branch is based on synced fork main `fe015d97c84119a71ae19c4b51f15fed43004d54` and merges that fix branch while preserving current fork behavior. The fix covers fenced recovery of detached sessions when the consumed handoff hint has no explicit rank. This does not establish that Staff recovery caused the historical proxy-stage timeouts; backend correlation is still unknown. Local exact-head tests/build and hosted validation are pending. No shared server or player session has been touched.

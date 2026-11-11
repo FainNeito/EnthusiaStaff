@@ -875,3 +875,7 @@ bef4f22ecfad4c5e248b1b8495418ebbfe788326c78fddcab96142f17a24b90f.
 Next action: non-production hotbar, spectator wall movement, F3 shortcut, permission
 revocation, restart, and names acceptance plus available integration/hosted gates before
 merge. Preserve draft PR #1 and implementation branch; exact frozen heads are on the PR.
+
+## Owner-directed MARKET-02 continuation — 2026-11-10
+
+The synced fork `main` did not contain the rankless destination-handoff recovery fix. The source remains on fork branch `agent/market-orphan-staff-tools-20261020` / upstream PR #647 at `383859b5740f25113b7b6b8455256717ebe3635a`. A new isolated branch merges that source with current fork `main` `fe015d97c84119a71ae19c4b51f15fed43004d54`, preserving the fork's existing features. Local validation and exact-head hosted checks remain pending. The join-path defect does not prove a cause for the previously observed pre-backend proxy timeouts. No BUILD/TEST deployment or recovery action is included.
