@@ -1,6 +1,7 @@
 package net.enthusia.staff.paper.staff;
 
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
+import net.enthusia.staff.paper.presentation.FrontierStaffPresentation;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -2090,18 +2091,27 @@ public final class StaffModeManager implements Listener {
 
     private void sendInventoryEntryMessage(Player player) {
         boolean enabled = toolInventoryEnabled(player.getUniqueId());
+        boolean frontier = FrontierStaffPresentation.appliesTo(serverId);
         Component message = Component.text(
                         enabled
                                 ? "You have entered Staff Mode with the Staff inventory. "
                                 : "You have entered Staff Mode with an empty inventory. ",
-                        enabled ? NamedTextColor.GREEN : NamedTextColor.GRAY
+                        frontier ? FrontierStaffPresentation.PARCHMENT
+                                : enabled ? NamedTextColor.GREEN : NamedTextColor.GRAY
                 )
-                .append(Component.text("[Toggle inventory]", NamedTextColor.AQUA)
+                .append(Component.text("[Toggle inventory]", frontier
+                                ? FrontierStaffPresentation.GOLD : NamedTextColor.AQUA)
                         .clickEvent(ClickEvent.runCommand("/staff inventory"))
                         .hoverEvent(HoverEvent.showText(Component.text(
                                 enabled ? "Use an empty Staff inventory" : "Restore the Staff tools inventory"
                         ))));
-        player.sendMessage(message);
+        player.sendMessage(staffModeNotice(message));
+    }
+
+    private Component staffModeNotice(Component message) {
+        return FrontierStaffPresentation.appliesTo(serverId)
+                ? FrontierStaffPresentation.notice("Staff Mode", message)
+                : message;
     }
 
     private ItemStack item(UUID playerId, String toolSession, StaffToolDefinition tool) {
@@ -2193,7 +2203,7 @@ public final class StaffModeManager implements Listener {
     }
 
     private void message(UUID playerId, String message) {
-        onEntity(playerId, player -> player.sendMessage(StaffMessageStyle.style(Component.text(message))));
+        onEntity(playerId, player -> player.sendMessage(staffModeNotice(StaffMessageStyle.style(Component.text(message)))));
     }
 
     private void safeMessage(UUID playerId, String message) {

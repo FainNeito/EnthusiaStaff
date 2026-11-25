@@ -1,0 +1,124 @@
+--- a/reason-policies.yml
++++ b/reason-policies.yml
+@@ -1,4 +1,4 @@
+-version: "2026-10-10.1"
++version: "2026-10-10.1-frontier.1"
+ defaults:
+   decay-eligible: true
+   public-default: true
+@@ -8,6 +8,29 @@
+   automatic-detection-eligible: false
+   alt-inheritance: ACTIVE_SANCTIONS
+
++removed-reasons:
++  - id: market.compliance-failure
++    family: market
++    display-name: Failed market compliance review
++  - id: market.extra-stall-alt
++    family: market
++    display-name: Using an alt to obtain an additional stall
++  - id: market.blacklist-evasion
++    family: market
++    display-name: Bypassing a stall blacklist through another account or player
++  - id: reputation.false
++    family: reputation
++    display-name: False or unjustified reputation
++  - id: reputation.coordinated
++    family: reputation
++    display-name: Organized reputation manipulation, mass reputation, or review bombing
++  - id: reputation.alt-manipulation
++    family: reputation
++    display-name: Using alts to manipulate reputation
++  - id: reputation.blacklist-evasion
++    family: reputation
++    display-name: Evading a reputation blacklist
++
+ reasons:
+   - id: hate.general-toxicity
+     family: hate
+@@ -673,85 +696,6 @@
+     ladder:
+       - { label: "Permanent ban", sanctions: [{ type: NETWORK_BAN, duration: permanent }] }
+
+-  - id: market.compliance-failure
+-    family: market
+-    display-name: Failed market compliance review
+-    severity: 50
+-    decay-eligible: false
+-    alt-inheritance: FAMILY_BLACKLIST
+-    ladder:
+-      - { label: "Remove stall and 7 day stall blacklist", sanctions: [{ type: STALL_OWNERSHIP_REMOVAL, duration: instant }, { type: MARKET_BLACKLIST, duration: 7d }] }
+-      - { label: "Remove stall and 30 day stall blacklist", sanctions: [{ type: STALL_OWNERSHIP_REMOVAL, duration: instant }, { type: MARKET_BLACKLIST, duration: 30d }] }
+-      - { label: "Remove stall and 90 day stall blacklist", sanctions: [{ type: STALL_OWNERSHIP_REMOVAL, duration: instant }, { type: MARKET_BLACKLIST, duration: 90d }] }
+-      - { label: "Remove stall and permanent stall blacklist", sanctions: [{ type: STALL_OWNERSHIP_REMOVAL, duration: instant }, { type: MARKET_BLACKLIST, duration: permanent }] }
+-
+-  - id: market.extra-stall-alt
+-    family: market
+-    display-name: Using an alt to obtain an additional stall
+-    severity: 45
+-    decay-eligible: false
+-    alt-inheritance: FAMILY_BLACKLIST
+-    ladder:
+-      - { label: "Remove extra stall and warn", sanctions: [{ type: STALL_OWNERSHIP_REMOVAL, duration: instant }, { type: WARNING, duration: instant }] }
+-      - { label: "7 day stall blacklist", sanctions: [{ type: MARKET_BLACKLIST, duration: 7d }] }
+-      - { label: "30 day stall blacklist", sanctions: [{ type: MARKET_BLACKLIST, duration: 30d }] }
+-      - { label: "90 day stall blacklist", sanctions: [{ type: MARKET_BLACKLIST, duration: 90d }] }
+-      - { label: "Permanent stall blacklist", sanctions: [{ type: MARKET_BLACKLIST, duration: permanent }] }
+-
+-  - id: market.blacklist-evasion
+-    family: market
+-    display-name: Bypassing a stall blacklist through another account or player
+-    severity: 75
+-    decay-eligible: false
+-    alt-inheritance: FAMILY_BLACKLIST
+-    ladder:
+-      - { label: "30 day stall blacklist", sanctions: [{ type: MARKET_BLACKLIST, duration: 30d }] }
+-      - { label: "90 day stall blacklist", sanctions: [{ type: MARKET_BLACKLIST, duration: 90d }] }
+-      - { label: "Permanent stall blacklist", sanctions: [{ type: MARKET_BLACKLIST, duration: permanent }] }
+-
+-  - id: reputation.false
+-    family: reputation
+-    display-name: False or unjustified reputation
+-    severity: 30
+-    alt-inheritance: FAMILY_BLACKLIST
+-    ladder:
+-      - { label: "Warning", sanctions: [{ type: WARNING, duration: instant }] }
+-      - { label: "Second warning", sanctions: [{ type: WARNING, duration: instant }] }
+-      - { label: "7 day reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: 7d }] }
+-      - { label: "30 day reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: 30d }] }
+-      - { label: "90 day reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: 90d }] }
+-      - { label: "Permanent reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: permanent }] }
+-
+-  - id: reputation.coordinated
+-    family: reputation
+-    display-name: Organized reputation manipulation, mass reputation, or review bombing
+-    severity: 70
+-    alt-inheritance: FAMILY_BLACKLIST
+-    ladder:
+-      - { label: "30 day reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: 30d }] }
+-      - { label: "90 day reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: 90d }] }
+-      - { label: "Permanent reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: permanent }] }
+-
+-  - id: reputation.alt-manipulation
+-    family: reputation
+-    display-name: Using alts to manipulate reputation
+-    severity: 75
+-    alt-inheritance: FAMILY_BLACKLIST
+-    ladder:
+-      - { label: "30 day reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: 30d }] }
+-      - { label: "90 day reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: 90d }] }
+-      - { label: "Permanent reputation blacklist", sanctions: [{ type: REPUTATION_BLACKLIST, duration: permanent }] }
+-
+-  - id: reputation.blacklist-evasion
+-    family: reputation
+-    display-name: Evading a reputation blacklist
+-    severity: 80
+-    alt-inheritance: FAMILY_BLACKLIST
+-    ladder:
+-      - { label: "7 day ban", sanctions: [{ type: NETWORK_BAN, duration: 7d }] }
+-      - { label: "30 day ban", sanctions: [{ type: NETWORK_BAN, duration: 30d }] }
+-      - { label: "90 day ban", sanctions: [{ type: NETWORK_BAN, duration: 90d }] }
+-
+   - id: cheating.polar.template
+     family: cheating.polar.template
+     display-name: Polar automatic detection

@@ -2,6 +2,7 @@ package net.enthusia.staff.paper.command;
 
 import java.util.function.Supplier;
 import net.enthusia.staff.paper.integration.RoseChatIntegration;
+import net.enthusia.staff.paper.presentation.FrontierStaffPresentation;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -16,9 +17,15 @@ public final class StaffChatCommand implements CommandExecutor {
     private static final String ROSECHAT_STAFF_PERMISSION = "rosechat.channel.staff";
 
     private final Supplier<RoseChatIntegration> integration;
+    private final boolean frontier;
 
     public StaffChatCommand(Supplier<RoseChatIntegration> integration) {
+        this(integration, null);
+    }
+
+    public StaffChatCommand(Supplier<RoseChatIntegration> integration, String serverId) {
         this.integration = java.util.Objects.requireNonNull(integration, "integration");
+        this.frontier = FrontierStaffPresentation.appliesTo(serverId);
     }
 
     @Override
@@ -36,7 +43,7 @@ public final class StaffChatCommand implements CommandExecutor {
             return true;
         }
         if (arguments.length != 0) {
-            player.sendMessage(StaffMessageStyle.usage("Usage: /" + label));
+            player.sendMessage(notice(StaffMessageStyle.usage("Usage: /" + label)));
             return true;
         }
         if (!CommandPermissionGate.require(
@@ -48,13 +55,13 @@ public final class StaffChatCommand implements CommandExecutor {
         }
         RoseChatIntegration loaded = integration.get();
         if (loaded == null || !loaded.bridgeActive()) {
-            player.sendMessage(StaffMessageStyle.warning(
+            player.sendMessage(notice(StaffMessageStyle.warning(
                     "RoseChat staff-channel integration is unavailable."
-            ));
+            )));
             return true;
         }
         if (!loaded.toggleStaffChannel(player.getUniqueId())) {
-            player.sendMessage(StaffMessageStyle.warning("RoseChat has no configured staff channel."));
+            player.sendMessage(notice(StaffMessageStyle.warning("RoseChat has no configured staff channel.")));
             return true;
         }
         String channel = loaded.currentChannel(player.getUniqueId()).orElse("unknown");
@@ -62,7 +69,14 @@ public final class StaffChatCommand implements CommandExecutor {
         return true;
     }
 
-    private static Component channelChanged(String channel) {
+    private Component channelChanged(String channel) {
+        if (frontier) {
+            return notice(Component.text("Now speaking in ")
+                    .append(Component.text(channel, FrontierStaffPresentation.GOLD, TextDecoration.BOLD))
+                    .append(Component.text(" • ", FrontierStaffPresentation.MUTED))
+                    .append(Component.text("/staffchat", FrontierStaffPresentation.GOLD))
+                    .append(Component.text(" to switch again")));
+        }
         return Component.text("STAFF CHAT", NamedTextColor.AQUA, TextDecoration.BOLD)
                 .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
                 .append(Component.text("Now speaking in ", NamedTextColor.GRAY))
@@ -70,5 +84,9 @@ public final class StaffChatCommand implements CommandExecutor {
                 .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
                 .append(Component.text("/staffchat", NamedTextColor.AQUA))
                 .append(Component.text(" to switch again", NamedTextColor.GRAY));
+    }
+
+    private Component notice(Component message) {
+        return frontier ? FrontierStaffPresentation.notice("Staff Chat", message) : message;
     }
 }
