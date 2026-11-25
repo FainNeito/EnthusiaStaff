@@ -7,6 +7,7 @@ import net.enthusia.staff.domain.OperationalMode;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import org.junit.jupiter.api.Test;
 
 class StaffMessageStyleTest {
@@ -14,7 +15,7 @@ class StaffMessageStyleTest {
     void shadowMigrationUsesWarningPaletteInsteadOfErrorPalette() {
         Component header = StaffMessageStyle.modeHeader("EnthusiaStaff", OperationalMode.SHADOW_MIGRATION);
 
-        assertEquals(NamedTextColor.AQUA, header.color());
+        assertEquals(TextColor.color(0xFFCF1F), header.color());
         assertEquals(NamedTextColor.GOLD, header.children().get(1).color());
         assertEquals(
                 StaffMessageStyle.Tone.WARNING,
@@ -55,8 +56,8 @@ class StaffMessageStyleTest {
     void usageHighlightsCommandWithoutWhiteningTheWholeLine() {
         Component usage = StaffMessageStyle.usage("Usage: /estaff verify full");
 
-        assertEquals(NamedTextColor.GRAY, usage.color());
-        assertEquals(NamedTextColor.AQUA, usage.children().getFirst().color());
+        assertEquals(TextColor.color(0xFFF6E0), usage.color());
+        assertEquals(TextColor.color(0xFFCF1F), usage.children().getFirst().color());
     }
 
     @Test

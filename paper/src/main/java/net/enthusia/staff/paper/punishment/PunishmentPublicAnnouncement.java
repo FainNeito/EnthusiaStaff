@@ -7,12 +7,16 @@ import net.enthusia.staff.domain.casefile.CaseVisibility;
 import net.enthusia.staff.domain.sanction.SanctionSpec;
 import net.enthusia.staff.domain.sanction.SanctionType;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.plugin.Plugin;
 
 /** Announces only newly committed public punishments, never requests or private case details. */
 final class PunishmentPublicAnnouncement {
+    private static final TextColor GOLD = TextColor.color(0xFFCF1F);
+    private static final TextColor CRIMSON = TextColor.color(0xB91C1C);
+    private static final TextColor CREAM = TextColor.color(0xFFF6E0);
+
     private PunishmentPublicAnnouncement() {
     }
 
@@ -40,19 +44,19 @@ final class PunishmentPublicAnnouncement {
         if (action.isBlank()) {
             action = "punishment";
         }
-        return Component.text("━━━━━━━━━━━━━━━━━━━━━━━━━━", NamedTextColor.GOLD)
+        return Component.text("━━━━━━━━━━━━━━━━━━━━━━━━━━", GOLD)
                 .append(Component.newline())
-                .append(Component.text("PUBLIC PUNISHMENT", NamedTextColor.RED, TextDecoration.BOLD))
+                .append(Component.text("PUBLIC PUNISHMENT", CRIMSON, TextDecoration.BOLD))
                 .append(Component.newline())
-                .append(Component.text(name, NamedTextColor.WHITE, TextDecoration.BOLD))
-                .append(Component.text(" received ", NamedTextColor.GRAY))
-                .append(Component.text(action, NamedTextColor.RED, TextDecoration.BOLD))
-                .append(Component.text(".", NamedTextColor.GRAY))
+                .append(Component.text(name, CREAM, TextDecoration.BOLD))
+                .append(Component.text(" received ", CREAM))
+                .append(Component.text(action, CRIMSON, TextDecoration.BOLD))
+                .append(Component.text(".", CREAM))
                 .append(Component.newline())
-                .append(Component.text("Reason: ", NamedTextColor.GRAY))
-                .append(Component.text(reason, NamedTextColor.WHITE))
+                .append(Component.text("Reason: ", CREAM))
+                .append(Component.text(reason, CREAM))
                 .append(Component.newline())
-                .append(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━━━", NamedTextColor.GOLD));
+                .append(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━━━", GOLD));
     }
 
     private static String label(SanctionType type) {

@@ -12,8 +12,12 @@ import net.enthusia.staff.domain.auth.Actor;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 
 public final class PunishmentRequestAlertRenderer {
+    private static final TextColor THEME_GOLD = TextColor.color(0xFFCF1F);
+    private static final TextColor THEME_CREAM = TextColor.color(0xFFF6E0);
+    private static final TextColor THEME_COPPER = TextColor.color(0xF2B66D);
     public PunishmentRequestAlertPresentation render(
             PunishmentRequestAlertClaim claim,
             PunishmentApprovalRequest request,
@@ -84,7 +88,7 @@ public final class PunishmentRequestAlertRenderer {
         }
         if (request.status() == PunishmentRequestStatus.PENDING) {
             message = message.append(Component.newline()).append(
-                    Component.text("[Review request]", NamedTextColor.AQUA)
+                    Component.text("[Review request]", THEME_GOLD)
                             .clickEvent(ClickEvent.runCommand("/punish review " + request.requestId()))
             );
         }
@@ -99,7 +103,7 @@ public final class PunishmentRequestAlertRenderer {
     ) {
         Component heading = Component.text(
                 "Punishment request lifecycle: " + intent.eventType(),
-                NamedTextColor.LIGHT_PURPLE
+                THEME_COPPER
         );
         Component details = baseDetails(request, target)
                 .append(line("Requester: " + request.proposal().requester().displayName()))
@@ -122,7 +126,7 @@ public final class PunishmentRequestAlertRenderer {
     }
 
     private static Component line(String value) {
-        return Component.newline().append(Component.text(value, NamedTextColor.GRAY));
+        return Component.newline().append(Component.text(value, THEME_CREAM));
     }
 
     private static String reviewerHeading(PunishmentRequestLifecycleEventType eventType) {

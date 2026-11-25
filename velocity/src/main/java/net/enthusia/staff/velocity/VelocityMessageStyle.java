@@ -5,9 +5,13 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.format.TextColor;
 
 /** Shared Adventure styling for player-facing Velocity administration output. */
 final class VelocityMessageStyle {
+    private static final TextColor THEME_GOLD = TextColor.color(0xFFCF1F);
+    private static final TextColor THEME_CREAM = TextColor.color(0xFFF6E0);
+    private static final TextColor THEME_COPPER = TextColor.color(0xF2B66D);
     private static final String SEPARATOR = " — ";
 
     private VelocityMessageStyle() {
@@ -17,41 +21,41 @@ final class VelocityMessageStyle {
         SUCCESS(NamedTextColor.GREEN),
         WARNING(NamedTextColor.GOLD),
         ERROR(NamedTextColor.RED),
-        INFO(NamedTextColor.AQUA),
-        MUTED(NamedTextColor.GRAY);
+        INFO(THEME_GOLD),
+        MUTED(THEME_CREAM);
 
-        private final NamedTextColor color;
+        private final TextColor color;
 
-        Tone(NamedTextColor color) {
+        Tone(TextColor color) {
             this.color = color;
         }
     }
 
     static Component header(String title) {
-        return Component.text(title, NamedTextColor.AQUA, TextDecoration.BOLD);
+        return Component.text(title, THEME_GOLD, TextDecoration.BOLD);
     }
 
     static Component modeHeader(String title, OperationalMode mode) {
         return header(title)
-                .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
+                .append(Component.text(" • ", THEME_COPPER))
                 .append(Component.text(displayMode(mode), modeColor(mode), TextDecoration.BOLD));
     }
 
     static Component section(String title) {
         return Component.text("▸ ", NamedTextColor.GOLD)
-                .append(Component.text(title, NamedTextColor.YELLOW, TextDecoration.BOLD));
+                .append(Component.text(title, THEME_GOLD, TextDecoration.BOLD));
     }
 
     static Component statusRow(String label, String status, String detail, Tone tone) {
-        Component row = Component.text("  ", NamedTextColor.DARK_GRAY)
-                .append(Component.text(label, NamedTextColor.GRAY))
-                .append(Component.text("  ", NamedTextColor.DARK_GRAY))
+        Component row = Component.text("  ", THEME_COPPER)
+                .append(Component.text(label, THEME_CREAM))
+                .append(Component.text("  ", THEME_COPPER))
                 .append(Component.text(status, tone.color));
         if (detail == null || detail.isBlank()) {
             return row;
         }
-        return row.append(Component.text(SEPARATOR, NamedTextColor.DARK_GRAY))
-                .append(Component.text(detail, NamedTextColor.GRAY));
+        return row.append(Component.text(SEPARATOR, THEME_COPPER))
+                .append(Component.text(detail, THEME_CREAM));
     }
 
     static Component success(String text) {
@@ -67,19 +71,19 @@ final class VelocityMessageStyle {
     }
 
     static Component command(String value) {
-        return Component.text(value, NamedTextColor.AQUA);
+        return Component.text(value, THEME_GOLD);
     }
 
     static Component id(Object value) {
-        return Component.text(String.valueOf(value), NamedTextColor.AQUA);
+        return Component.text(String.valueOf(value), THEME_GOLD);
     }
 
     static Component usage(String usage) {
         int commandStart = usage.indexOf('/');
         if (commandStart < 0) {
-            return Component.text(usage, NamedTextColor.GRAY);
+            return Component.text(usage, THEME_CREAM);
         }
-        return Component.text(usage.substring(0, commandStart), NamedTextColor.GRAY)
+        return Component.text(usage.substring(0, commandStart), THEME_CREAM)
                 .append(command(usage.substring(commandStart)));
     }
 
@@ -132,10 +136,10 @@ final class VelocityMessageStyle {
     private static Component neutralLine(String text) {
         int separator = text.indexOf(':');
         if (separator <= 0 || separator == text.length() - 1) {
-            return Component.text(text, NamedTextColor.GRAY);
+            return Component.text(text, THEME_CREAM);
         }
-        return Component.text(text.substring(0, separator), NamedTextColor.GRAY)
-                .append(Component.text(":", NamedTextColor.DARK_GRAY))
+        return Component.text(text.substring(0, separator), THEME_CREAM)
+                .append(Component.text(":", THEME_COPPER))
                 .append(Component.text(text.substring(separator + 1), NamedTextColor.WHITE));
     }
 }
