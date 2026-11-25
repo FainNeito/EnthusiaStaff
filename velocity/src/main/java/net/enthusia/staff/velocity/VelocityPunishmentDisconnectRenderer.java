@@ -9,13 +9,14 @@ import java.util.Objects;
 import java.util.Optional;
 import net.enthusia.staff.domain.sanction.ActiveSanction;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 
 /** Compact, player-facing Velocity login denial for active bans. */
 final class VelocityPunishmentDisconnectRenderer {
-    private static final TextColor ORANGE = TextColor.color(0xFF8C00);
+    private static final TextColor GOLD = TextColor.color(0xFFCF1F);
+    private static final TextColor CREAM = TextColor.color(0xFFF6E0);
+    private static final TextColor CRIMSON = TextColor.color(0xB91C1C);
     private static final ZoneId EASTERN = ZoneId.of("America/New_York");
     private static final DateTimeFormatter END_TIME = DateTimeFormatter
             .ofPattern("MMM d, uuuu 'at' h:mm:ss a z", Locale.US)
@@ -26,43 +27,51 @@ final class VelocityPunishmentDisconnectRenderer {
 
     static Component render(
             ActiveSanction sanction,
+            String playerName,
             Instant now,
             String appealsUrl,
             Optional<String> appealCode
     ) {
         Objects.requireNonNull(sanction, "sanction");
+        Objects.requireNonNull(playerName, "playerName");
         Objects.requireNonNull(now, "now");
         Objects.requireNonNull(appealsUrl, "appealsUrl");
         Objects.requireNonNull(appealCode, "appealCode");
 
         Component message = Component.empty()
-                .append(Component.text("ENTHUSIA | CONNECTION BLOCKED",
-                        NamedTextColor.RED, TextDecoration.BOLD))
+                .append(Component.text("⚡  Enthusia SMP  ⚡",
+                        CRIMSON, TextDecoration.BOLD))
                 .append(Component.text("\n"))
-                .append(Component.text("You cannot join while this ban is active.", NamedTextColor.GRAY))
+                .append(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━━━━━", GOLD))
                 .append(Component.text("\n\n"))
-                .append(labelValue("Reason: ", sanction.publicReason(), NamedTextColor.WHITE))
+                .append(Component.text("❕ ʏᴏᴜ'ʀᴇ ʙᴀɴɴᴇᴅ ꜰʀᴏᴍ ᴛʜᴇ sᴇʀᴠᴇʀ ❕", CREAM))
+                .append(Component.text("\n\n"))
+                .append(labelValue("👤 ᴜsᴇʀɴᴀᴍᴇ → ", playerName, GOLD))
+                .append(Component.text("\n"))
+                .append(labelValue("⌚ ᴘᴜɴɪsʜᴇᴅ ᴏɴ → ", END_TIME.format(sanction.issuedAt()), GOLD))
+                .append(Component.text("\n"))
+                .append(labelValue("✎ ʀᴇᴀsᴏɴ → ", sanction.publicReason(), CREAM))
                 .append(Component.text("\n"));
 
         if (sanction.expiresAt().isPresent()) {
             Instant end = sanction.expiresAt().orElseThrow();
             message = message
-                    .append(labelValue("Time left: ", remaining(now, end), NamedTextColor.YELLOW))
+                    .append(labelValue("⌛ ᴇxᴘɪʀᴇs ɪɴ → ", remaining(now, end), GOLD))
                     .append(Component.text("\n"))
-                    .append(Component.text("(Ends " + END_TIME.format(end) + ")", NamedTextColor.GRAY));
+                    .append(labelValue("📆 ᴇxᴘɪʀʏ ᴅᴀᴛᴇ → ", END_TIME.format(end), GOLD));
         } else {
             message = message.append(labelValue(
-                    "Duration: ", "Permanent ban", NamedTextColor.RED));
+                    "❕ ", "ᴛʜɪs ᴘᴜɴɪsʜᴍᴇɴᴛ ɪs ᴘᴇʀᴍᴀɴᴇɴᴛ ❕", CRIMSON));
         }
 
         message = message
                 .append(Component.text("\n\n"))
-                .append(labelValue("Appeal: ", appealsUrl, NamedTextColor.YELLOW));
+                .append(labelValue("✉ ᴀᴘᴘᴇᴀʟ → ", appealsUrl, GOLD));
 
         if (appealCode.isPresent() && !appealCode.orElseThrow().isBlank()) {
             message = message
                     .append(Component.text("\n"))
-                    .append(labelValue("Appeal code: ", appealCode.orElseThrow(), NamedTextColor.WHITE));
+                    .append(labelValue("Appeal code: ", appealCode.orElseThrow(), CREAM));
         }
         return message;
     }
@@ -90,7 +99,7 @@ final class VelocityPunishmentDisconnectRenderer {
     }
 
     private static Component labelValue(String label, String value, TextColor valueColor) {
-        return Component.text(label, ORANGE)
+        return Component.text(label, GOLD)
                 .append(Component.text(value, valueColor));
     }
 }

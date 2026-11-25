@@ -1241,7 +1241,7 @@ public final class EnthusiaStaffVelocityPlugin {
                 ActiveSanction sanction = sanctions.getFirst();
                 event.setResult(ResultedEvent.ComponentResult.denied(
                         VelocityPunishmentDisconnectRenderer.render(
-                                sanction, now, appealsUrl(), appealCode(sanction)
+                                sanction, event.getPlayer().getUsername(), now, appealsUrl(), appealCode(sanction)
                         )
                 ));
             }

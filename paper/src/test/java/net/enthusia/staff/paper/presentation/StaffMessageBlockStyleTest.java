@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.List;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import org.junit.jupiter.api.Test;
 
 class StaffMessageBlockStyleTest {
@@ -19,7 +20,7 @@ class StaffMessageBlockStyleTest {
                 Component.text("Timeline:")
         ));
 
-        assertEquals(NamedTextColor.AQUA, styled.getFirst().color());
+        assertEquals(TextColor.color(0xFFCF1F), styled.getFirst().color());
         assertEquals(Component.text("private note", NamedTextColor.GRAY), styled.get(3).children().getFirst());
         assertEquals(NamedTextColor.GOLD, styled.get(4).color());
         assertEquals(NamedTextColor.GOLD, styled.getLast().color());

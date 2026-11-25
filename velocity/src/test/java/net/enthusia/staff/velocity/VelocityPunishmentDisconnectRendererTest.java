@@ -12,7 +12,7 @@ import net.enthusia.staff.domain.sanction.ActiveSanction;
 import net.enthusia.staff.domain.sanction.SanctionType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
-import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import org.junit.jupiter.api.Test;
 
 class VelocityPunishmentDisconnectRendererTest {
@@ -22,18 +22,19 @@ class VelocityPunishmentDisconnectRendererTest {
     @Test
     void temporaryBanShowsTimeLeftExactEasternExpiryAndAppealCodeWithoutCaseId() {
         Component result = VelocityPunishmentDisconnectRenderer.render(
-                sanction(Optional.of(NOVEMBER_EXPIRY)), NOW,
+                sanction(Optional.of(NOVEMBER_EXPIRY)), "ExamplePlayer", NOW,
                 "https://enthusia.net/appeals", Optional.of("Y2DD-SVKR-3YBS-SU2D-SM5E-NDWN")
         );
         String displayed = text(result);
-        assertEquals(NamedTextColor.RED, result.children().getFirst().color());
+        assertEquals(TextColor.color(0xB91C1C), result.children().getFirst().color());
         assertEquals(null, result.color());
-        assertEquals(NamedTextColor.GRAY, result.children().get(2).color());
-        assertTrue(displayed.contains("CONNECTION BLOCKED"));
-        assertTrue(displayed.contains("Reason: Encouraging self-harm"));
-        assertTrue(displayed.contains("Time left: 15h 30m"));
-        assertTrue(displayed.contains("(Ends Nov 2, 2026 at 9:30:38 AM EST)"));
-        assertTrue(displayed.contains("Appeal: https://enthusia.net/appeals"));
+        assertEquals(TextColor.color(0xFFCF1F), result.children().get(2).color());
+        assertTrue(displayed.contains("Enthusia SMP"));
+        assertTrue(displayed.contains("ᴜsᴇʀɴᴀᴍᴇ → ExamplePlayer"));
+        assertTrue(displayed.contains("ʀᴇᴀsᴏɴ → Encouraging self-harm"));
+        assertTrue(displayed.contains("ᴇxᴘɪʀᴇs ɪɴ → 15h 30m"));
+        assertTrue(displayed.contains("Nov 2, 2026 at 9:30:38 AM EST"));
+        assertTrue(displayed.contains("ᴀᴘᴘᴇᴀʟ → https://enthusia.net/appeals"));
         assertTrue(displayed.contains("Appeal code: Y2DD-SVKR-3YBS-SU2D-SM5E-NDWN"));
         assertFalse(displayed.contains("Case:"));
         assertFalse(displayed.contains("Punishment code:"));
@@ -42,10 +43,10 @@ class VelocityPunishmentDisconnectRendererTest {
     @Test
     void permanentBanDoesNotDisplayCountdownOrEndDate() {
         String displayed = text(VelocityPunishmentDisconnectRenderer.render(
-                sanction(Optional.empty()), NOW, "https://enthusia.net/appeals", Optional.empty()
+                sanction(Optional.empty()), "ExamplePlayer", NOW, "https://enthusia.net/appeals", Optional.empty()
         ));
-        assertTrue(displayed.contains("Duration: Permanent ban"));
-        assertFalse(displayed.contains("Time left:"));
+        assertTrue(displayed.contains("ᴘᴇʀᴍᴀɴᴇɴᴛ"));
+        assertFalse(displayed.contains("ᴇxᴘɪʀᴇs ɪɴ"));
         assertFalse(displayed.contains("Ends "));
         assertFalse(displayed.contains("Appeal code:"));
     }
@@ -53,12 +54,12 @@ class VelocityPunishmentDisconnectRendererTest {
     @Test
     void summerExpirationUsesDaylightTimeNotFixedEst() {
         String displayed = text(VelocityPunishmentDisconnectRenderer.render(
-                sanction(Optional.of(Instant.parse("2026-07-02T13:00:00Z"))),
+                sanction(Optional.of(Instant.parse("2026-07-02T13:00:00Z"))), "ExamplePlayer",
                 Instant.parse("2026-07-02T12:00:00Z"),
                 "https://enthusia.net/appeals", Optional.empty()
         ));
         assertTrue(displayed.contains("9:00:00 AM EDT"));
-        assertTrue(displayed.contains("Time left: 1h 0m"));
+        assertTrue(displayed.contains("ᴇxᴘɪʀᴇs ɪɴ → 1h 0m"));
     }
 
     @Test

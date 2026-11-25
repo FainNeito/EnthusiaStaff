@@ -1,6 +1,7 @@
 package net.enthusia.staff.paper.punishment;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -8,9 +9,18 @@ import net.enthusia.staff.domain.sanction.SanctionLength;
 import net.enthusia.staff.domain.sanction.SanctionSpec;
 import net.enthusia.staff.domain.sanction.SanctionType;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import net.kyori.adventure.text.format.TextColor;
 import org.junit.jupiter.api.Test;
 
 class PunishmentPublicAnnouncementTest {
+    @Test
+    void announcementUsesTheServerPalette() {
+        var message = PunishmentPublicAnnouncement.message("TestPlayer",
+                List.of(new SanctionSpec(SanctionType.WARNING, SanctionLength.instant())), "Example");
+        assertEquals(TextColor.color(0xFFCF1F), message.color());
+        assertTrue(message.children().stream().anyMatch(part -> TextColor.color(0xB91C1C).equals(part.color())));
+    }
+
     @Test
     void permanentIdentityBanIsAnnouncedSimplyAsABan() {
         String visible = plain(List.of(new SanctionSpec(
