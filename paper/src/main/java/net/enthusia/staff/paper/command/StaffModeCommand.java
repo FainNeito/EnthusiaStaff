@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
 import net.enthusia.staff.domain.OperationalMode;
+import net.enthusia.staff.paper.presentation.FrontierStaffPresentation;
 import net.enthusia.staff.paper.presentation.StaffMessageStyle;
 import net.enthusia.staff.paper.staff.StaffModeManager;
 import net.enthusia.staff.paper.visibility.VanishManager;
@@ -35,6 +36,7 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
     private final StaffModeManager manager;
     private final StaffModeVanishEntryCoordinator entry;
     private final VanishManager vanish;
+    private final boolean frontier;
 
     public StaffModeCommand(
             Supplier<OperationalMode> mode,
@@ -42,6 +44,14 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
             StaffModeVanishEntryCoordinator entry,
             VanishManager vanish
     ) {
+        this(mode, manager, entry, vanish, null);
+    }
+
+    public StaffModeCommand(
+            Supplier<OperationalMode> mode, StaffModeManager manager,
+            StaffModeVanishEntryCoordinator entry, VanishManager vanish, String serverId
+    ) {
+        this.frontier = FrontierStaffPresentation.appliesTo(serverId);
         this.mode = java.util.Objects.requireNonNull(mode, "mode");
         this.manager = java.util.Objects.requireNonNull(manager, "manager");
         this.entry = java.util.Objects.requireNonNull(entry, "entry");
@@ -105,7 +115,7 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
 
     private boolean handlePlayer(Player player, String[] arguments) {
         if (recoveryRequested(arguments)) {
-            player.sendMessage(StaffMessageStyle.style(
+            sendNotice(player, StaffMessageStyle.style(
                     "Checking your durable staff-mode snapshot and repairing local state..."
             ));
             manager.recover(player);
@@ -113,7 +123,7 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
         }
         StaffModeVanishEntryOption option = StaffModeVanishEntryOption.parse(arguments).orElse(null);
         if (option == null) {
-            player.sendMessage(StaffMessageStyle.usage(
+            sendNotice(player, StaffMessageStyle.usage(
                     "Usage: /staff [recover|-v|vanish|-nv|visible|inventory|tab <show|hide>]"
             ));
             return true;
@@ -122,14 +132,14 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
         boolean activeSession = manager.active(player.getUniqueId());
         OperationalMode currentMode = mode.get();
         if (!StaffOperationalModeGate.staffModeTransitionAllowed(currentMode, activeSession)) {
-            player.sendMessage(StaffMessageStyle.style(
+            sendNotice(player, StaffMessageStyle.style(
                     "Staff-mode entry is disabled while moderation is " + currentMode + '.'
             ));
             return true;
         }
         if (activeSession) {
             if (option != StaffModeVanishEntryOption.REMEMBERED) {
-                player.sendMessage(StaffMessageStyle.style(
+                sendNotice(player, StaffMessageStyle.style(
                         "Staff mode is already active. Use the vanish control to change visibility before exiting."
                 ));
                 return true;
@@ -172,8 +182,12 @@ public final class StaffModeCommand implements CommandExecutor, TabCompleter {
             vanish.configureSpectatorTab(player, false);
             return true;
         }
-        player.sendMessage(StaffMessageStyle.usage("Usage: /staff tab <show|hide>"));
+        sendNotice(player, StaffMessageStyle.usage("Usage: /staff tab <show|hide>"));
         return true;
+    }
+
+    private void sendNotice(Player player, Component message) {
+        player.sendMessage(frontier ? FrontierStaffPresentation.notice("Staff Mode", message) : message);
     }
 
     private static boolean spectatorTabRequested(String[] arguments) {

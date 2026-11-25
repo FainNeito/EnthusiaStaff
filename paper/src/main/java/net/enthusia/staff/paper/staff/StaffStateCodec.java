@@ -35,6 +35,10 @@ public final class StaffStateCodec {
         if (player == null || serverId == null || !serverId.matches("[A-Za-z0-9_-]{1,64}")) {
             throw new IllegalArgumentException("valid player and server ID are required");
         }
+        // A zero-health snapshot cannot be restored safely; wait for respawn before entering or rebinding.
+        if (player.isDead() || !Double.isFinite(player.getHealth()) || player.getHealth() <= 0) {
+            throw new IllegalStateException("cannot capture staff state while the player is dead or has invalid health");
+        }
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (DataOutputStream output = new DataOutputStream(bytes)) {

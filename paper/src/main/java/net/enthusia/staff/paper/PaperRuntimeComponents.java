@@ -124,7 +124,7 @@ record PaperRuntimeComponents(
                 vanish
         );
         StaffStatePresentation statePresentation = new StaffStatePresentation(
-                dependencies.environment().plugin(), staffMode, vanish
+                dependencies.environment().plugin(), staffMode, vanish, dependencies.environment().serverId()
         );
         registerListener(dependencies.environment().plugin(), statePresentation);
         statePresentation.start();

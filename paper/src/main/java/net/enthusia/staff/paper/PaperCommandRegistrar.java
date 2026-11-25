@@ -309,7 +309,8 @@ final class PaperCommandRegistrar {
                 writeMode(),
                 dependencies.players().staffMode(),
                 staffEntry,
-                dependencies.players().vanish()
+                dependencies.players().vanish(),
+                dependencies.environment().serverId()
         );
         bindCompleting("staff", staffMode, staffMode);
         bind("staffsession", new StaffSessionInspectionCommand(
@@ -320,7 +321,8 @@ final class PaperCommandRegistrar {
         VanishCommand vanish = new VanishCommand(writeMode(), dependencies.players().vanish());
         vanish.configureMessages(MessageConfigurationRuntime::catalog);
         bind("vanish", vanish);
-        bind("staffchat", new StaffChatCommand(dependencies.integrations().roseChat()));
+        bind("staffchat", new StaffChatCommand(
+                dependencies.integrations().roseChat(), dependencies.environment().serverId()));
         bind("staffwho", new StaffWhoCommand(
                 plugin(),
                 storage(PaperStorageBindings::punishmentRequestService),

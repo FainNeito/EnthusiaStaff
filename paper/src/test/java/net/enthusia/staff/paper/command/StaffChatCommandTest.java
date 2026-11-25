@@ -152,6 +152,21 @@ class StaffChatCommandTest {
         ), messages);
     }
 
+    @Test
+    void frontierToggleUsesTheFrontierChatPalette() {
+        List<Object> messages = new ArrayList<>();
+        AtomicReference<UUID> toggledPlayer = new AtomicReference<>();
+        RoseChatIntegration integration = integration(true, true, Optional.of(STAFF_CHANNEL), toggledPlayer);
+        StaffChatCommand command = new StaffChatCommand(() -> integration, "FRONTIER");
+
+        assertTrue(command.onCommand(player(true, messages), null, STAFF_CHAT_LABEL, new String[0]));
+        assertEquals(PLAYER_ID, toggledPlayer.get());
+        Component message = (Component) messages.getFirst();
+        assertEquals(net.kyori.adventure.text.format.TextColor.color(0xE06B52), message.color());
+        assertEquals(Component.text(" » ", net.kyori.adventure.text.format.TextColor.color(0xB5ACA0)),
+                message.children().getFirst());
+    }
+
     private static RoseChatIntegration integration(
             boolean active,
             boolean toggleResult,

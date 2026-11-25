@@ -3,6 +3,7 @@ package net.enthusia.staff.paper.staff;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import net.enthusia.staff.paper.presentation.FrontierStaffPresentation;
 import net.enthusia.staff.paper.visibility.VanishManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -22,12 +23,16 @@ public final class StaffStatePresentation implements Listener {
     private final JavaPlugin plugin;
     private final StaffModeManager staffMode;
     private final VanishManager vanish;
+    private final boolean frontier;
     private final Set<UUID> indicatorVisible = ConcurrentHashMap.newKeySet();
 
-    public StaffStatePresentation(JavaPlugin plugin, StaffModeManager staffMode, VanishManager vanish) {
+    public StaffStatePresentation(
+            JavaPlugin plugin, StaffModeManager staffMode, VanishManager vanish, String serverId
+    ) {
         this.plugin = java.util.Objects.requireNonNull(plugin, "plugin");
         this.staffMode = java.util.Objects.requireNonNull(staffMode, "staffMode");
         this.vanish = java.util.Objects.requireNonNull(vanish, "vanish");
+        this.frontier = FrontierStaffPresentation.appliesTo(serverId);
     }
 
     public void start() {
@@ -60,7 +65,16 @@ public final class StaffStatePresentation implements Listener {
             return;
         }
         indicatorVisible.add(playerId);
-        player.sendActionBar(indicator(staffActive, vanished));
+        player.sendActionBar(frontier ? frontierIndicator(staffActive, vanished) : indicator(staffActive, vanished));
+    }
+
+    static Component frontierIndicator(boolean staffActive, boolean vanished) {
+        Component status = Component.text(vanished ? "ON" : "OFF",
+                vanished ? FrontierStaffPresentation.GOLD : FrontierStaffPresentation.ACCENT,
+                TextDecoration.BOLD);
+        return staffActive
+                ? FrontierStaffPresentation.notice("Staff Mode", Component.text("Vanish ").append(status))
+                : FrontierStaffPresentation.notice("Vanish", status);
     }
 
     static Component indicator(boolean staffActive, boolean vanished) {

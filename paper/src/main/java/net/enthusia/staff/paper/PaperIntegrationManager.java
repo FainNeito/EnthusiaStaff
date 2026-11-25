@@ -466,6 +466,14 @@ final class PaperIntegrationManager implements Listener {
             issue(ROSECHAT, "RoseChat or Discord chat bridge configuration is invalid");
             issue(ROSECHAT_AUTHORITY, "Discord chat authority configuration is invalid");
             plugin().getLogger().log(Level.SEVERE, "RoseChat integration configuration failed", exception);
+        } catch (LinkageError exception) {
+            rollbackDiscordChatTransport();
+            activateMuteFallback();
+            issue(ROSECHAT, "RoseChat is missing a compatible optional moderation API; staff plugin remains available without the RoseChat bridge");
+            issue(ROSECHAT_AUTHORITY, "RoseChat moderation bridge is unavailable; legacy chat authority remains active");
+            plugin().getLogger().log(Level.WARNING,
+                    "RoseChat moderation API is incompatible; keeping EnthusiaStaff enabled with the RoseChat bridge disabled",
+                    exception);
         }
     }
 
